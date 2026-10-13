@@ -26,7 +26,7 @@ Behavioral reference: [Claude dynamic workflows](https://code.claude.com/docs/en
 | Quota behavior | Structured limit/reset evidence; user-enabled wait, reset within 24 hours, maximum two waits, no bought credits/fallback | Open |
 | Saved workflows | Project/personal/plugin scopes, closest-project precedence, namespacing, reload, arguments, symlink and collision rules | Open |
 | Bundled research | Multi-angle source discovery, fetch, independent cross-check/vote, cited report; explicit invocation | Open |
-| Monitor detail and controls | Phases/counts, prompts/results, tool input/output/status, tasks, filters, navigation and keyboard actions | Open; old monitor is not connected to the rebuild |
+| Monitor detail and controls | Phases/counts, prompts/results, tool input/output/status, tasks, filters, navigation and keyboard actions | Fresh authenticated monitor has light/dark/system, phase/worker graph, declared dependency edges, discovered-work progress, evidence inspection, filters and whole-run controls; live tool detail, individual controls and native host integration remain open |
 | Usage, scale and warnings | Per-agent/run usage, large-run advisory, size guidelines, configured effort/model accounting; shared budget semantics | Open; host/provider boundaries remain acceptance questions |
 | Native host integration | Composer/mode controls, task panel, notifications and original-session restoration | Open; no ordinary-plugin equivalence claim |
 | Distribution and migration | Version-pinned upgrades, skills and packaging, preservation of existing user data, reproducible install | Open; prototype uninstalled and unreleased |
@@ -41,4 +41,6 @@ The detached controller uses a generation/session-bound SQLite mailbox for pause
 
 Native background acceptance passed pause, saved-script resume and completed replay with attempts `[1,2,2]` and cached results `[0,1,2]`; each generation recorded normal owned-server exit. See `reports/background-local-acceptance.json`. The checkpoint passes 192 tests, package check and smoke, with independent review. An earlier observation failed although the persisted run paused successfully; its cause remains unknown.
 
-Next implementation gate: monitor integration and the remaining worker options, individual controls and parity ledger. Preserve the user's saved data; do not migrate or release it until the replacement passes its acceptance suite. No part of the old runtime is a required dependency.
+The fresh monitor uses bounded coherent SQLite snapshots, a bearer-authenticated loopback URL and generation-bound control/detail requests. Optional `id`/`dependsOn` declarations enforce real prerequisite scheduling and persist graph edges; grouping and undeclared dependencies remain distinct. Light/dark and mobile rendering were inspected with explicit simulated workers, not presented as native execution evidence. The graph's percentage uses discovered work, not an invented fixed total.
+
+Next implementation gate: remaining worker options, individual controls, live tool activity and the rest of the parity ledger. Preserve the user's saved data; do not migrate or release it until the replacement passes its acceptance suite. No part of the old runtime is a required dependency.

@@ -1,0 +1,64 @@
+import {createServer} from 'node:http';
+import {randomBytes,timingSafeEqual} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {monitorData} from './monitor-data.mjs';
+import {requestControl} from './controls.mjs';
+import {startBackground} from './background.mjs';
+import {fault,diagnostic} from '../foundation/client.mjs';
+
+const assets=new Map([['/',['index.html','text/html']],['/app.mjs',['app.mjs','text/javascript']],['/style.css',['style.css','text/css']]]);
+async function body(request){
+  if(request.headers['content-type']!=='application/json')throw fault('HTTP_INPUT','JSON content type is required');
+  let size=0;const chunks=[];
+  for await(const chunk of request){size+=chunk.length;if(size>8192)throw fault('HTTP_INPUT','Request body exceeded its limit');chunks.push(chunk);}
+  try{const value=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(!value||typeof value!=='object'||Array.isArray(value))throw new Error();return value;}catch{throw fault('HTTP_INPUT','Provide a JSON object');}
+}
+export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1000}){
+  await monitorData(runDir);
+  const token=randomBytes(32).toString('base64url');let origin,busy=false,lastActivity=Date.now();
+  const send=(response,status,value,type='application/json')=>{response.writeHead(status,{'Content-Type':`${type}; charset=utf-8`});response.end(type==='application/json'?JSON.stringify(value):value);};
+  const server=createServer(async(request,response)=>{
+    response.setHeader('Cache-Control','no-store');response.setHeader('X-Content-Type-Options','nosniff');response.setHeader('Referrer-Policy','no-referrer');
+    response.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
+    try{
+      if(request.headers.host!==new URL(origin).host||request.headers.origin&&request.headers.origin!==origin)return send(response,403,{error:{code:'HTTP_ORIGIN',message:'Local origin required'}});
+      const url=new URL(request.url,origin),asset=assets.get(url.pathname);
+      if(asset&&request.method==='GET')return send(response,200,await readFile(new URL(`./monitor/${asset[0]}`,import.meta.url),'utf8'),asset[1]);
+      const provided=Buffer.from(request.headers.authorization??''),expected=Buffer.from(`Bearer ${token}`);
+      if(provided.length!==expected.length||!timingSafeEqual(provided,expected))return send(response,401,{error:{code:'HTTP_AUTH',message:'Open the dashboard URL from agent-workflow dashboard to authenticate.'}});
+      lastActivity=Date.now();
+      if(request.method==='GET'){
+        if(url.pathname==='/api/run')return send(response,200,await monitorData(runDir));
+        const match=/^\/api\/worker\/(0|[1-9][0-9]{0,3})$/.exec(url.pathname);
+        const kind=match?'worker':url.pathname==='/api/script'?'script':url.pathname==='/api/result'?'result':null;
+        if(kind){
+          const generation=Number(url.searchParams.get('generation'));
+          if(!Number.isInteger(generation)||generation<1)throw fault('HTTP_INPUT','Observed generation is required');
+          return send(response,200,await monitorData(runDir,{kind,generation,position:match?Number(match[1]):undefined}),kind==='script'?'text/plain':'application/json');
+        }
+      }
+      if(request.method==='POST'&&['/api/control','/api/resume','/api/close'].includes(url.pathname)){
+        const input=await body(request);
+        if(url.pathname==='/api/close'){send(response,200,{status:'closed'});setImmediate(()=>close());return;}
+        if(!Number.isInteger(input.generation)||input.generation<1||Object.keys(input).some(key=>!['generation','action'].includes(key)))throw fault('HTTP_INPUT','Provide only the observed generation and control action');
+        const state=await monitorData(runDir,{generation:input.generation});
+        if(url.pathname==='/api/control')return send(response,202,await requestControl(runDir,{sessionId:state.sessionId,generation:input.generation,action:input.action}));
+        if(busy)throw fault('MONITOR_BUSY','Resume admission is already pending');
+        if(!state.resumable)throw fault('REPLAY_UNKNOWN','Run execution is not verified for resume');
+        busy=true;
+        try{return send(response,202,await start({runDir,sessionId:state.sessionId,resume:true,expectedGeneration:input.generation}));}finally{busy=false;}
+      }
+      return send(response,404,{error:{code:'HTTP_ROUTE',message:'Unknown monitor route'}});
+    }catch(error){
+      const conflict=['REPLAY_GENERATION','REPLAY_UNKNOWN','CONTROL_GENERATION','CONTROL_TERMINAL','RUN_LOCKED','MONITOR_BUSY'].includes(error.code);
+      send(response,conflict?409:error.code==='MONITOR_MISSING'?404:['HTTP_INPUT','CONTROL_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
+    }
+  });
+  server.requestTimeout=5000;server.headersTimeout=5000;server.keepAliveTimeout=1000;
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+  origin=`http://127.0.0.1:${server.address().port}`;
+  const timer=setInterval(()=>{if(!busy&&Date.now()-lastActivity>idleMs)void close();},Math.min(idleMs,30000));timer.unref();
+  let closing;
+  function close(){clearInterval(timer);return closing??=new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});}
+  return{url:`${origin}/#token=${token}`,close};
+}

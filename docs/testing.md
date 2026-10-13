@@ -1,5 +1,21 @@
 # Test audit and strategy
 
+## Graphical monitor reassessment
+
+Agent-tests 0.3.2 inventories 26 files with no wiring or tier gaps. This delta reviews the changed controller and two new monitor owners. The 23 other files retain their preceding verdicts; this is not a new certification of released code. Shared controller imports cover different seams: direct scheduling invariants versus authenticated HTTP behavior. Fixed-database findings remain unique temporary fixtures.
+
+| File | Tier | Verdict | Evidence | Estimated agent tokens | Churn/edits |
+|---|---|---|---|---:|---|
+| engine-controller.test.mjs | critical | keep | Adds stale-generation refusal under exclusive ownership, prerequisite ordering without occupying concurrency, failed/invalid prerequisite refusal and persisted edges. | 4,243 | 0/1 |
+| engine-monitor.test.mjs | critical | keep | Actual loopback HTTP auth/host/origin/CSP, bounded versus deliberate evidence, durable controls and real detached monitor after launcher exit. | 1,565 | 0/0 |
+| engine-monitor-ui.test.mjs | critical | keep | Executes actual HTML/app in LinkeDOM: themes/auth, text safety, graph and capped phase coverage, generation-specific evidence, truthful receipts and failed polling. | 3,301 | 0/0 |
+
+Full merge verification passes **205/205** in one 45.2-second Windows run, with package check and smoke. Independent review found and regression tests fixed expanded results surviving generation changes and old pending receipts reappearing after persistence. UI tests also caught stale expanded worker status and misleading phase totals beyond the 60-node graph limit. The earlier full run caught the worker-status regression while this test/fix was being completed; the final suite includes the corrected behavior.
+
+Actual browser checks cover light and dark themes, 390-pixel mobile layout without document overflow, removed auth fragment, node selection, three declared dependency arrows and changing discovered-worker percentage. These use explicitly simulated workers and do not establish native model/tool streaming. See `reports/monitor-browser-check.json`. Native execution evidence remains the separate foundation/engine/background reports. CSS has no automated visual-diff baseline.
+
+No tests deleted, merged, demoted or quarantined; estimated tokens removed 0 and edit-lane demotions 0. The existing Windows PR platform exception remains. Statistical flakiness, CI cost and other operating systems remain unmeasured. Time: focused HTTP/UI tests are under one second each on this host; full checks remain at merge. Risk: DOM tests cannot certify browser CSP/layout, so actual browser inspection supplies distinct evidence. Complexity: use the existing Node/LinkeDOM tools. Best practice: real HTTP and process boundaries test auth and lifetime; DOM tests own display transitions. Maintainability: controller, HTTP and UI seams have separate owners and no legacy runtime imports.
+
 ## Background controls reassessment
 
 Agent-tests 0.3.2 inventories 24 files with no wiring or risk-map gaps. The critical/merge controller owner now has 14 cases; the new background file has two static declarations expanded by Node into three cases. All 17 focused cases pass. They exercise real QuickJS, SQLite and detached processes with deterministic workers; native acceptance separately proves managed-ChatGPT execution. Independent review found and regression tests fixed pause-to-stop deadline escalation, incomplete mailbox settlement, and premature terminal publication on both success and failure.

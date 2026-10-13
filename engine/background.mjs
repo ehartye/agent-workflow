@@ -12,13 +12,14 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   if(!isAbsolute(input.runDir??'')||typeof input.sessionId!=='string'||!input.sessionId||!Number.isFinite(startupMs)||startupMs<=0)throw fault('BACKGROUND_INPUT','Provide an absolute run directory and originating session');
   const previous=input.resume?await readRun(input.runDir):null;
   if(previous&&previous.sessionId!==input.sessionId)throw fault('REPLAY_SESSION','Run belongs to another originating session');
+  if(input.expectedGeneration!==undefined&&previous?.generation!==input.expectedGeneration)throw fault('REPLAY_GENERATION','Run generation changed; refresh before resuming');
   if(previous&&(!previous.launch||previous.cleanup?.serverExited!==true||['running','pausing','stopping','finishing'].includes(previous.status)||previous.workers.some(worker=>['running','unknown'].includes(worker.status))))throw fault('REPLAY_UNKNOWN','Run launch context or completed execution is not verified');
   const launch={codex:input.codex??previous?.launch.codex,cwd:input.cwd??previous?.launch.cwd,backend:input.backend??previous?.launch.backend??'configured'};
   const native=createLaunch({executable:launch.codex,cwd:launch.cwd,backend:launch.backend});
   launch.cwd=native.cwd;
   const request={runDir:input.runDir,sessionId:input.sessionId,script:input.script??previous?.script,
     args:Object.hasOwn(input,'args')?input.args:previous?.args??null,concurrency:input.concurrency??previous?.concurrency??2,
-    maxAgents:input.maxAgents??previous?.maxAgents??1000,resume:input.resume===true,launch};
+    maxAgents:input.maxAgents??previous?.maxAgents??1000,resume:input.resume===true,launch,...(input.expectedGeneration===undefined?{}:{expectedGeneration:input.expectedGeneration})};
   parseScript(request.script);
   const serialized=JSON.stringify(request);
   if(Buffer.byteLength(serialized)>2*1024*1024)throw fault('BACKGROUND_INPUT','Background request exceeded its limit');

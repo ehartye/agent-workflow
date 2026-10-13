@@ -50,7 +50,7 @@ export async function readRun(runDir) {
   try { return snapshot(db); } finally { db.close(); }
 }
 
-export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, concurrency = 2, maxAgents = 1000, timeoutMs = 120000, drainTimeoutMs=20000, onReady, launch=null }) {
+export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, concurrency = 2, maxAgents = 1000, timeoutMs = 120000, drainTimeoutMs=20000, onReady, launch=null }) {
   let db, lease, state, primary;
   let leaseOwned = false;
   let stopped = false;
@@ -67,6 +67,8 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
   const armDrain=ms=>{drainBy=Math.min(drainBy,performance.now()+ms);clearTimeout(drainTimer);drainTimer=setTimeout(()=>expireDrain(false),Math.max(0,drainBy-performance.now()));};
   let retiredWrites=false;
   const currentWorkers=new Map();
+  const workerIds=new Map();
+  const settlements=new Map();
   const waiters = [];
   const calls = new Set();
   const abort = new AbortController();
@@ -107,6 +109,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     db = new DatabaseSync(path);
     db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=1000; CREATE TABLE IF NOT EXISTS header(id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS workers(generation INTEGER NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(generation,position)); CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS controls(id TEXT PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL);');
     const previous = snapshot(db);
+    if(expectedGeneration!==undefined&&previous?.generation!==expectedGeneration)throw fault('REPLAY_GENERATION','Run generation changed; refresh before resuming');
     const runtimeIdentity = identity();
     if (previous && !resume) throw fault('RUN_EXISTS', 'Existing run requires explicit resume');
     if (!previous && resume) throw fault('REPLAY_MISSING', 'No saved run exists to replay');
@@ -141,24 +144,32 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     };
     controlTimer=setInterval(()=>{try{applyControls();}catch(error){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();for(const resolve of waiters.splice(0))resolve();}},25);
     const dispatch = async ({ prompt, options = {} }) => {
-      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['label','phase','timeoutMs'].includes(key)) || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 120000)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
+      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['id','dependsOn','label','phase','timeoutMs'].includes(key)) || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 120000)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
+      if(options.id!==undefined&&(typeof options.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(options.id)||workerIds.has(options.id)))throw fault('AGENT_INPUT','Worker ids must be unique bounded identifiers');
+      if(options.dependsOn!==undefined&&(!Array.isArray(options.dependsOn)||options.dependsOn.length>256||options.dependsOn.some(id=>typeof id!=='string'||!workerIds.has(id))||new Set(options.dependsOn).size!==options.dependsOn.length))throw fault('AGENT_INPUT','Dependencies must name distinct earlier workers');
       if (stopped) throw fault('RUN_STOPPED', 'Workflow admission is closed');
       if (sequence >= maxAgents) throw fault('AGENT_LIMIT', 'Workflow agent limit reached');
       const position = sequence++;
-      chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs ?? 120000 }));
+      const dependencies=(options.dependsOn??[]).map(id=>workerIds.get(id));
+      chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs ?? 120000, dependencies }));
       const prior = oldWorkers[position];
       const worker = { position, key: chain, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
+      if(Object.hasOwn(options,'dependsOn'))worker.dependencies=dependencies;
       currentWorkers.set(position,worker);
+      if(options.id!==undefined)workerIds.set(options.id,position);
+      let settle;settlements.set(position,new Promise(resolve=>{settle=resolve;}));
       if (reuse && prior?.key === worker.key && prior.status === 'completed') {
         if (!Object.hasOwn(prior, 'result') || hash(json(prior.result)) !== prior.resultHash) throw fault('REPLAY_CORRUPT', 'Saved worker result is missing or corrupt');
         Object.assign(worker, { status: 'completed', cached: true, result: prior.result, resultHash: prior.resultHash });
-        saveWorker(worker); return worker.result;
+        saveWorker(worker);settle(); return worker.result;
       }
       reuse = false;
       saveWorker(worker);
       let acquired = false;
       let dispatched = false;
       try {
+        await Promise.all(dependencies.map(position=>settlements.get(position)));
+        if(dependencies.some(position=>currentWorkers.get(position).status!=='completed'))throw Object.assign(fault('DEPENDENCY_FAILED','A prerequisite did not complete successfully'),{notStarted:true});
         await acquire(); acquired = true;
         if (state.attempts >= maxAgents) throw Object.assign(fault('AGENT_LIMIT', 'Lifetime agent attempt limit reached'), { notStarted: true });
         state.attempts++; worker.status = 'running'; worker.startedAt = new Date().toISOString();
@@ -178,7 +189,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         if(error.interruption)worker.interruption={terminalObserved:error.interruption.terminalObserved===true,terminalStatus:['completed','failed','interrupted'].includes(error.interruption.terminalStatus)?error.interruption.terminalStatus:null,descendants:'notVerified'};
         saveWorker(worker);
         throw error;
-      } finally { if (acquired) release(); }
+      } finally { if (acquired) release();settle(); }
     };
     const call = (method, params) => {
       if (method === 'agent') {

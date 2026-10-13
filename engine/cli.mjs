@@ -5,13 +5,14 @@ import { diagnostic, fault } from '../foundation/client.mjs';
 import { runWorkflow, readRun, requestControl, readControl } from './controller.mjs';
 import { createManagedBackend } from './backend.mjs';
 import { startBackground } from './background.mjs';
+import { startMonitor } from './monitor-launch.mjs';
 
 const { values } = parseArgs({ options: {
   codex: { type: 'string' }, cwd: { type: 'string' }, script: { type: 'string' },
   run: { type: 'string' }, session: { type: 'string' }, args: { type: 'string' },
   backend: { type: 'string' }, resume: { type: 'boolean' }, status: { type: 'boolean' },
   concurrency: { type: 'string' }, help: { type: 'boolean' },foreground:{type:'boolean'},
-  action:{type:'string'},generation:{type:'string'},control:{type:'string'},
+  action:{type:'string'},generation:{type:'string'},control:{type:'string'},dashboard:{type:'boolean'},
 } });
 if (values.help) {
   console.log('Start in background: node engine/cli.mjs --codex <native executable> --cwd <project> --script <workflow.js> --run <directory> --session <identity> [--backend mxc] [--args <JSON>]\nInspect: --status --run <directory>\nPause/stop: --action <pause|stop> --run <directory> --session <identity> --generation <observed generation>\nControl receipt: --control <id> --run <directory>\nResume saved script: --resume --run <directory> --session <identity> [--script <edited workflow.js>]\nUse --foreground for synchronous diagnostics.');
@@ -20,7 +21,8 @@ if (values.help) {
     if (!values.run) throw fault('CLI_INPUT','A run directory is required');
     let run;
     const runDir=resolve(values.run);
-    if(values.action){console.log(JSON.stringify(await requestControl(runDir,{sessionId:values.session,generation:Number(values.generation),action:values.action}),null,2));}
+    if(values.dashboard){console.log(JSON.stringify(await startMonitor(runDir),null,2));}
+    else if(values.action){console.log(JSON.stringify(await requestControl(runDir,{sessionId:values.session,generation:Number(values.generation),action:values.action}),null,2));}
     else if(values.control){console.log(JSON.stringify(await readControl(runDir,values.control),null,2));}
     else if (values.status) run = await readRun(runDir);
     else {

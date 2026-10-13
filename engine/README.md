@@ -1,6 +1,6 @@
 # Local workflow engine prototype
 
-The fresh controller uses the foundation's native Codex App Server connection, a separate QuickJS evaluator, and SQLite. It imports none of the released runtime. The owner selected CLI and dashboard surfaces with no custom MCP server. This slice is not installed or released and does not drive the existing monitor.
+The fresh controller uses the foundation's native Codex App Server connection, a separate QuickJS evaluator, and SQLite. It imports none of the released runtime. The owner selected CLI and dashboard surfaces with no custom MCP server. This slice has its own monitor; it is not installed or released and does not change the old monitor.
 
 After `npm ci`, run the explicit acceptance check:
 
@@ -28,6 +28,7 @@ The CLI returns a startup receipt while a hidden detached process continues the 
 
 ```powershell
 node engine/cli.mjs --status --run ./test-output/my-run
+node engine/cli.mjs --dashboard --run ./test-output/my-run
 node engine/cli.mjs --action pause --run ./test-output/my-run --session local-session --generation 1
 node engine/cli.mjs --control <receipt-id> --run ./test-output/my-run
 node engine/cli.mjs --resume --run ./test-output/my-run --session local-session
@@ -37,7 +38,19 @@ Use the generation from status, and `--action stop` for interruption. A control 
 
 Resume uses the saved script, arguments and launch settings. An explicit `--script` supplies an edited script. The original session is required, and unknown work, failed shutdown or stale ownership blocks resume. Status shows `finishing`, `pausing` or `stopping` until shutdown evidence is saved; `blocked` requires inspection. Read-only status/control commands never start Codex. Status inspection exits successfully even for a failed run; its JSON contains the actual run state. Use `--foreground` for synchronous diagnostics, whose exit code reflects complete coverage.
 
-The evaluator supports `agent`, ordered `parallel`, item-local `pipeline`, `phase`, `log` and JSON `args`. It has no Node imports, filesystem or network, a 32 MiB heap, 512 KiB stack, CPU interrupts and a wall deadline. Clock/random access is refused. Collections accept at most 4,096 entries. Agent calls share a concurrency limit (default 2, explicit 1–256) and at most 1,000 lifetime attempts. Options currently accept only `label`, `phase` and `timeoutMs` (1–120,000). Unsupported options fail explicitly.
+The evaluator supports `agent`, ordered `parallel`, item-local `pipeline`, `phase`, `log` and JSON `args`. It has no Node imports, filesystem or network, a 32 MiB heap, 512 KiB stack, CPU interrupts and a wall deadline. Clock/random access is refused. Collections accept at most 4,096 entries. Agent calls share a concurrency limit (default 2, explicit 1–256) and at most 1,000 lifetime attempts. Options accept `label`, `phase`, `timeoutMs` (1–120,000), and optional `id`/`dependsOn` dependency declarations. Unsupported options fail explicitly.
+
+Use unique identifiers (letters, digits, underscore or hyphen; at most 100 characters) for declared prerequisites. Dependencies must name earlier requested workers, at most 256 per call. A dependent waits without occupying a worker slot and dispatches only after every prerequisite has a completed result. A failed prerequisite prevents its dependent from dispatching. Edges participate in replay identity. Ordinary JavaScript control flow still works without declarations; its data dependencies are not automatically inferred.
+
+```javascript
+const read = agent('Read the source', {id: 'read', dependsOn: []});
+const review = agent('Review the source', {id: 'review', dependsOn: ['read']});
+return await Promise.all([read, review]);
+```
+
+The dashboard command returns an authenticated loopback URL and leaves a hidden monitor process running after the CLI exits. Open that complete URL to authenticate. Its fragment token is removed from browser history and kept in tab session storage. Each invocation creates an independent view of the same run; it does not start another workflow. Inactive monitors expire after 30 minutes. The monitor supports system/light/dark themes, a phase/worker graph, recorded dependency arrows, status filters, worker inspection, pause/stop receipts and saved-script resume. Grouping lines do not assert dependencies. Percent complete means accepted results divided by discovered workers; a running script may discover more. The map displays at most 60 workers, with the complete ordered list below it.
+
+Routine polling uses bounded previews; deliberate worker/script/result reads retrieve full persisted evidence for the observed generation. Resume checks generation again under exclusive run ownership. Stale reads and control errors stay visible and never cause automatic mutation retries. Inspection makes no Codex calls. The graph displays worker execution status, not fabricated per-worker model progress or live tool streaming.
 
 Worker policy is read-only filesystem, no command network and no approvals. Child-process overrides disable inherited MCP servers, plugins, apps, hooks, notification commands, browser/computer tools, web search and nested agents. Effective config and each thread's disabled MCP inventory are checked before model execution. User settings are not edited. Account and provider routing must match the managed ChatGPT contract.
 
@@ -47,4 +60,4 @@ Local acceptance on 2026-10-13 passed two file reads and replay with dispatch co
 
 Use `node engine/background-check.mjs` with the same Codex/backend/output flags for the separate detached acceptance check. It pauses after admitting the first of two real workers, resumes from the saved script, then replays both results without additional dispatch. The [local report](../reports/background-local-acceptance.json) records attempts `[1,2,2]`, cached results `[0,1,2]` and normal owned-server exit in all three generations. This is an explicit subscription-consuming check outside CI. An earlier check failed while observing a run that nevertheless paused successfully; its root cause was not captured. Subsequent diagnostics retain known native error codes. Passing checks do not establish a reliability rate.
 
-Owned App Server exit is verified separately; arbitrary descendants are not verified. The backend forwards cancellation to native turn interruption; the explicit foundation canary observed an interrupted turn after command startup, without a command-completion record. Individual worker controls, safe interrupted-worker restart, schemas, writable workspaces, usage/quota handling, registry/skills, monitor and host integration remain open in [the parity ledger](../docs/codex-parity.md). SSH is deferred.
+Owned App Server exit is verified separately; arbitrary descendants are not verified. The backend forwards cancellation to native turn interruption; the explicit foundation canary observed an interrupted turn after command startup, without a command-completion record. Individual worker controls, safe interrupted-worker restart, schemas, writable workspaces, usage/quota handling, registry/skills, live tool detail and host integration remain open in [the parity ledger](../docs/codex-parity.md). SSH is deferred.

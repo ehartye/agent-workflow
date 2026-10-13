@@ -123,6 +123,36 @@ test('exclusive run ownership refuses a second controller without dispatching', 
   assert.equal(called,false);
 });
 
+test('stale resume generation is rejected under exclusive ownership before dispatch',async t=>{
+  const {runDir,runWorkflow}=await setup(t);
+  const input={runDir,sessionId:'s',script:meta+'return 1;',backend:backend(async()=>{})};
+  await runWorkflow(input);
+  await assert.rejects(runWorkflow({...input,resume:true,expectedGeneration:2}),{code:'REPLAY_GENERATION'});
+});
+
+test('declared worker dependencies wait for completed prerequisites and persist graph edges',async t=>{
+  const {runDir,runWorkflow}=await setup(t);const order=[];
+  const run=await runWorkflow({runDir,sessionId:'s',concurrency:3,script:meta+`
+    return await parallel([
+      ()=>agent('Read',{id:'read'}),
+      ()=>agent('Review',{id:'review',dependsOn:['read']}),
+      ()=>agent('Independent',{id:'other'})
+    ]);`,backend:backend(async({prompt})=>{order.push(prompt+' started');if(prompt==='Read')await new Promise(resolve=>setTimeout(resolve,60));order.push(prompt+' completed');return{value:prompt,terminalObserved:true};})});
+  assert.equal(run.status,'completed');assert.deepEqual(run.workers[1].dependencies,[0]);
+  assert(order.indexOf('Read completed')<order.indexOf('Review started'));
+  assert(order.indexOf('Independent started')<order.indexOf('Read completed'));
+});
+
+test('failed or invalid dependencies never dispatch their dependent worker',async t=>{
+  const {runDir,runWorkflow}=await setup(t);const calls=[];
+  const run=await runWorkflow({runDir,sessionId:'s',script:meta+`return await parallel([()=>agent('A',{id:'a'}),()=>agent('B',{dependsOn:['a']})]);`,
+    backend:backend(async({prompt})=>{calls.push(prompt);throw Object.assign(new Error('fixture'),{notStarted:true});})});
+  assert.deepEqual(calls,['A']);assert.equal(run.workers[1].error.code,'DEPENDENCY_FAILED');
+  const next=await setup(t);let dispatched=false;
+  const invalid=await next.runWorkflow({runDir:next.runDir,sessionId:'s',script:meta+`return await agent('B',{dependsOn:['missing']});`,backend:backend(async()=>{dispatched=true;})});
+  assert.equal(invalid.status,'failed');assert.equal(dispatched,false);
+});
+
 test('missing or corrupt saved worker rows reject before any replay dispatch', async t => {
   for (const mutation of ['DELETE FROM workers', `UPDATE workers SET value=json_set(value,'$.result','changed')`]) {
     const { runDir, runWorkflow } = await setup(t);
