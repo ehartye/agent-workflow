@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- Keep workflows alive through legitimate broker work until completion/manual Stop, with configurable worker deadlines and optional overall wall limits. Keep dashboards available until explicit Close.
+- Retain bounded output previews without failing on cumulative native notifications; preserve explicit final-answer phases and bounded selection/hash diagnostics.
+- Add workflow-authoring and a bounded decomposition/delivery recipe with reviewed artifact handoffs and honest coordinator acceptance gates.
+- Add immutable explicit capture exclusions, protected source paths, policy-bound replay, complete bounded exclusion inventories and precise capture diagnostics.
+- Add reversible run/worker hide/archive/restore and separately reviewed safe retirement, exact identity revalidation, durable receipts/tombstones and unknown-effect refusal.
+- Add responsive blue navigation, phase anchors, separate execution/task/evidence/health states, originating-session navigation and explicit current UI over retained runtimes.
+- Document isolated-worker executable/cache prerequisites and preserve independent source authoring after blocked validation commands.
+
 ## 0.2.1
 
 - Display the plugin as `agent-workflow` in Codex and the local marketplace.

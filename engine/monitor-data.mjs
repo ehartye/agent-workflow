@@ -4,7 +4,7 @@ import {join,isAbsolute} from 'node:path';
 import {fault} from '../foundation/client.mjs';
 import {readActivity} from './activity.mjs';
 import {restartPreview} from './restart.mjs';
-import {readWorkspacePatch} from './workspaces.mjs';
+import {readWorkspacePatch,readWorkspaceExclusions} from './workspaces.mjs';
 import {projectMonitorExperience} from './monitor/experience.mjs';
 export {projectMonitorExperience} from './monitor/experience.mjs';
 
@@ -18,7 +18,7 @@ function preview(record,fields){
   }
   return output;
 }
-export async function monitorData(runDir,{kind='summary',generation,sourceGeneration,position,after=0,limit=50,basis='inputs',previewBytes=256*1024,runRef=null}={}){
+export async function monitorData(runDir,{kind='summary',generation,sourceGeneration,position,after=0,limit=50,basis='inputs',stage='outputs',previewBytes=256*1024,runRef=null}={}){
   if(!isAbsolute(runDir)||!(await lstat(runDir)).isDirectory()||!(await lstat(join(runDir,'run.sqlite'))).isFile())throw fault('MONITOR_PATH','Monitor requires a regular saved run');
   const db=new DatabaseSync(join(runDir,'run.sqlite'),{readOnly:true});
   try{
@@ -29,7 +29,7 @@ export async function monitorData(runDir,{kind='summary',generation,sourceGenera
     if(generation!==undefined&&state.generation!==generation)throw fault('REPLAY_GENERATION','Run generation changed; refresh before continuing');
     let historical;
     if(sourceGeneration!==undefined){
-      if(!['worker','activity','patch'].includes(kind)||!Number.isInteger(sourceGeneration)||sourceGeneration<1||sourceGeneration>=state.generation)throw fault('HISTORY_INPUT','History requires a prior source generation');
+      if(!['worker','activity','patch','exclusions'].includes(kind)||!Number.isInteger(sourceGeneration)||sourceGeneration<1||sourceGeneration>=state.generation)throw fault('HISTORY_INPUT','History requires a prior source generation');
       const current=db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(state.generation,position);
       const worker=current?JSON.parse(current.value):null;
       const linked=worker?.priorExecutions?.some(ref=>ref.generation===sourceGeneration&&ref.position===position)||worker?.reusedFrom?.generation===sourceGeneration||state.restart?.sourceGeneration===sourceGeneration&&state.restart.affected.some(item=>item.position===position);
@@ -46,11 +46,11 @@ export async function monitorData(runDir,{kind='summary',generation,sourceGenera
     }
     if(kind==='script')return state.script;
     if(kind==='result')return{result:state.result??null,error:state.error??null};
-    if(kind==='patch'){
+    if(kind==='patch'||kind==='exclusions'){
       const row=db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(state.generation,position);
       if(!row&&!historical)throw fault('MONITOR_MISSING','Worker does not exist in this generation');
       const worker=historical??JSON.parse(row.value);
-      return await readWorkspacePatch(worker.workspace,{basis,previewBytes});
+      return kind==='exclusions'?await readWorkspaceExclusions(worker.workspace,{stage,after,limit}):await readWorkspacePatch(worker.workspace,{basis,previewBytes});
     }
     if(kind==='worker'){
       if(historical)return{...historical,historyGeneration:sourceGeneration};

@@ -92,9 +92,9 @@ export async function main(tokens=process.argv.slice(2)){
   const receipt=await applyPrune(runDir,{sessionId:p.sessionId,plan:await boundedJson(o.plan,16*1024*1024),approvedPlanHash:o['approved-plan-hash']});print(receipt);return receipt.outcome==='applied'?0:1;
  }
  const generation=integer(o.generation,'generation',{min:1,required:p.command!=='resume'});
- if(['worker','events','patch'].includes(p.command)){
+ if(['worker','events','patch','exclusions'].includes(p.command)){
   const position=integer(o.position,'position',{required:true}),sourceGeneration=integer(o['source-generation'],'source-generation',{min:1});
-  print(await monitorData(runDir,{kind:p.command==='events'?'activity':p.command,generation,position,sourceGeneration,after:integer(o.after,'after')??0,limit:integer(o.limit,'limit',{min:1,max:100})??50,basis:o.basis??'inputs',previewBytes:32*1024*1024}));return 0;
+  print(await monitorData(runDir,{kind:p.command==='events'?'activity':p.command,generation,position,sourceGeneration,after:integer(o.after,'after')??0,limit:integer(o.limit,'limit',{min:1,max:100})??50,basis:o.basis??'inputs',stage:o.stage??'outputs',previewBytes:32*1024*1024}));return 0;
  }
  if(p.command==='resume'||p.command==='restart-worker'){
   print({id:p.id,...await startBackground({runDir,sessionId:p.sessionId,resume:true,...deadlines(o),...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})})});return 0;

@@ -1,10 +1,12 @@
 {
   "name": "agent-workflow",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Subscription-backed Codex workflows with isolated workers and a live graphical monitor",
   "type": "module",
   "private": true,
-  "agentWorkflowCapabilities": ["lifecycle-retirement-v1"],
+  "agentWorkflowCapabilities": [
+    "lifecycle-retirement-v1"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -9,6 +9,8 @@ For multi-worker deliverables, read [workflow authoring](../workflow-authoring/S
 
 For workers that need package managers, browsers or rendering tools, read [worker prerequisites](references/worker-prerequisites.md). Supply verified executable/cache paths and explicit install authorization; a missing prerequisite should not prevent independent authorized authoring.
 
+For explicit capture exclusions, bounded inventory inspection, reversible visibility and reviewed retirement, use the [session delivery contracts](../../docs/session-delivery.md). Freeze any policy before launch and protect all assigned output paths. Existing unknown captures cannot be recollected by changing policy.
+
 1. Inspect definitions with `workflows --cwd "<project>"` and `read "<scope:name>" --cwd "<project>"`. Read the selected script before dispatch. Preserve the user's objective when incorporating follow-ups; a status question does not replace it.
 2. Write literal exported metadata first, then top-level async work and return. Run `validate "<script-file>"`. Save with `save "project:name" --script "<script-file>" --cwd "<project>"`; add `--command` for a requested reusable named skill and `--overwrite` only for authorized replacement.
 3. Start with `run "<scope:name>" --cwd "<project>" --session "<originating-session>" --args '<JSON>'`, or replace the name with `--script "<script-file>"`. Use the real Codex session from context or CODEX_THREAD_ID; never invent one. Default to read-only. Add `--writable` only for authorized edits; each writer uses a separate Windows MXC worktree. Review patches before separately authorized integration; no automatic merge.

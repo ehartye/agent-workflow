@@ -1,6 +1,6 @@
 # Candidate boundaries
 
-The 0.2.0 candidate implements the fresh engine through CLI and dashboard. Full Ultracode parity remains an acceptance objective; the [ledger](codex-parity.md) records open work. Features from 0.1.1 are not implicitly inherited.
+The 0.3.0 runtime implements the engine through CLI and dashboard. Full Ultracode parity remains an acceptance objective; the [ledger](codex-parity.md) records open work. Features from 0.1.1 are not implicitly inherited.
 
 | Area | Current behavior and limit |
 | --- | --- |
@@ -23,7 +23,9 @@ The 0.2.0 candidate implements the fresh engine through CLI and dashboard. Full 
 
 Worker prerequisite guidance now covers Windows executable selection, explicit offline package caches and Playwright cache discovery. Follow-up work is a coordinator-visible prerequisite report before dispatch, reusable authorized installation instructions, and explicit toolchain-path capture for later dashboard resume. These are roadmap items; the runtime does not automatically install dependencies or repair worker environments. A prerequisite failure pauses dependent execution while independent authorized authoring/review can continue.
 
-Workspace capture includes all worker outputs, including ignored `node_modules` and `dist` files, so worker-edited ignore rules cannot hide effects. It is bounded at 20,000 files, 128 MiB of captured file bytes and 32 MiB per diff. In the Tidepool case study an authorized dependency installation/build added 4,097 untracked files totaling 188,632,310 bytes; the input-index and worktree-identity hashes still matched, but capture exceeded the byte limit. The worker's native turn and owned-job cleanup completed while its artifact outcome correctly remained unknown. Capture errors now retain the failing stage and a sanitized cause in `workspaceError.capture`; partial artifacts remain on disk. Future work is an explicit coordinator-owned immutable capture policy for generated dependencies/build outputs, with visible exclusions and integrity verification. Trusting worker-edited ignore rules or silently raising/removing capture limits is not an implemented workaround.
+Default workspace capture includes all worker outputs, including ignored `node_modules` and `dist` files, so worker-edited ignore rules cannot hide effects. It is bounded at 20,000 files, 128 MiB of captured file bytes and 32 MiB per diff. In the Tidepool case study an authorized dependency installation/build added 4,097 untracked files totaling 188,632,310 bytes and exceeded the byte limit. Native completion and clean drain did not repair its unknown artifact outcome. Capture errors retain the failing stage and sanitized cause in `workspaceError.capture`; partial artifacts remain on disk. New runs can now use an explicit coordinator-owned [immutable capture policy](session-delivery.md#explicit-writer-capture-policy). Exclusions cannot cover tracked or assigned protected outputs. Their bounded inventory verifies omitted metadata, not excluded payload contents, and cannot retrospectively repair earlier captures.
+
+Visibility is reversible and preserves execution truth. Destructive retirement requires reviewed plans, complete identity/integrity/drain evidence and a retained runtime declaring the retirement guard. Earlier immutable runtimes cannot be pruned through a new presentation. Typed task reports and artifact claims remain unverified without authoritative acceptance receipts; this release provides no authenticated task-acceptance service.
 
 ## Windows boundary evidence
 

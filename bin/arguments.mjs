@@ -2,9 +2,9 @@ import {parseArgs} from 'node:util';
 import {resolve} from 'node:path';
 import {defaultDataDir} from './managed-runtime.mjs';
 const lifecycleOptions=['session','generation','revision','target','worker-generation','position','attempt','reason'];
-const commands={mode:['cwd','scope','session'],help:[],setup:[],doctor:['cwd','backend'],workflows:['cwd'],read:['cwd'],save:['cwd','script','command','overwrite'],validate:['script'],run:['cwd','session','script','args','concurrency','model','effort','max-attempts','writable','foreground','backend','run-timeout-ms','worker-timeout-ms','capture-policy'],list:['show-hidden'],status:[],result:[],worker:['position','generation','source-generation'],events:['position','generation','source-generation','after','limit'],patch:['position','generation','source-generation','basis'],dashboard:['session','current-ui'],resume:['session','script','generation','run-timeout-ms','worker-timeout-ms'],pause:['session','generation'],stop:['session','generation'],steer:['session','generation','position','attempt','turn','text'],'cancel-worker':['session','generation','position','attempt','turn'],'restart-worker':['session','generation','position','attempt','reconcile'],control:['receipt'],lifecycle:[],'lifecycle-receipt':['receipt'],hide:[...lifecycleOptions,'request'],archive:[...lifecycleOptions,'request'],restore:[...lifecycleOptions,'request'],'prune-plan':lifecycleOptions,prune:['session','plan','approved-plan-hash']};
+const commands={mode:['cwd','scope','session'],help:[],setup:[],doctor:['cwd','backend'],workflows:['cwd'],read:['cwd'],save:['cwd','script','command','overwrite'],validate:['script'],run:['cwd','session','script','args','concurrency','model','effort','max-attempts','writable','foreground','backend','run-timeout-ms','worker-timeout-ms','capture-policy'],list:['show-hidden'],status:[],result:[],worker:['position','generation','source-generation'],events:['position','generation','source-generation','after','limit'],patch:['position','generation','source-generation','basis'],exclusions:['position','generation','source-generation','stage','after','limit'],dashboard:['session','current-ui'],resume:['session','script','generation','run-timeout-ms','worker-timeout-ms'],pause:['session','generation'],stop:['session','generation'],steer:['session','generation','position','attempt','turn','text'],'cancel-worker':['session','generation','position','attempt','turn'],'restart-worker':['session','generation','position','attempt','reconcile'],control:['receipt'],lifecycle:[],'lifecycle-receipt':['receipt'],hide:[...lifecycleOptions,'request'],archive:[...lifecycleOptions,'request'],restore:[...lifecycleOptions,'request'],'prune-plan':lifecycleOptions,prune:['session','plan','approved-plan-hash']};
 const booleans=new Set(['help','command','overwrite','writable','foreground','show-hidden','current-ui']);
-const runCommands=new Set(['status','result','worker','events','patch','dashboard','resume','pause','stop','steer','cancel-worker','restart-worker','control','lifecycle','lifecycle-receipt','hide','archive','restore','prune-plan','prune']);
+const runCommands=new Set(['status','result','worker','events','patch','exclusions','dashboard','resume','pause','stop','steer','cancel-worker','restart-worker','control','lifecycle','lifecycle-receipt','hide','archive','restore','prune-plan','prune']);
 const mutations=new Set(['dashboard','run','resume','pause','stop','steer','cancel-worker','restart-worker','hide','archive','restore','prune-plan','prune']);
 export function parseCommand(tokens=process.argv.slice(2),env=process.env){
  const options=Object.fromEntries(['data-dir','help',...new Set(Object.values(commands).flat())].map(key=>[key,{type:booleans.has(key)?'boolean':'string'}]));
@@ -15,7 +15,7 @@ export function parseCommand(tokens=process.argv.slice(2),env=process.env){
  const sessionId=values.session??env.CODEX_THREAD_ID;
  if(!values.help&&mutations.has(command)&&(!sessionId?.trim()||sessionId.length>256))throw Error('An originating Codex session is required: --session or CODEX_THREAD_ID');
  if(command==='mode'&&!['on','off','status'].includes(id))throw Error('mode requires on, off or status');
- if(env.AGENT_WORKFLOW_WORKER==='1'&&!['help','workflows','read','validate','list','status','result','worker','events','patch','control','lifecycle','lifecycle-receipt'].includes(command)&&!(command==='mode'&&id==='status'))throw Error('Worker processes cannot launch recursive workflows or mutate workflow state');
+ if(env.AGENT_WORKFLOW_WORKER==='1'&&!['help','workflows','read','validate','list','status','result','worker','events','patch','exclusions','control','lifecycle','lifecycle-receipt'].includes(command)&&!(command==='mode'&&id==='status'))throw Error('Worker processes cannot launch recursive workflows or mutate workflow state');
  return{command,id,values,sessionId,dataDir:resolve(values['data-dir']??defaultDataDir(env)),cwd:resolve(values.cwd??process.cwd()),runCommand:runCommands.has(command),mutation:mutations.has(command)};
 }
 export const help=`Agent Workflow — subscription-backed Codex workflows
@@ -28,6 +28,8 @@ list [--show-hidden] | status ID | result ID | dashboard [ID]
 worker ID --position N --generation N
 events ID --position N --generation N [--after N] [--limit N]
 patch ID --position N --generation N [--basis inputs|base]
+exclusions ID --position N --generation N [--stage inputs|outputs] [--after N] [--limit N]
+dashboard [ID] [--current-ui] --session ID
 resume ID [--script file] | pause ID --generation N | stop ID --generation N
 steer ID --generation N --position N --attempt N --turn ID --text instruction
 cancel-worker ID --generation N --position N --attempt N [--turn ID]

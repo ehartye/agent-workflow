@@ -2,7 +2,7 @@
 
 Run durable JavaScript workflows with parallel Codex workers, ordered replay and an authenticated local monitor. Workers use the existing managed ChatGPT subscription through pinned native Codex App Server. The fresh runtime exposes CLI and dashboard surfaces; it has no custom MCP server or API-key fallback.
 
-This is the **0.2.0 implementation**. Publication is recorded in [GitHub Releases](https://github.com/ehartye/agent-workflow/releases); broader Ultracode parity remains tracked separately. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
+This is the **0.3.0 implementation**. Publication is recorded in [GitHub Releases](https://github.com/ehartye/agent-workflow/releases); broader Ultracode parity remains tracked separately. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
 
 ## Install and start
 
@@ -48,9 +48,11 @@ Start returns durable admission while a detached local process continues. Inspec
 
 Workflows have no overall wall deadline by default; they continue until completion or manual Stop. Workers default to 10 minutes each, configurable up to 30 minutes with `--worker-timeout-ms`. Use `--run-timeout-ms` to opt into an overall wall limit (1–86,400,000 ms; 0 disables it). Both flags work with `run` and `resume`; saved limits carry forward on resume. Guest CPU, memory and idle-deadlock protection remain active. See the [runtime contract](skills/agent-workflow/references/runtime-api.md).
 
-Open the **complete returned dashboard URL**, including its authentication fragment. The page removes that fragment from browser history and retains the token in tab session storage. Keep the URL private. Each monitor views one saved run and stays available until explicitly closed, including after a run finishes. Closing the browser tab does not stop the run or its monitor process. The workflow graph shows declared dependencies, worker states and accepted results among discovered workers. It does not invent per-worker completion percentages. The gear button selects System, Light or Dark theme.
+Open the **complete returned dashboard URL**, including its authentication fragment. The page removes that fragment from browser history and retains the token in tab session storage. Keep the URL private. The monitor provides stable run links and originating-session navigation, and stays available until explicitly closed. Viewing another run does not arm its controls. `dashboard ID --current-ui` explicitly selects current presentation while reads and controls still use each original runtime. Closing a tab does not stop the run or monitor process. The graph separates phase membership from declared dependencies, and execution from task delivery. The gear button selects System, Light or Dark theme.
 
 Workers default to read-only, no network and approvals never. Authorized edits require --writable and the verified Windows MXC backend. Each writer gets a separate worktree from captured run inputs; dependencies do not import predecessor edits. Inspect returned patches before separately authorized integration. There is no automatic merge or publication.
+
+Use an explicit immutable `--capture-policy file` to omit approved generated directories while protecting assigned source outputs. Inspect excluded metadata through CLI/dashboard pages; omitted payload bytes are not retained. Reversible hide/archive preserves active, failed and unknown outcomes. Separate reviewed prune plans retire only safely eligible payloads, retaining audit and recovery evidence. See [session delivery, capture and retirement](docs/session-delivery.md) and [worker prerequisites](skills/agent-workflow/references/worker-prerequisites.md).
 
 ## Saved scripts and recipes
 
@@ -72,6 +74,7 @@ Discovery searches project .agents/workflows from cwd to the nearest Git root, t
 | plugin:fix-until-check-passes | task, check, maxRounds; bounded writer rounds carrying a cumulative patch |
 | plugin:isolated-migration | migration, slices:[{id,scope}]; separate writer patches plus integration review |
 | plugin:loop-until-dry | question, optional scope/maxRounds/verify; deduplicate and stop after two dry rounds |
+| plugin:decomposition-delivery | Fixed disjoint tasks: bounded scouts and writers, then a separate verification invocation after coordinator integration; see [authoring](skills/workflow-authoring/SKILL.md) |
 
 Writer recipes need authorized --writable. Research is limited to worker-accessible evidence: network, browsing and external connectors are disabled. Failed/null/unknown slots remain visible; synthesis cannot supply absent evidence.
 

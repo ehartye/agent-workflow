@@ -27,7 +27,7 @@ function integer(url,name,fallback){
 }
 function readOptions(path,url){
   if(path==='/run')return{};
-  if(!['/activity','/script','/result'].includes(path)&&!/^\/(worker|patch)\/(0|[1-9][0-9]{0,2})$/.test(path))return null;
+  if(!['/activity','/script','/result'].includes(path)&&!/^\/(worker|patch|exclusions)\/(0|[1-9][0-9]{0,2})$/.test(path))return null;
   const generation=integer(url,'generation');if(generation<1)throw fault('HTTP_INPUT','Observed generation is required');
   const history=url.searchParams.has('sourceGeneration')?{sourceGeneration:integer(url,'sourceGeneration')}:{};
   if(history.sourceGeneration!==undefined&&history.sourceGeneration<1)throw fault('HTTP_INPUT','Invalid historical source generation');
@@ -35,7 +35,12 @@ function readOptions(path,url){
     const position=integer(url,'position'),after=integer(url,'after',0),limit=integer(url,'limit',50);
     if(position>=1000||limit<1||limit>100)throw fault('HTTP_INPUT','Activity paging exceeded its limits');return{kind:'activity',generation,position,after,limit,...history};
   }
-  const match=/^\/(worker|patch)\/([0-9]+)$/.exec(path),kind=match?.[1]??path.slice(1),basis=url.searchParams.get('basis')??'inputs';
+  const match=/^\/(worker|patch|exclusions)\/([0-9]+)$/.exec(path),kind=match?.[1]??path.slice(1),basis=url.searchParams.get('basis')??'inputs';
+  if(kind==='exclusions'){
+    const stage=url.searchParams.get('stage')??'outputs',after=integer(url,'after',0),limit=integer(url,'limit',50);
+    if(!['inputs','outputs'].includes(stage)||limit<1||limit>100)throw fault('HTTP_INPUT','Invalid bounded exclusion inventory page');
+    return{kind,generation,position:Number(match[2]),stage,after,limit,...history};
+  }
   if(kind==='patch'&&!['inputs','base'].includes(basis))throw fault('HTTP_INPUT','Invalid patch comparison');
   return{kind,generation,...(match?{position:Number(match[2])}:{}),basis,...history};
 }
@@ -96,7 +101,7 @@ export async function createExperienceSurface({runDir,binding,services}){
       if(value?.receipt?.runId!==targetRunId)throw fault('MONITOR_RECEIPT','Lifecycle receipt does not identify the exact requested run');
       return result(value);
     }
-    if(method==='GET'&&(binding||scoped)){
+    if(method==='GET'&&(binding||scoped||path.startsWith('/exclusions/'))){
       const options=readOptions(path,url);if(options)return result(await read(runId,options),200,options.kind==='script'?'text/plain':'application/json');
     }
     if(method==='POST'&&path==='/lifecycle'){

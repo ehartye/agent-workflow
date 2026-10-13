@@ -51,7 +51,7 @@ const runDrafts=new Map();
 const runKey=()=>viewRun??snapshot?.monitor?.run?.runId??'pinned';
 const sameRun=(a,b)=>a?.dataInstanceId===b?.dataInstanceId&&a?.runId===b?.runId&&a?.runtimeId===b?.runtimeId;
 function controlsMatch(){return snapshot&&!stale&&(!snapshot.monitor?.run?viewRun===null:sameRun(controlTarget,snapshot.monitor.run)&&controlTarget.generation===snapshot.generation);}
-function scopedPath(path,runId=viewRun){return runId&&/^\/api\/(run(?:\?|$)|worker\/|patch\/|activity(?:\?|$)|script(?:\?|$)|result(?:\?|$)|control$|resume$|restart$|lifecycle(?:\/|$))/.test(path)?`/api/runs/${encodeURIComponent(runId)}${path.slice(4)}`:path;}
+function scopedPath(path,runId=viewRun){return runId&&/^\/api\/(run(?:\?|$)|worker\/|patch\/|exclusions\/|activity(?:\?|$)|script(?:\?|$)|result(?:\?|$)|control$|resume$|restart$|lifecycle(?:\/|$))/.test(path)?`/api/runs/${encodeURIComponent(runId)}${path.slice(4)}`:path;}
 function visibilityFor(worker){
   return snapshot.lifecycle?.workers?.find(item=>item.target?.generation===snapshot.generation&&item.target.position===worker.position&&item.target.attempt===(worker.attempts??0))?.visibility??'visible';
 }
@@ -187,6 +187,28 @@ function renderWorkspace(container, worker, sourceGeneration) {
   if (workspace && typeof workspace === 'object' && !Array.isArray(workspace)) {
     if (workspace.cwd) {
       section.append(node('p', 'Isolated workspace', 'muted'), node('p', workspace.cwd, 'workspace-path'));
+    }
+    if(workspace.version===2){
+      section.append(node('p',`Frozen capture policy ${workspace.policyHash??'unavailable'}`,'workspace-path'),node('p','Excluded payload bytes are not retained. Inventory hashes verify metadata only.'));
+      for(const stage of ['inputs','outputs']){
+        const generation=snapshot.generation,position=worker.position,viewed=runKey(),workspaceKey=JSON.stringify(workspace),key=`${generation}:${position}:${sourceGeneration??generation}:exclusions:${stage}`;
+        const saved=patchEvidence.get(key),page=saved?.workspaceKey===workspaceKey?saved.result:null;
+        const load=async(after=0)=>{
+          if(patchLoading.has(key))return;patchLoading.add(key);patchRevision++;renderDetail();
+          try{
+            const result=await api(`/api/exclusions/${position}?generation=${generation}&stage=${stage}&after=${after}&limit=50${sourceGeneration?`&sourceGeneration=${sourceGeneration}`:''}`);
+            if(viewed!==runKey()||snapshot.generation!==generation||selected!==position)return;
+            if(result.policyHash!==workspace.policyHash||!Array.isArray(result.entries)||result.entries.length>50||!/^[a-f0-9]{64}$/.test(result.inventoryHash??''))throw new Error('Invalid excluded inventory evidence');
+            patchEvidence.delete(key);patchEvidence.set(key,{workspaceKey,result});while(patchEvidence.size>4)patchEvidence.delete(patchEvidence.keys().next().value);
+          }catch(error){if(viewed===runKey())readError(error);}finally{patchLoading.delete(key);patchRevision++;renderDetail();}
+        };
+        const button=node('button',`Read excluded ${stage}`);button.type='button';button.dataset.exclusions=stage;button.disabled=patchLoading.has(key);button.addEventListener('click',()=>load());section.append(button);
+        if(page){
+          section.append(node('p',`${page.entryCount} excluded entries · ${page.fileCount} files · ${page.bytes} omitted bytes. Metadata SHA-256 ${page.inventoryHash}`,'workspace-path'));
+          section.append(node('pre',valueText(page.entries),'patch-content'));
+          if(page.nextAfter!==null){const next=node('button','Next inventory page');next.type='button';next.dataset.exclusionsNext=stage;next.disabled=patchLoading.has(key);next.addEventListener('click',()=>load(page.nextAfter));section.append(next);}
+        }
+      }
     }
     if (Array.isArray(workspace.changedFiles)) {
       const files = node('details');

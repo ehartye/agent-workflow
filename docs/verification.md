@@ -1,6 +1,18 @@
 # Verification record
 
-This page describes evidence for the **fresh 0.2.0 candidate** as of 2026-10-13. It is not a release announcement, full Ultracode-parity certification or a reliability-rate claim. Local release checks passed: 166/166 tests, package check, process smoke, clean native plugin installation and a production audit with zero vulnerabilities. Required CI, publication and exact published-version installation remain pending.
+This page distinguishes current 0.3.0 candidate evidence from earlier acceptance records. It is not full Ultracode-parity certification or a reliability-rate claim. Required CI, tag verification, publication and exact published-version installation are separate gates.
+
+## Session delivery candidate
+
+The 0.3.0 local release candidate passed 246/246 tests, package checks, detached process smoke, clean native plugin discovery/installation and a production audit with zero vulnerabilities. The clean installation check verifies all seven bundled recipes and preserved-runtime upgrades without model inference. Required Windows PR/tag CI and exact published installation are still separate gates.
+
+The Tidepool case study exercised real subscription-backed workers, retained failed/unknown outcomes and deliberately recovered only integrity-verified patches with positive native drain. The [delivery record](../.agents/workflows/session-plugin-delivery.md) records ownership, hashes, failures and coordinator integration. Tests reproduce evaluator lifetime, large-output retention, final-answer selection, immutable capture identity, visibility/retirement, retained-runtime routing and lost-response receipt failures before fixes. Independent review found and corrected aggregate-drain, queued-attempt and receipt-adapter mismatches.
+
+The [session browser report](../reports/session-dashboard-browser-check.json) verifies the installed 0.2.1-labelled candidate presentation on a real retained run: eight viewport/theme combinations, phase connectors, session navigation, fragment removal and no page errors. This is bounded rendered acceptance, not model quality, final 0.3.0 installation or a destructive-prune test. Development pruning used disposable fixtures only. The repeatable harness is [check-monitor-browser.mjs](../scripts/check-monitor-browser.mjs); it requires explicit installed Playwright and authenticated loopback inputs and performs no execution/lifecycle mutations.
+
+## Earlier 0.2.0 acceptance
+
+The earlier candidate passed 166/166 tests, package check, process smoke, clean native plugin installation and a production audit with zero vulnerabilities. The following historical reports describe their recorded versions and dates; they do not verify later source changes.
 
 ## Fresh native evidence
 

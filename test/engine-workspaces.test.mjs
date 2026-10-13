@@ -307,6 +307,14 @@ test('controller freezes explicit exclusions before writer dispatch and replays 
   assert.equal(first.launch.capturePolicyHash,first.capturePolicyHash);assert.equal(first.workspaceInputs.version,2);
   assert.deepEqual(first.workers[0].workspace.changedFiles,['note.txt']);
   const omitted=await workspaces.readWorkspaceExclusions(first.workers[0].workspace,{stage:'outputs',after:0,limit:100});assert.ok(omitted.entries.some(item=>item.name==='generated/output.bin'));
+  const {createMonitor}=await import('../engine/monitor-server.mjs');const monitor=await createMonitor({runDir});
+  const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token'),headers={Authorization:`Bearer ${token}`};
+  try{
+    assert.equal((await fetch(url.origin+'/api/exclusions/0?generation=1')).status,401);
+    const response=await fetch(url.origin+'/api/exclusions/0?generation=1&stage=outputs&after=0&limit=1',{headers});assert.equal(response.status,200);
+    const page=await response.json();assert.equal(page.policyHash,first.capturePolicyHash);assert.equal(page.entries.length,1);assert.notEqual(page.nextAfter,null);
+    assert.equal((await fetch(url.origin+'/api/exclusions/0?generation=2',{headers})).status,409);
+  }finally{await monitor.close();}
   const replay=await runWorkflow({...input,resume:true,backend:backend()});assert.equal(replay.coverage.cached,1);assert.equal(calls,1);
   assert.equal(replay.capturePolicyHash,first.capturePolicyHash);assert.deepEqual(replay.workspaceInputs,first.workspaceInputs);
   const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(join(runDir,'run.sqlite'));

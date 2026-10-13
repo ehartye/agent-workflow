@@ -223,6 +223,15 @@ test('workspace previews and unfinished patch capture do not imply a reviewable 
   assert.equal(view.calls.filter(call => call.path.startsWith('/api/patch/')).length, 0);
 });
 
+test('explicit capture exclusions are deliberate paged metadata and never a payload-integrity claim',async()=>{
+  const workspace={version:2,cwd:'C:/owned/worker',policyHash:'a'.repeat(64),excludedInventory:{entryCount:51,fileCount:50,bytes:900000000}};
+  const view=await monitor({run:{workers:[worker(0,'completed',{workspace})]},response:path=>path.startsWith('/api/exclusions/')?{ok:true,json:async()=>({policyHash:workspace.policyHash,inventoryHash:'b'.repeat(64),entries:[{name:path.includes('after=50')?'generated/last.bin':'generated/<img>.bin',size:128}],entryCount:51,fileCount:50,bytes:900000000,nextAfter:path.includes('after=50')?null:50})}:undefined});
+  assert.match(view.get('detail').textContent,/Excluded payload bytes are not retained/);assert.equal(view.calls.filter(c=>c.path.startsWith('/api/exclusions/')).length,0);
+  await view.click(view.get('detail').querySelector('[data-exclusions="outputs"]'));
+  assert.match(view.get('detail').textContent,/generated\/<img>\.bin/);assert.equal(view.get('detail').querySelectorAll('img').length,0);
+  await view.click(view.get('detail').querySelector('[data-exclusions-next="outputs"]'));assert.ok(view.calls.some(c=>c.path.includes('after=50')));assert.match(view.get('detail').textContent,/generated\/last.bin/);
+});
+
 test('workflow graph separates declared dependencies from grouping and preserves failed or unknown phase coverage', async () => {
   const view = await monitor({ run: { workers: [worker(0, 'completed', { dependencies: [] }), worker(1, 'failed', { dependencies: [0] }), worker(2, 'unknown')], coverage: { requested: 3, completed: 1, cached: 0, failed: 1, unknown: 1 } } });
   assert.equal(view.get('workflow-map').querySelectorAll('.map-dependency').length, 1);
