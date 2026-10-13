@@ -159,3 +159,20 @@ Agent-tests 0.3.2 inventories 30 test files with no missing tiers, wiring or shi
 The final full suite passed 238 expanded cases in one observed 52.3-second run, plus package check and smoke. Independent review passed 59 affected cases and found no remaining important issues. Review regressions first failed for the terminal callback race, rollback leakage and inconsistent activity coverage, then passed after fixes. Static inventory does not measure CI cost, flakiness or numerical coverage.
 
 The extended existing native check consumed one managed-ChatGPT turn, observed persisted command startup while the worker was running, retained 59 activity records and token usage, then reused them with no new dispatch. `reports/activity-local-acceptance.json` and `reports/activity-browser-check.json` separate execution proof from light/dark/mobile inspection. No native calls run in CI. Individual worker controls and descendant/restart proof remain separate work.
+
+## Individual controls and Windows ownership checkpoint
+
+Agent-tests 0.3.2 inventories 33 files with no shim or wiring findings. This delta preserves earlier unchanged-file verdicts and the explicitly required Windows CI gate. All six worktree flags still resolve to per-test temporary roots or synthetic fixture `.git` markers. Shared-subject findings identify different seams: protocol routing, terminal inventory, result/session correction and actual Windows process ownership. No tests were removed or demoted; no new runner/cache is introduced.
+
+| Reviewed file | Tier | Verdict | Evidence | Estimated tokens | Churn/edits |
+|---|---|---|---|---|---|
+| engine-controller.test.mjs | critical | keep | Queued slot/dependency cancellation, exact controls, late steering receipt, failed cleanup prevents replay. Unique temp SQLite roots. | 8100 | 0/4 |
+| codex-turn.test.mjs | critical | keep | Actual subprocess failure fan-out cannot contaminate another active worker with pre-start evidence. | 2607 | 0/3 |
+| codex-foundation.test.mjs | critical | rewrite | Initialization now has its own adequate fixture budget; the 150 ms hang deadline is applied only to the request being tested. Review observed the old initialization race. | 2531 | 0/0 |
+| engine-monitor.test.mjs | critical | keep | Authenticated HTTP/CLI exact-turn controls and stale identity rejection. Unique temp database roots. | 2531 | 0/1 |
+| windows-job.test.mjs | critical | keep | Real Windows retained-job lifecycle, detached child, host death, argv and protocol pipe forwarding; skipped on non-Windows, mandatory on Windows release CI. | Not ranked in abbreviated report | New |
+| engine-backend.test.mjs | critical | keep | A successful empty-job receipt cannot mask a failed native terminal cleanup. Controller separately owns replay refusal. | Not ranked in abbreviated report | New |
+| codex-terminals.test.mjs | critical | keep | Real subprocess native inventory paging, malformed records and terminals remaining after cleanup. | Not ranked in abbreviated report | New |
+| engine-monitor-ui.test.mjs | critical | keep | Durable steering draft, exact request identity, cancellation confirmation and disabled terminal controls. | Not ranked in abbreviated report | Existing |
+
+Final full suite: 256/256 native-expanded tests passed in one observed 149.4-second run; package check and smoke passed. This measures one local run, not a reliability rate. Independent review found and fixed cleanup replay eligibility, shared mutable errors, missing ownership-source fingerprinting and overly broad job-empty claims. Native model calls remain explicit acceptance tools outside CI. The reviewed two-worker report proves steering/cancel isolation and scoped job drain; the browser check used that actual persisted run, including disabled terminal controls and cleanup wording, in the mobile dark theme. Light theme and Settings keyboard/outside dismissal were separately inspected. Safe restart remains a separate unfinished gate.
