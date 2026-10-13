@@ -1,7 +1,8 @@
 import {serveBackground} from '../../engine/background.mjs';
 import {basename,join} from 'node:path';
 import {writeFile} from 'node:fs/promises';
-await serveBackground(process.argv[2],async({cwd})=>{
+await serveBackground(process.argv[2],async({cwd,defaults})=>{
+  await writeFile(join(cwd,'backend-defaults.json'),JSON.stringify(defaults??null));
   if(basename(cwd)==='fail')throw new Error('REVIEW_SECRET_SENTINEL private@example.invalid');
   if(basename(cwd)==='slow')await new Promise(resolve=>setTimeout(resolve,200));
   return {

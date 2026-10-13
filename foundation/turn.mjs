@@ -3,7 +3,7 @@ import { fault, remoteDiagnostic } from './client.mjs';
 // One outstanding turn per thread. The caller owns the server and its shutdown.
 // A terminal turn acknowledges harness completion, not arbitrary process drain.
 const active = new WeakMap();
-export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, interruptTimeoutMs = 3000, signal }) {
+export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, interruptTimeoutMs = 3000, signal, model, effort, outputSchema }) {
   if (typeof threadId !== 'string' || !threadId || typeof prompt !== 'string' || !prompt ||
       !Number.isFinite(timeoutMs) || timeoutMs <= 0 || !Number.isFinite(interruptTimeoutMs) || interruptTimeoutMs <= 0) {
     throw fault('TURN_INPUT', 'A thread, prompt and positive deadlines are required');
@@ -54,6 +54,7 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, in
     start = client.request('turn/start', {
       threadId, input: [{ type: 'text', text: prompt }], approvalPolicy: 'never',
       sandboxPolicy: { type: 'readOnly', networkAccess: false },
+      ...(model===undefined?{}:{model}),...(effort===undefined?{}:{effort}),...(outputSchema===undefined?{}:{outputSchema}),
     }).then(started => {
       if (retired) return;
       if (typeof started?.turn?.id !== 'string' || !started.turn.id) throw fault('TURN_PROTOCOL', 'Codex did not return a turn identifier');

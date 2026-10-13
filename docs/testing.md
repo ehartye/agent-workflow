@@ -126,3 +126,20 @@ Move clean native installation to release-only only if measured PR cost later ju
 - **Maintainability:** more CI paths and ownership; reconsider after collecting several successful run timings.
 
 Agent-tests currently scans ignored mutation probes if they use test filenames, although `npm test` includes only `test/*.test.mjs`. The evidence was corrected by renaming probes before the final scan. Its Windows warning does not account for repository visibility. These tool limitations belong in the agent-tests roadmap; neither justifies weakening coverage.
+
+## Structured-worker checkpoint
+
+The checked Agent-tests 0.3.2 runtime inventories 29 files after this delta, with no missing tiers, wiring or shim findings. Existing unchanged-file verdicts stand. The same Windows PR frequency exception applies. Four worktree warnings remain false positives: fixed SQLite filenames live inside unique `mkdtemp` roots, and the two `.git` directories are owned project fixtures. No test was removed, merged, demoted or quarantined; estimated tokens removed and edit-lane demotions are both zero.
+
+| Reviewed file | Tier | Verdict | Ownership and evidence | Estimated tokens | Churn/edits |
+|---|---|---|---|---|---|
+| engine-controller.test.mjs | critical | keep | Actual evaluator/SQLite replay, known-invalid versus unknown outcomes and durable shared correction reservations; fixed-db warnings use unique roots. | 5384 | 0/2 |
+| engine-worker-session.test.mjs | critical | keep | Same-thread corrections, exhaustion, cancellation/transport refusal and shared deadline. Shared-subject overlap with controller protects a different persistence seam. | 937 | 0/0 |
+| codex-turn.test.mjs | critical | keep | Real subprocess protocol verifies schema/model/effort forwarding and exact thread/turn routing. | 1288 | 0/1 |
+| engine-background.test.mjs | critical | keep | Actual detached resume retains defaults, including partial overrides preserving model/effort. | 1190 | 0/0 |
+| engine-schema.test.mjs | critical | keep | Valid/invalid JSON, nullable contradictions, enum/integer constraints, strict serialization and deterministic work admission. | 1146 | 0/0 |
+| engine-settings.test.mjs | critical | keep | Effective catalog/config/run/worker choices and refusal of unsupported settings or broader permissions. | 536 | 0/0 |
+
+Counts and token estimates above are the static scan before the final partial-resume regression; they are not runtime cases or timing estimates. The added partial-override assertions first failed and then passed in the existing detached test. Final verification passed all 222 native-expanded cases in one observed 52.7-second run, plus package check and smoke. Independent review confirmed the resume fix and found no remaining important findings in this slice. Static tooling does not measure CI cost or statistical reliability.
+
+The native `structured-check.mjs` separately proves one managed-ChatGPT command, exact validated JSON and zero-dispatch replay; its sanitized report is committed. Offline tests own correction/failure permutations so CI does not spend subscription usage. Independent review found and resolved nullable schema contradictions, silent non-JSON serialization, unconstrained enum work and partial-resume default loss. Keep the existing architecture advisory above: focused edit checks plus full merge checks, without a new selector/cache or duplicate native smoke calls.

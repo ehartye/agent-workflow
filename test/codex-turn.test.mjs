@@ -21,6 +21,13 @@ test('concurrent turns route early notifications by thread and confirmed turn ID
   assert.deepEqual(results.map(result => result.turnId), ['turn-one', 'turn-two']);
 });
 
+test('native turns forward explicit model reasoning and output schema unchanged',async t=>{
+  const {client,runTurn}=await setup(t,'turn-settings');
+  const outputSchema={type:'object',properties:{count:{type:'integer'}},required:['count'],additionalProperties:false};
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture',model:'fixture-model',effort:'high',outputSchema});
+  assert.deepEqual(JSON.parse(result.text),{model:'fixture-model',effort:'high',outputSchema});
+});
+
 test('failed terminal turn is never an accepted result', async t => {
   const { client, runTurn } = await setup(t, 'turn-failed');
   await assert.rejects(runTurn(client, { threadId: 'one', prompt: 'fixture' }), error => {

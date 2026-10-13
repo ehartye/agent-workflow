@@ -14,7 +14,8 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   if(previous&&previous.sessionId!==input.sessionId)throw fault('REPLAY_SESSION','Run belongs to another originating session');
   if(input.expectedGeneration!==undefined&&previous?.generation!==input.expectedGeneration)throw fault('REPLAY_GENERATION','Run generation changed; refresh before resuming');
   if(previous&&(!previous.launch||previous.cleanup?.serverExited!==true||['running','pausing','stopping','finishing'].includes(previous.status)||previous.workers.some(worker=>['running','unknown'].includes(worker.status))))throw fault('REPLAY_UNKNOWN','Run launch context or completed execution is not verified');
-  const launch={codex:input.codex??previous?.launch.codex,cwd:input.cwd??previous?.launch.cwd,backend:input.backend??previous?.launch.backend??'configured'};
+  if(input.defaults!==undefined&&(!input.defaults||typeof input.defaults!=='object'||Array.isArray(input.defaults)))throw fault('BACKGROUND_INPUT','Worker defaults must be an object');
+  const launch={codex:input.codex??previous?.launch.codex,cwd:input.cwd??previous?.launch.cwd,backend:input.backend??previous?.launch.backend??'configured',defaults:{...previous?.launch.defaults,...input.defaults}};
   const native=createLaunch({executable:launch.codex,cwd:launch.cwd,backend:launch.backend});
   launch.cwd=native.cwd;
   const request={runDir:input.runDir,sessionId:input.sessionId,script:input.script??previous?.script,
@@ -68,7 +69,7 @@ export async function serveBackground(requestPath,createBackend){
   try{
     const request=JSON.parse(await readFile(requestPath,'utf8'));
     parseScript(request.script);
-    const backend=await createBackend({executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend});
+    const backend=await createBackend({executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,defaults:request.launch.defaults??{}});
     const run=await runWorkflow({...request,backend,onReady:async({generation})=>{
       await send({kind:'ready',generation});await permission;
       await send({kind:'started',generation});

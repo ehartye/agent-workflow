@@ -50,7 +50,8 @@ createInterface({ input: process.stdin }).on('line', line => {
       return;
     }
     notification('item/completed', { threadId, turnId: 'unrelated', item: { type: 'agentMessage', id: 'wrong', text: 'WRONG' } });
-    notification('item/completed', { threadId, turnId, item: { type: 'agentMessage', id: 'answer', text: threadId } });
+    const answer=mode==='turn-settings'?JSON.stringify({model:req.params.model,effort:req.params.effort,outputSchema:req.params.outputSchema}):threadId;
+    notification('item/completed', { threadId, turnId, item: { type: 'agentMessage', id: 'answer', text: answer } });
     notification('turn/completed', { threadId, turn: { id: turnId, status: mode === 'turn-failed' ? 'failed' : 'completed', error: mode === 'turn-failed' ? { message: 'runner pipe-in timeout REVIEW_SECRET_SENTINEL private@example.invalid' } : null, items: [] } });
     return setTimeout(() => reply(req.id, { turn: { id: turnId } }), threadId === 'one' ? 20 : 5);
   }

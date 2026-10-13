@@ -18,6 +18,56 @@ async function setup(t) {
 }
 const backend = execute => ({ identity: 'fixture-v1', execute, close: async () => ({ serverExited: true, descendants: 'notVerified' }) });
 
+test('correction attempts reserve the shared lifetime budget before another native turn',async t=>{
+  const {runDir,runWorkflow,readRun}=await setup(t);
+  const {runWorkerSession}=await import('../engine/worker-session.mjs');
+  let turns=0;
+  const run=await runWorkflow({runDir,sessionId:'s',maxAgents:2,script:meta+'return await agent("Count",{schema:{type:"object"}});',backend:backend(async({prompt,options,reserveRetry})=>runWorkerSession({}, {threadId:'thread',prompt,schema:options.schema,settings:{maxAttempts:5},reserveRetry,turn:async()=>{
+    turns++;assert.equal((await readRun(runDir)).attempts,turns);return{text:'invalid',items:[],turnId:String(turns)};
+  }}))});
+  assert.equal(turns,2);assert.equal(run.attempts,2);assert.equal(run.workers[0].attempts,2);
+  assert.equal(run.status,'failed');assert.equal(run.workers[0].status,'failed');assert.equal(run.workers[0].error.code,'AGENT_LIMIT');
+  assert.equal(run.workers[0].evidence.attempts.length,2);
+});
+
+test('effective worker settings persist and invalidate replay when catalog defaults change',async t=>{
+  const {runDir,runWorkflow}=await setup(t);let calls=0;
+  const input={runDir,sessionId:'s',script:meta+'return await agent("Count",{model:"fixture-model"});'};
+  const native=effort=>({...backend(async()=>({value:++calls,terminalObserved:true})),resolveOptions:options=>({model:options.model,effort,maxAttempts:5,permissions:{sandbox:'read-only',networkAccess:false,approvalPolicy:'never'}})});
+  const first=await runWorkflow({...input,backend:native('low')});
+  assert.equal(first.workers[0].options.effort,'low');
+  const cached=await runWorkflow({...input,resume:true,backend:native('low')});assert.equal(cached.coverage.cached,1);
+  const changed=await runWorkflow({...input,resume:true,backend:native('medium')});assert.equal(changed.coverage.cached,0);assert.equal(calls,2);
+});
+
+test('structured schema admission rejects before dispatch and preserves accepted JSON across replay',async t=>{
+  const {runDir,runWorkflow}=await setup(t);let calls=0;
+  const schema={type:'object',properties:{count:{type:'integer',minimum:0}},required:['count'],additionalProperties:false};
+  const input={runDir,sessionId:'s',script:meta+'return await agent("Count",{schema:args});'};
+  const execute=async({options})=>{calls++;assert.deepEqual(options.schema,schema);return{value:{count:2},terminalObserved:true};};
+  const invalid=await runWorkflow({...input,args:{...schema,required:['missing']},backend:backend(execute)});
+  assert.equal(invalid.status,'failed');assert.equal(invalid.error.code,'SCHEMA_INVALID');assert.equal(calls,0);
+  const first=await runWorkflow({...input,args:schema,resume:true,backend:backend(execute)});
+  assert.equal(first.status,'completed');assert.deepEqual(first.result,{count:2});assert.equal(calls,1);
+  const cached=await runWorkflow({...input,args:schema,resume:true,backend:backend(execute)});
+  assert.equal(cached.coverage.cached,1);assert.equal(calls,1);
+  const changed=await runWorkflow({...input,args:{...schema,description:'Updated output contract'},resume:true,backend:backend(async()=>{calls++;return{value:{count:3},terminalObserved:true};})});
+  assert.equal(changed.coverage.cached,0);assert.deepEqual(changed.result,{count:3});assert.equal(calls,2);
+});
+
+test('terminal structured validation failure is failed and retryable while unknown execution stays unknown',async t=>{
+  const {runDir,runWorkflow}=await setup(t);
+  const input={runDir,sessionId:'s',script:meta+'return await agent("Count",{schema:{type:"object",properties:{count:{type:"integer"}},required:["count"],additionalProperties:false}});'};
+  const invalid=await runWorkflow({...input,backend:backend(async()=>({value:{count:'PRIVATE_SENTINEL'},terminalObserved:true,evidence:{commands:[{exitCode:0}]}}))});
+  assert.equal(invalid.workers[0].status,'failed');assert.equal(invalid.workers[0].error.code,'RESULT_SCHEMA');
+  assert.deepEqual(invalid.workers[0].evidence,{commands:[{exitCode:0}]});
+  assert.equal(Object.hasOwn(invalid.workers[0],'result'),false);assert.doesNotMatch(JSON.stringify(invalid.workers[0].error),/PRIVATE_SENTINEL/);
+  const retried=await runWorkflow({...input,resume:true,backend:backend(async()=>({value:{count:4},terminalObserved:true}))});
+  assert.equal(retried.status,'completed');assert.equal(retried.attempts,2);
+  const unknown=await runWorkflow({...input,script:input.script.replace('Count','Changed'),resume:true,backend:backend(async()=>({value:{count:5},terminalObserved:false}))});
+  assert.equal(unknown.workers[0].status,'unknown');
+});
+
 test('ordered dispatch respects concurrency and persists results before completed replay', async t => {
   const { runDir, runWorkflow, readRun } = await setup(t);
   let active = 0, peak = 0;

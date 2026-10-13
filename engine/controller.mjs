@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { join, isAbsolute } from 'node:path';
 import { evaluate } from './evaluate.mjs';
 import { parseScript } from './script.mjs';
+import { compileSchema } from './schema.mjs';
 import { fault, diagnostic } from '../foundation/client.mjs';
 export {requestControl,readControl} from './controls.mjs';
 
@@ -27,7 +28,7 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','controls.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  const files = ['controller.mjs','controls.mjs','schema.mjs','settings.mjs','worker-session.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
   return hash(process.version + files.map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
@@ -144,14 +145,16 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     };
     controlTimer=setInterval(()=>{try{applyControls();}catch(error){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();for(const resolve of waiters.splice(0))resolve();}},25);
     const dispatch = async ({ prompt, options = {} }) => {
-      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['id','dependsOn','label','phase','timeoutMs'].includes(key)) || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 120000)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
+      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['id','dependsOn','label','phase','timeoutMs','schema','model','effort','maxAttempts','permissions'].includes(key)) || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 120000)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
+      const compiled=Object.hasOwn(options,'schema')?compileSchema(options.schema):null;
+      if(backend.resolveOptions)options={...options,...backend.resolveOptions(options)};
       if(options.id!==undefined&&(typeof options.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(options.id)||workerIds.has(options.id)))throw fault('AGENT_INPUT','Worker ids must be unique bounded identifiers');
       if(options.dependsOn!==undefined&&(!Array.isArray(options.dependsOn)||options.dependsOn.length>256||options.dependsOn.some(id=>typeof id!=='string'||!workerIds.has(id))||new Set(options.dependsOn).size!==options.dependsOn.length))throw fault('AGENT_INPUT','Dependencies must name distinct earlier workers');
       if (stopped) throw fault('RUN_STOPPED', 'Workflow admission is closed');
       if (sequence >= maxAgents) throw fault('AGENT_LIMIT', 'Workflow agent limit reached');
       const position = sequence++;
       const dependencies=(options.dependsOn??[]).map(id=>workerIds.get(id));
-      chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs ?? 120000, dependencies }));
+      chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs ?? 120000, dependencies, schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null }));
       const prior = oldWorkers[position];
       const worker = { position, key: chain, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
       if(Object.hasOwn(options,'dependsOn'))worker.dependencies=dependencies;
@@ -160,6 +163,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       let settle;settlements.set(position,new Promise(resolve=>{settle=resolve;}));
       if (reuse && prior?.key === worker.key && prior.status === 'completed') {
         if (!Object.hasOwn(prior, 'result') || hash(json(prior.result)) !== prior.resultHash) throw fault('REPLAY_CORRUPT', 'Saved worker result is missing or corrupt');
+        if(compiled&&!compiled.validate(prior.result))throw fault('REPLAY_CORRUPT','Saved worker result violates its schema');
         Object.assign(worker, { status: 'completed', cached: true, result: prior.result, resultHash: prior.resultHash });
         saveWorker(worker);settle(); return worker.result;
       }
@@ -167,25 +171,34 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       saveWorker(worker);
       let acquired = false;
       let dispatched = false;
+      let terminalObserved=false;
       try {
         await Promise.all(dependencies.map(position=>settlements.get(position)));
         if(dependencies.some(position=>currentWorkers.get(position).status!=='completed'))throw Object.assign(fault('DEPENDENCY_FAILED','A prerequisite did not complete successfully'),{notStarted:true});
         await acquire(); acquired = true;
         if (state.attempts >= maxAgents) throw Object.assign(fault('AGENT_LIMIT', 'Lifetime agent attempt limit reached'), { notStarted: true });
-        state.attempts++; worker.status = 'running'; worker.startedAt = new Date().toISOString();
+        state.attempts++; worker.attempts=1; worker.status = 'running'; worker.startedAt = new Date().toISOString();
         saveHeader(); saveWorker(worker);
         dispatched = true;
-        const result = await backend.execute({ prompt, options, position, signal: abort.signal });
+        const reserveRetry=async()=>{
+          if(retiredWrites||abort.signal.aborted)throw fault('RUN_STOPPED','Worker admission is closed');
+          if(state.attempts>=maxAgents)throw fault('AGENT_LIMIT','Lifetime agent attempt limit reached');
+          state.attempts++;worker.attempts++;saveWorker(worker);
+        };
+        const result = await backend.execute({ prompt, options, position, signal: abort.signal, reserveRetry });
         if(retiredWrites)throw fault('RUN_RETIRED','Late worker result cannot change terminal evidence');
         if (!result?.terminalObserved) throw fault('AGENT_UNKNOWN', 'Worker terminal state was not observed');
-        const value = JSON.parse(json(result.value));
-        Object.assign(worker, { status: 'completed', result: value, resultHash: hash(json(value)), completedAt: new Date().toISOString() });
+        terminalObserved=true;
         if (result.evidence) worker.evidence = JSON.parse(json(result.evidence));
+        const value = JSON.parse(json(result.value));
+        if(compiled&&!compiled.validate(value))throw fault('RESULT_SCHEMA','Worker result does not satisfy its declared schema');
+        Object.assign(worker, { status: 'completed', result: value, resultHash: hash(json(value)), completedAt: new Date().toISOString() });
         saveWorker(worker); return value;
       } catch (error) {
         if(retiredWrites)throw error;
-        worker.status = !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted ? 'failed' : 'unknown';
+        worker.status = !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
         worker.error = diagnostic(error);
+        if(error.evidence)worker.evidence=JSON.parse(json(error.evidence));
         if(error.interruption)worker.interruption={terminalObserved:error.interruption.terminalObserved===true,terminalStatus:['completed','failed','interrupted'].includes(error.interruption.terminalStatus)?error.interruption.terminalStatus:null,descendants:'notVerified'};
         saveWorker(worker);
         throw error;
@@ -194,7 +207,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     const call = (method, params) => {
       if (method === 'agent') {
         const work = dispatch(params).catch(error => {
-          if (['AGENT_INPUT','AGENT_LIMIT','REPLAY_CORRUPT','RUN_OWNERSHIP'].includes(error.code)) { fatal ??= error; stopped=true; evaluatorAbort.abort(); abort.abort(); for(const resolve of waiters.splice(0))resolve(); }
+          if (['AGENT_INPUT','AGENT_LIMIT','WORKER_SETTINGS','SCHEMA_INVALID','SCHEMA_UNSUPPORTED','SCHEMA_LIMIT','REPLAY_CORRUPT','RUN_OWNERSHIP'].includes(error.code)) { fatal ??= error; stopped=true; evaluatorAbort.abort(); abort.abort(); for(const resolve of waiters.splice(0))resolve(); }
           throw error;
         });
         calls.add(work); work.then(() => calls.delete(work), () => calls.delete(work));
