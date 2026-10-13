@@ -1,0 +1,1 @@
+{"mcpServers":{"workflow":{"command":"node","args":["${PLUGIN_ROOT}/bin/launch.mjs","mcp"],"env":{"AGENT_WORKFLOW_DATA_DIR":"${PLUGIN_DATA}"}}}}

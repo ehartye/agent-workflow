@@ -7,10 +7,21 @@ Build option 1 from the approved wiki research: a Codex plugin with an owned loc
 - Never evaluate workflow scripts in the host process. Use a separate QuickJS evaluator with JSON-only broker messages and bounded CPU/memory.
 - Fail closed on isolation or schema validation failures. Preserve missing coverage and unknown outcomes. No retry/fallback after uncertain mutating effects.
 - No default-branch commits. Worktrees belong under the sibling `agent-workflow-worktrees` directory.
-- Wiki: `C:/Users/ehart/.wiki-master-vault/wiki/authored/agent-workflow/`. Keep as-built architecture and roadmap current.
-- Ownership during initial build: runtime files belong to the runtime agent; worker files to the workers agent; surfaces/plugin/dashboard/CLI to the surfaces agent. Coordinate API changes before editing another agent's files.
+- The owner's wiki-master vault, under `~/.wiki-master-vault/wiki/authored/agent-workflow/`, owns project intent. Keep its as-built architecture and roadmap current when working with that vault; repository API and verification documents describe shipped behavior.
 
-## Initial integration contracts
+## Testing rules (agent-tests)
+
+- Read `.testing/risk.yml` before changing tests. Its production phase and consumers were confirmed by the owner.
+- One owner per invariant: extend existing coverage before adding tests. Test public inputs, outputs, persistence and process boundaries, rather than private structure or mock calls alone.
+- Add old-format compatibility only for declared obligations. Missing/invalid-input behavior is current behavior.
+- Use port 0 and unique temporary directories; derive paths from the test or repository. Fixture `.git` markers are allowed inside owned temporary repositories. Never write tests into the real home directory.
+- Declare `@lane merge` in the first comment. Add `@subject <repo-relative path>` for subprocess, network or DOM-loaded subjects that imports cannot reveal.
+- Reproduce bugs with failing tests before fixes; check new tests reject a meaningful broken behavior.
+- Run affected test files during edits. Before pushing, run `npm test`, `npm run check` and `npm run smoke`. Release additionally requires `node scripts/check-install.mjs` from a clean package and `npm audit --omit=dev`.
+- Keep full merge coverage: scripts, subprocesses, HTML and recipe files are inputs that import-only selection misses. Lane tags document ownership; they do not select tests automatically.
+- CI verifies Windows on PRs, nightly and release tags. This is the verified deployment platform; Linux/macOS coverage is follow-up work. Required PR checks and tag verification gate publication. Avoid duplicate branch-push jobs.
+
+## Integration contracts
 
 `src/runtime/manager.mjs` exports `RuntimeManager`. Construct with `{ dataDir, backend, workflowsDir? }`. Methods: `start(input) -> Promise<runSnapshot>`, `get(id)`, `list()`, `events(id, since = 0)`, `control(id, action, options = {})`, `approve(id, approvalId, decision)`, `shutdown()`.
 

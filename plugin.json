@@ -1,0 +1,11 @@
+{
+ "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+ "name":"agent-workflow","version":"0.1.0",
+ "description":"Durable scripted Codex workflows with bounded workers, ordered replay and a local control desk.",
+ "author":{"name":"ehartye"},
+ "homepage":"https://github.com/ehartye/agent-workflow",
+ "repository":"https://github.com/ehartye/agent-workflow",
+ "license":"MIT",
+ "keywords":["workflow","agents","replay","dashboard"],
+ "extensions":{"com.openai":{"hooks":"./hooks/hooks.json","onboardingSkill":"./skills/workflow-setup/SKILL.md","interface":{"displayName":"Agent Workflow","shortDescription":"Script, run and inspect durable multi-agent workflows.","longDescription":"An owned local runtime, explicit worker permissions, durable ordered replay and an authenticated local control desk. Native Codex UI and shared turn-token budgets are separate host capabilities.","developerName":"ehartye","category":"Productivity","capabilities":["Read","Write","Interactive"],"defaultPrompt":["Create a workflow to audit my project with independent verification","Show my workflow runs","Enable workflow mode for this session"],"brandColor":"#58D2E8"}}}
+}

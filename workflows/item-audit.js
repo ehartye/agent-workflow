@@ -1,0 +1,13 @@
+export const meta = {name:'item-audit',description:'Audit each item, independently verify every identified finding, and retain missing coverage.',phases:[{title:'Audit'},{title:'Verify'}]};
+const items=args.items;
+if(!Array.isArray(items))throw new Error('args.items must be an array of {id,scope}');
+const auditSchema={type:'object',properties:{findings:{type:'array',items:{type:'object',properties:{id:{type:'string'},statement:{type:'string'},evidence:{type:'array',items:{type:'string'}}},required:['id','statement','evidence'],additionalProperties:false}}},required:['findings'],additionalProperties:false};
+const verdictSchema={type:'object',properties:{verdict:{type:'string',enum:['confirmed','refuted','unverified']},evidence:{type:'array',items:{type:'string'}},reason:{type:'string'}},required:['verdict','evidence','reason'],additionalProperties:false};
+const audits=new Array(items.length).fill(null);
+const verified=await pipeline(items,
+ async(item,original,index)=>{const audit=await agent('Audit this item within the requested scope. Give every concrete finding an ID and read evidence. Do not modify files.\n'+JSON.stringify(original),{label:original.id,phase:'Audit',schema:auditSchema});audits[index]=audit;return audit;},
+ (audit,item,index)=>parallel(audit.findings.map((finding,findingIndex)=>()=>agent('Independently verify ONLY this identified finding against the original scope and actual evidence. Do not assume the audit is correct or treat missing evidence as refutation. Do not modify files.\nItem: '+JSON.stringify(item)+'\nFinding: '+JSON.stringify(finding),{label:item.id+' finding '+(findingIndex+1),phase:'Verify',schema:verdictSchema})))
+);
+const rows=items.map((item,index)=>{const audit=audits[index];const findings=(audit?.findings||[]).map((finding,findingIndex)=>({id:item.id+':'+findingIndex,sourceId:finding.id,finding,verification:verified[index]?.[findingIndex]??null,status:verified[index]?.[findingIndex]?.verdict||'unverified'}));return {id:item.id,audit,findings,status:audit===null?'unverified':findings.some(f=>f.status==='unverified')?'unverified':'completed'};});
+const findings=rows.flatMap(row=>row.findings);
+return {expected:items.length,attempted:items.length,completed:rows.filter(r=>r.status==='completed').length,failed:rows.filter(r=>r.audit===null).length,unverified:rows.filter(r=>r.status==='unverified').length,skipped:0,expectedVerifications:findings.length,completedVerifications:findings.filter(f=>f.verification!==null).length,unverifiedFindings:findings.filter(f=>f.status==='unverified').length,complete:rows.every(r=>r.status==='completed'),rows};
