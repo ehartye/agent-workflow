@@ -1002,6 +1002,9 @@ test("run cannot persist terminal status until a dangling worker has drained", a
   });
   while (!entered || !aborting)
     await new Promise((resolve) => setTimeout(resolve, 10));
+  // Flush queued snapshots before opening the file: Windows readers can block
+  // atomic replacement. The worker remains held at the drain barrier below.
+  await manager.get(run.id);
   const durable = JSON.parse(await readFile(run.snapshotPath, "utf8"));
   try {
     assert.ok(

@@ -7,6 +7,8 @@ import { createManagedBackend } from './backend.mjs';
 import { startBackground } from './background.mjs';
 import { startMonitor } from './monitor-launch.mjs';
 import {monitorData} from './monitor-data.mjs';
+import {parseScript} from './script.mjs';
+import {listWorkflows,resolveWorkflow,saveWorkflow} from './registry.mjs';
 
 const { values } = parseArgs({ options: {
   codex: { type: 'string' }, cwd: { type: 'string' }, script: { type: 'string' },
@@ -19,8 +21,10 @@ const { values } = parseArgs({ options: {
   model:{type:'string'},effort:{type:'string'},'max-attempts':{type:'string'},
   writable:{type:'boolean'},
   patch:{type:'string'},basis:{type:'string'},
+  workflow:{type:'string'},'list-workflows':{type:'boolean'},'read-workflow':{type:'string'},'save-workflow':{type:'string'},validate:{type:'boolean'},command:{type:'boolean'},overwrite:{type:'boolean'},
 } });
 if (values.help) {
+  console.log('Saved definitions: --list-workflows | --read-workflow <[scope:]name> | --save-workflow <[scope:]name> --script <file> [--command] [--overwrite]. Validate: --validate --script <file>. Start a saved definition with --workflow <[scope:]name> instead of --script. Project lookup uses --cwd.');
   console.log('Read a verified complete patch: --patch <worker position> --run <directory> --generation <observed generation> [--basis inputs|base] [--source-generation <prior generation>]. Returns JSON with patch text and SHA-256.');
   console.log('Isolated edits: --writable authorizes workspace-write workers in separate Git worktrees. Default is read-only. Writers require a Git project and a run directory outside it; changes are retained for review.');
   console.log('Restart saved worker and its suffix: --action restart-worker --run <directory> --session <identity> --generation <observed generation> --position <worker position> --attempt <observed attempt> --reconcile <external-effect reconciliation note>\nRead worker evidence: --worker <position> --run <directory> --generation <observed generation> [--source-generation <prior execution generation>]');
@@ -28,6 +32,19 @@ if (values.help) {
   console.log('Start in background: node engine/cli.mjs --codex <native executable> --cwd <project> --script <workflow.js> --run <directory> --session <identity> [--backend mxc] [--args <JSON>]\nWorker defaults: [--model <catalog model>] [--effort <supported effort>] [--max-attempts <1-5>]\nInspect: --status --run <directory>\nPause/stop: --action <pause|stop> --run <directory> --session <identity> --generation <observed generation>\nControl receipt: --control <id> --run <directory>\nResume saved script: --resume --run <directory> --session <identity> [--script <edited workflow.js>]\nUse --foreground for synchronous diagnostics.');
 } else {
   try {
+    const definitionActions=['list-workflows','read-workflow','save-workflow','validate'].filter(key=>values[key]!==undefined);
+    if(definitionActions.length>1||values.workflow&&values.script)throw fault('CLI_INPUT','Choose one definition operation and one script source');
+    if(definitionActions.length){
+      const options={cwd:values.cwd??process.cwd(),command:values.command,overwrite:values.overwrite};let result;
+      if(values['list-workflows'])result=await listWorkflows(options);
+      else if(values['read-workflow'])result=await resolveWorkflow(values['read-workflow'],options);
+      else{
+        if(!values.script)throw fault('CLI_INPUT','Definition save and validation require --script <file>');
+        const script=await readFile(resolve(values.script),'utf8');
+        result=values.validate?{valid:true,...parseScript(script)}:await saveWorkflow(values['save-workflow'],script,options);
+      }
+      console.log(JSON.stringify(result,null,2));
+    }else{
     if (!values.run) throw fault('CLI_INPUT','A run directory is required');
     let run;
     const runDir=resolve(values.run);
@@ -44,7 +61,7 @@ if (values.help) {
     else {
       const input={runDir,sessionId:values.session,resume:values.resume,
         ...(values.codex?{codex:values.codex}:{}),...(values.cwd?{cwd:values.cwd}:{}),...(values.backend?{backend:values.backend}:{}),
-        ...(values.script?{script:await readFile(resolve(values.script),'utf8')}:{}),
+        ...(values.workflow?{script:(await resolveWorkflow(values.workflow,{cwd:values.cwd??process.cwd()})).script}:values.script?{script:await readFile(resolve(values.script),'utf8')}:{}),
         ...(values.args!==undefined?{args:JSON.parse(values.args)}:{}),...(values.concurrency?{concurrency:Number(values.concurrency)}:{}),
         ...(['model','effort','max-attempts','writable'].some(key=>values[key]!==undefined)?{defaults:{...(values.model!==undefined?{model:values.model}:{}),...(values.effort!==undefined?{effort:values.effort}:{}),...(values['max-attempts']!==undefined?{maxAttempts:Number(values['max-attempts'])}:{}),...(values.writable?{permissions:{sandbox:'workspace-write'}}:{})}}:{})};
       if(!values.foreground)console.log(JSON.stringify(await startBackground(input),null,2));
@@ -58,6 +75,7 @@ if (values.help) {
     if(run){
       console.log(JSON.stringify({ status: run.status, generation: run.generation, attempts: run.attempts, acceptingControls:run.acceptingControls,updatedAt:run.updatedAt,coverage: run.coverage, result: run.result, error: run.error, cleanup: run.cleanup }, null, 2));
       process.exitCode = values.status||run.status === 'completed' && run.coverage.complete ? 0 : 1;
+    }
     }
   } catch (error) {
     console.log(JSON.stringify({ status: 'failed', error: diagnostic(error) }, null, 2));
