@@ -42,6 +42,8 @@ Release checks exposed startup-sensitive test deadlines on a busy host: a fixtur
 
 The first hosted Windows CI run exposed two fixture assumptions: a 30 ms fake-worker delay did not guarantee overlap while journal writes ran, and the runner's temporary directory used an 8.3 short spelling while Git returned its long spelling. The concurrency fixture now holds the first pair until both have entered, and the worktree assertion compares real paths. Production concurrency, isolation and timeout behavior are unchanged.
 
+The native installation harness likewise canonicalizes its temporary root so native Codex's long paths compare against the same filesystem locations as Node. Cleanup verifies that canonical root remains under the canonical OS temporary directory.
+
 ## Review boundary
 
 Independent specification review and subsequent code-quality review both passed after corrections. The quality reviewer independently reran six recovery, seven runtime and six service/daemon tests, including shutdown during an actual pending native steering request in about 497 ms. No material findings remained. The final full suite, install check and authenticated parallel/replay run passed after the lifecycle changes.

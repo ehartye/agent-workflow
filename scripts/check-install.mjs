@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -12,7 +12,7 @@ import { request, readService } from '../src/client.mjs';
 import { codexExecutable } from '../src/workers/process.mjs';
 import { openAppServer } from '../src/workers/app-server.mjs';
 import { nativeParentMcp } from './native-parent-mcp.mjs';
-const execute=promisify(execFile);const base=await mkdtemp(path.join(os.tmpdir(),'workflow-fresh-install-'));const cache=path.join(base,'marketplace-source');let launchRoot=cache;const dataDir=path.join(base,'persistent-data');await mkdir(cache);
+const execute=promisify(execFile);const base=await realpath(await mkdtemp(path.join(os.tmpdir(),'workflow-fresh-install-')));const cache=path.join(base,'marketplace-source');let launchRoot=cache;const dataDir=path.join(base,'persistent-data');await mkdir(cache);
 const run=async(script,args=[])=>execute(process.execPath,[path.join(launchRoot,'bin',script),...args],{windowsHide:true,timeout:180000,maxBuffer:1048576,env:{...process.env,PLUGIN_ROOT:launchRoot,PLUGIN_DATA:dataDir,AGENT_WORKFLOW_DATA_DIR:dataDir}});
 try{
  for(const item of [...runtimeEntries,'skills','plugin.json','mcp.json','.mcp.json','.codex-plugin','.agents'])await cp(path.join(pluginRoot,item),path.join(cache,item),{recursive:true});
@@ -45,4 +45,4 @@ try{
  await run('launch.mjs',['shutdown']);for(let i=0;i<100&&await readService(dataDir);i++)await new Promise(resolve=>setTimeout(resolve,30));
  await writeFile(path.join(launchRoot,'ui','style.css'),'\n/* explicit package update */\n',{flag:'a'});await assert.rejects(run('launch.mjs',['doctor']),error=>/Plugin changed/.test(error.stderr));
  process.stdout.write('Isolated native install/onboarding, native cold setup-info call with exact host data, explicit setup and connected production tools, custom-data launch without host env, portable stdio MCP and update boundary verified.\n');
-}finally{try{await request('/api/shutdown',{dataDir,method:'POST',body:{}});}catch{}for(let i=0;i<100&&await readService(dataDir);i++)await new Promise(resolve=>setTimeout(resolve,30));const resolved=path.resolve(base);assert.equal(path.dirname(resolved),path.resolve(os.tmpdir()));await rm(resolved,{recursive:true,force:true});}
+}finally{try{await request('/api/shutdown',{dataDir,method:'POST',body:{}});}catch{}for(let i=0;i<100&&await readService(dataDir);i++)await new Promise(resolve=>setTimeout(resolve,30));const resolved=path.resolve(base);assert.equal(path.dirname(resolved),await realpath(os.tmpdir()));await rm(resolved,{recursive:true,force:true});}
