@@ -12,4 +12,4 @@ Keep previous worker rows immutable. Replacement workers carry references to ear
 - [x] Monitor preview/reconciliation, restart and earlier-attempt inspection.
 - [x] Real cancelled worker restarts once under managed subscription auth; retained history and zero duplicate start verified.
 - [x] Independent review, affected/full checks and wiki updates. Native report retained; full suite 265/265 plus package check and smoke passed. Pause fixture race replaced with an explicit gate.
-- [ ] Feature checkpoint, then continue writable workspaces and release integration.
+- [x] Feature checkpoint pushed as `f6262ad`; continued with the writable-workspaces plan. Release integration remains part of the active goal.
