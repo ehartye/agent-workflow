@@ -41,7 +41,7 @@ export async function openAppServer({ executable, args = [], cwd, env, emit, sig
     if (signal?.aborted) abort();
     await emit({ type: 'process', pid: processHandle.child.pid });
     if (processHandle.child.pid) void emitProcessIdentity(processHandle.child.pid, emit);
-    await rpc('initialize', { clientInfo: { name: 'agent_workflow', title: 'Agent Workflow', version: '0.1.0' } });
+    await rpc('initialize', { clientInfo: { name: 'agent_workflow', title: 'Agent Workflow', version: '0.1.1' } });
     send({ method: 'initialized', params: {} });
   } catch (error) { error.outcome = 'not-started'; await processHandle.stop(); throw error; }
   finally { clearTimeout(connectTimer); }

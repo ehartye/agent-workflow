@@ -1,4 +1,6 @@
 /** @lane merge
+ * @subject src/workers/process.mjs
+ * @subject src/workers/codex.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -91,11 +93,12 @@ for (const transport of ['app-server', 'exec']) {
     const messages = [];
     let record;
     processTools.readLines(handle.child.stdout, message => { messages.push(message); if (message.type === 'owned') record = message.record; }, error => { throw error; });
-    t.after(async () => { if (record && await processTools.readProcessIdentity(record.pid)) await processTools.recoverOrphan(record); await handle.stop(); });
+    t.after(async () => { if (!messages.some(message=>message.type==='drained') && record && await processTools.readProcessIdentity(record.pid)) await processTools.recoverOrphan(record); await handle.stop(); });
     const timer = setTimeout(() => { void handle.stop(); }, 15000);
     const result = await handle.closed; clearTimeout(timer);
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(messages.find(message => message.type === 'caught'), { type: 'caught', code: 'DRAIN_FAILED', outcome: 'unknown', usageObserved: false });
     assert(record?.processIdentity?.startIdentity);
+    assert.deepEqual(messages.find(message=>message.type==='drained'),{type:'drained',pid:record.pid},'Harness must report verified drain before its parent skips fallback cleanup');
   });
 }

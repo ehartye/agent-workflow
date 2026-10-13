@@ -23,6 +23,9 @@ try {
   send({ type: 'caught', code: error.code, outcome: error.outcome, usageObserved: error.usage?.observed });
 } finally {
   process.env.SystemRoot = actualSystemRoot;
-  if (record) await recoverOrphan(record);
+  if (record) {
+    const cleanup=await recoverOrphan(record);
+    if(cleanup.drained===true)send({type:'drained',pid:record.pid});
+  }
   await backend.shutdown();
 }

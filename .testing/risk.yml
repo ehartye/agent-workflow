@@ -43,6 +43,9 @@ areas:
   - path: src/mcp.mjs
     tier: critical
     why: Published MCP callers depend on the control and onboarding contracts.
+  - path: src/presentation.mjs
+    tier: critical
+    why: Bounded evidence and approval previews must preserve public observation semantics.
   - path: src/paths.mjs
     tier: critical
     why: Data directories must remain isolated and reject unsafe paths.

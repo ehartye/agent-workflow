@@ -1,6 +1,10 @@
 # Test audit and strategy
 
-Agent-tests 0.3.2 audited the v0.1.0 release using its checked managed runtime. The owner confirmed production, consumers of plugin installs, saved workflows/commands, persisted runs and MCP, and the tiers in [.testing/risk.yml](../.testing/risk.yml). No legacy format migration is promised before this first release. Preserve these consumers when changing subsequent versions.
+Agent-tests 0.3.2 audited the v0.1.0 release and the v0.1.1 monitor change using its checked managed runtime. The owner confirmed production, consumers of plugin installs, saved workflows/commands, persisted runs and MCP, and the tiers in [.testing/risk.yml](../.testing/risk.yml). Preserve these consumers when changing versions. The compact client's older-supervisor path protects an actual installed 0.1.0 controller; it does not replace the matching immutable runtime required by stored runs.
+
+The monitor reassessment inventories 18 files with no missing tiers, shim or wiring findings. Keep the seven observation cases and 14 dashboard cases: they own bounded authenticated response/CLI contracts and actual HTML/app behavior, respectively. They caught real oversized metadata, lost journal ranges, hidden recovered failures and misleading resume controls. Shared-subject findings on existing manager/transport/integration files retain the earlier keep verdicts; their seams differ. The two `.git` warnings remain unique temporary repository fixtures. Windows PR execution remains the approved verified-target exception. No tests are removed, merged, demoted or quarantined.
+
+A full Windows run exposed a cleanup race in the drain-failure test fixture: its harness had already verified and killed the child, while the parent attempted recovery again. The harness now reports its verified drain receipt; the parent asserts that receipt before skipping fallback cleanup. Production orphan recovery remains unchanged and still rejects absent roots. The observed-red receipt assertion, both transport fixtures and the subsequent full **139-test** run pass. The full run took 37.6 seconds on this host; it is one observation, not a statistical flakiness or speed claim. Clean native installation, package checks, smoke and production audit also pass. Browser rendering remains unverified without an attached surface.
 
 ## Verdicts
 

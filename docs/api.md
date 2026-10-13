@@ -30,6 +30,12 @@ Service metadata is `service.json` in selected persistent data. It has URL, loca
 | `/api/runs` | GET / POST | Full snapshots / durable admission |
 | `/api/runs/:id` | GET | Full snapshot |
 | `/api/runs/:id/events?since=N` | GET | Full events after sequence cursor |
+| `/api/runs?view=summary` | GET | Bounded run summaries, no raw histories/prompts |
+| `/api/runs/:id?view=summary` | GET | Status/counts/coverage, first 30 workers and 10 approvals |
+| `/api/runs/:id?view=monitor` | GET | Live monitor fields, up to 1,000 worker summaries, bounded result and arguments |
+| `/api/runs/:id/workers/:workerId` | GET | Deliberate full worker record and evidence paths |
+| `/api/runs/:id/events?view=compact&since=N&limit=L` | GET | Bounded event previews, nextCursor/hasMore/total; L 1–100, default 50 |
+| `/api/runs/:id/events/:sequence` | GET | Deliberate full individual event |
 | `/api/runs/:id/result` | GET | Status/result/error/workers/usage |
 | `/api/runs/:id/script` | GET | Recorded editable script and path; bounded/no symlinks |
 | `/api/runs/:id/control` | POST | `{action,options}` forwarded to manager |
@@ -40,6 +46,8 @@ Service metadata is `service.json` in selected persistent data. It has URL, loca
 | `/api/shutdown` | POST | Drain and close supervisor |
 
 Dashboard assets use a restrictive same-origin CSP, no external scripts/fonts, no framing, no-referrer, and no-store. Dynamic evidence is inserted as text rather than HTML.
+
+Summary labels and phase details bound every accepted JSON value, including structured metadata. Previews expose omission and original character count; the full routes preserve original values. The monitor reports retained completed tool-call failures as `toolFailures` and `lastToolFailure` (type, sequence and bounded message), separately from the worker's actual status. A tool error followed by recovery does not imply the worker failed. Routine dashboard polling never requests raw journal or full worker bodies. Deliberate full observations carry timestamps and explicit refresh controls. Journal paging tracks fetched ranges so a large live jump cannot hide intervening evidence. These views add to the full API rather than replacing it.
 
 ## MCP stdio
 
