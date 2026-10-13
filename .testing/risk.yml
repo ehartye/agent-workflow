@@ -31,6 +31,9 @@ lanes:
     os:
       - windows
 areas:
+  - path: engine/**
+    tier: critical
+    why: Fresh workflow isolation, dispatch and persisted replay protect execution and user data.
   - path: foundation/**
     tier: critical
     why: Fresh Codex admission, authentication and execution boundary must fail closed.

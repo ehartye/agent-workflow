@@ -1,5 +1,21 @@
 # Test audit and strategy
 
+## Fresh engine reassessment
+
+The checked agent-tests 0.3.2 runtime inventories 23 files. The owner-approved critical runtime tier extends to `engine/**`. This delta audit inspected all three new files and their subjects. The 20 unchanged files retain their preceding verdicts; five unflagged existing files remain kept without reopening. New coverage uses real QuickJS children and temporary SQLite databases, with a deterministic backend fake. Explicit native acceptance separately owns actual Codex behavior.
+
+| File | Tier | Verdict | Evidence | Estimated agent tokens | Churn/edits |
+|---|---|---|---|---:|---|
+| engine-controller.test.mjs | critical | keep | Ordered dispatch, concurrency, durable replay, changed timeout/failure suffixes, ownership and corrupt/unknown records. `worktree.fixed-db-file` is a false positive: each database is beneath a unique `mkdtemp` run directory. | 1,458 | 0/0 |
+| engine-evaluator.test.mjs | critical | keep | Actual isolated child proves pipeline independence, ordered null slots, forbidden host/import/clock access and bounded failing evaluation. | 689 | 0/0 |
+| engine-policy.test.mjs | critical | keep | Effective capability rejection, disabled versus active MCP inventory, safe keyed overrides and stable backend identity. | 697 | 0/0 |
+
+All 13 new cases passed. The full suite passed **175/175** in one 41.0-second Windows run; package check and offline smoke passed. Independent review found no remaining important/critical issue for this slice. Native acceptance passed two exact file reads and replay with zero further worker dispatches. One prior native attempt failed admission before inference without sufficient stage detail; the backend now retains admission diagnostics. No claim of statistical reliability follows from these runs.
+
+No risk-map or wiring gaps were reported. Existing shared-subject and temporary `.git` findings retain prior verdicts; the Windows PR exception remains. No deletion, merger, demotion or quarantine: tokens removed 0, edit-lane demotions 0. CI cost, statistical flakiness and other operating systems remain unmeasured.
+
+Keep direct selection of the three engine files during edits, adding foundation files when transport changes. Time: approximately 1.5 seconds for the observed engine check, with full checks at merge. Risk: the native canary protects the real integration boundary that fakes cannot prove. Complexity: no new test-selection framework. Best practice: one owner per protocol, isolation, persistence and policy seam. Maintainability: the fresh engine has no released-runtime imports; its tests can survive removal of that architecture.
+
 ## Fresh foundation reassessment
 
 Agent-tests 0.3.2's checked runtime inventories 20 test files after the independent foundation work. The existing owner-approved production/consumer map applies; `foundation/**` has the same critical auth/execution tier as the worker boundary it will replace. The new tests are merge-lane subprocess contracts, not model calls. The scoped reassessment reads both new files and the existing flagged temporary `.git` fixtures; unchanged release files retain the prior audit below, rather than claiming another fresh review of every legacy seam.
