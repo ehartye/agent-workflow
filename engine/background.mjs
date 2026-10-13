@@ -8,11 +8,17 @@ import {parseScript} from './script.mjs';
 import {createLaunch} from '../foundation/launch.mjs';
 import {fault,diagnostic} from '../foundation/client.mjs';
 import {restartPlan} from './restart.mjs';
+import {resolveDeadlines} from './deadlines.mjs';
+import {validateCapturePolicy} from './workspace-policy.mjs';
 
 export async function startBackground(input,{runnerPath=fileURLToPath(new URL('./background-child.mjs',import.meta.url)),startupMs=60000}={}){
   if(!isAbsolute(input.runDir??'')||typeof input.sessionId!=='string'||!input.sessionId||!Number.isFinite(startupMs)||startupMs<=0)throw fault('BACKGROUND_INPUT','Provide an absolute run directory and originating session');
   const previous=input.resume?await readRun(input.runDir):null;
   if(previous&&previous.sessionId!==input.sessionId)throw fault('REPLAY_SESSION','Run belongs to another originating session');
+  if(previous&&input.capturePolicy!==undefined)throw fault('CAPTURE_POLICY_OVERRIDE','Saved runs retain their original capture policy; start a new run to change it');
+  const policyValue=previous?.launch?.capturePolicy??input.capturePolicy;
+  const frozenPolicy=policyValue===undefined?null:validateCapturePolicy(policyValue);
+  if(previous&&frozenPolicy&&previous.launch.capturePolicyHash!==frozenPolicy.policyHash)throw fault('WORKSPACE_INPUT','Saved capture policy identity is inconsistent');
   if(input.expectedGeneration!==undefined&&previous?.generation!==input.expectedGeneration)throw fault('REPLAY_GENERATION','Run generation changed; refresh before resuming');
   if(input.restart!==undefined){
     if(!input.resume||!Number.isInteger(input.expectedGeneration))throw fault('RESTART_INPUT','Restart requires explicit resume and the observed generation');
@@ -21,11 +27,12 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   if(previous&&(!previous.launch||input.restart===undefined&&(previous.cleanup?.serverExited!==true||['running','pausing','stopping','finishing'].includes(previous.status)||previous.workers.some(worker=>['running','unknown'].includes(worker.status)))))throw fault('REPLAY_UNKNOWN','Run launch context or completed execution is not verified');
   if(input.defaults!==undefined&&(!input.defaults||typeof input.defaults!=='object'||Array.isArray(input.defaults)))throw fault('BACKGROUND_INPUT','Worker defaults must be an object');
   const launch={codex:input.codex??previous?.launch.codex,cwd:input.cwd??previous?.launch.cwd,backend:input.backend??previous?.launch.backend??'configured',defaults:{...previous?.launch.defaults,...input.defaults}};
+  if(frozenPolicy)Object.assign(launch,{capturePolicy:frozenPolicy.policy,capturePolicyHash:frozenPolicy.policyHash});
   const native=createLaunch({executable:launch.codex,cwd:launch.cwd,backend:launch.backend});
   launch.cwd=native.cwd;
   const request={runDir:input.runDir,sessionId:input.sessionId,script:input.script??previous?.script,
     args:Object.hasOwn(input,'args')?input.args:previous?.args??null,concurrency:input.concurrency??previous?.concurrency??2,
-    maxAgents:input.maxAgents??previous?.maxAgents??1000,resume:input.resume===true,launch,...(input.expectedGeneration===undefined?{}:{expectedGeneration:input.expectedGeneration}),...(input.restart===undefined?{}:{restart:input.restart})};
+    maxAgents:input.maxAgents??previous?.maxAgents??1000,...resolveDeadlines(input,previous??{}),resume:input.resume===true,launch,...(input.expectedGeneration===undefined?{}:{expectedGeneration:input.expectedGeneration}),...(input.restart===undefined?{}:{restart:input.restart})};
   parseScript(request.script);
   const serialized=JSON.stringify(request);
   if(Buffer.byteLength(serialized)>2*1024*1024)throw fault('BACKGROUND_INPUT','Background request exceeded its limit');

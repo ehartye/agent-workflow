@@ -10,7 +10,16 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import {installRuntime,bindRun} from '../bin/managed-runtime.mjs';
+import {parseCommand} from '../bin/arguments.mjs';
 const execute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
+
+test('public CLI accepts explicit run and worker deadlines for starts and resumes',()=>{
+ for(const command of ['run','resume']){
+  const parsed=parseCommand([command,'demo','--session','s','--run-timeout-ms','7200000','--worker-timeout-ms','1800000']);
+  assert.equal(parsed.values['run-timeout-ms'],'7200000');assert.equal(parsed.values['worker-timeout-ms'],'1800000');
+ }
+ assert.throws(()=>parseCommand(['status','demo','--run-timeout-ms','7200000']),/not valid/);
+});
 test('public launcher selects the run-pinned runtime after upgrade and refuses foreign-session control',async t=>{
  const temp=await mkdtemp(join(tmpdir(),'workflow-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));const pluginRoot=join(temp,'plugin'),dataDir=join(temp,'data');await mkdir(pluginRoot);
  for(const name of ['bin','engine','foundation','workflows','hooks','skills'])await mkdir(join(pluginRoot,name));
@@ -31,5 +40,7 @@ test('public launcher selects the run-pinned runtime after upgrade and refuses f
  await assert.rejects(invoke(['run','demo','--codex','unowned']),e=>/unknown option/i.test(e.stderr));
  await assert.rejects(invoke(['dashboard',bound.id],{CODEX_THREAD_ID:'other'}),e=>/session/i.test(e.stderr));
  assert.equal(JSON.parse((await invoke(['--data-dir',dataDir,'dashboard'],{CODEX_THREAD_ID:'origin'})).stdout).marker,'first');
+ assert.equal(JSON.parse((await invoke(['dashboard',bound.id,'--current-ui'],{CODEX_THREAD_ID:'origin'})).stdout).marker,'second');
+ await assert.rejects(invoke(['dashboard',bound.id,'--current-ui'],{CODEX_THREAD_ID:'other'}),e=>/session/i.test(e.stderr));
  assert.match((await invoke(['help'])).stdout,/dashboard/);
 });

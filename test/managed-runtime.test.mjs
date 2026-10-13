@@ -1,5 +1,6 @@
 /** @lane merge
  * @subject bin/managed-runtime.mjs
+ * @subject engine/monitor-adapters.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -56,4 +57,61 @@ test('runtime identity rejects modified transitive JavaScript and native sidecar
 test('CLI and host hooks share the same default state despite host-only plugin data variables',()=>{
  const base=join(tmpdir(),'workflow-default-data');assert.equal(defaultDataDir({LOCALAPPDATA:base,PLUGIN_DATA:join(base,'host-only')}),defaultDataDir({LOCALAPPDATA:base}));
  assert.equal(defaultDataDir({LOCALAPPDATA:base,AGENT_WORKFLOW_DATA_DIR:join(base,'explicit')}),join(base,'explicit'));
+});
+
+test('session adapters retain exact runtime controls and isolate navigation, visibility and receipts by session/run',async t=>{
+ const {createSessionServices}=await import('../engine/monitor-adapters.mjs');
+ const {DatabaseSync}=await import('node:sqlite');
+ const f=await fixture(t);
+ // Windows CI may supply an 8.3 TEMP alias. A differently cased spelling also
+ // reproduces realpath changing the namespace retained in runtime records.
+ if(process.platform==='win32')f.dataDir=join(f.root,'DATA');
+ await writeFile(join(f.pluginRoot,'engine','monitor-data.mjs'),`import {readFile} from 'node:fs/promises';import {join} from 'node:path';export async function monitorData(runDir){return JSON.parse(await readFile(join(runDir,'snapshot.json'),'utf8'));}`);
+ const control=marker=>`import {appendFile} from 'node:fs/promises';import {join,basename} from 'node:path';export async function requestControl(runDir,input){await appendFile(join(runDir,'controls-observed.jsonl'),JSON.stringify(input)+'\\n');return{marker:${JSON.stringify(marker)},runId:basename(runDir),action:input.action};}`;
+ await writeFile(join(f.pluginRoot,'engine','controls.mjs'),control('first'));
+ await writeFile(join(f.pluginRoot,'engine','background.mjs'),`export async function startBackground(input){return{marker:'first',runDir:input.runDir};}`);
+ const first=await installRuntime(f),one=await bindRun({dataDir:f.dataDir,runtime:first,sessionId:'origin'}),foreign=await bindRun({dataDir:f.dataDir,runtime:first,sessionId:'other'});
+ await writeFile(join(f.pluginRoot,'engine','controls.mjs'),control('second'));
+ const second=await installRuntime(f),two=await bindRun({dataDir:f.dataDir,runtime:second,sessionId:'origin'});
+ for(const owner of [one,two,foreign]){
+  const state={version:1,sessionId:owner.sessionId,generation:1,runtimeIdentity:'d'.repeat(64),meta:{name:owner.id},status:'running',acceptingControls:true,workerCount:0,workers:[],attempts:0,coverage:{unknown:0},createdAt:owner.createdAt};
+  await writeFile(join(owner.runDir,'snapshot.json'),JSON.stringify(state));
+  const db=new DatabaseSync(join(owner.runDir,'run.sqlite'));db.exec('CREATE TABLE header(id INTEGER PRIMARY KEY,value TEXT); CREATE TABLE workers(generation INTEGER,position INTEGER,value TEXT,PRIMARY KEY(generation,position)); CREATE TABLE controls(id TEXT PRIMARY KEY,generation INTEGER,value TEXT);');db.prepare('INSERT INTO header VALUES(1,?)').run(JSON.stringify(state));db.close();
+ }
+ const linkedData=join(f.root,'linked-data');await symlink(f.dataDir,linkedData,process.platform==='win32'?'junction':'dir');
+ await assert.rejects(createSessionServices({dataDir:linkedData,sessionId:'origin',pinnedRunId:two.id}),/linked/i);
+ const {binding,services}=await createSessionServices({dataDir:f.dataDir,sessionId:'origin',pinnedRunId:two.id});
+ assert.equal(binding.pinnedRunId,two.id);assert.equal(binding.runtimeId,second.id);
+  const {startMonitor}=await import('../engine/monitor-launch.mjs');const monitor=await startMonitor(two.runDir,{binding});
+  const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token'),headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+  try{
+   const response=await fetch(url.origin+'/api/run',{headers});assert.equal(response.status,200);const observed=await response.json();
+   assert.equal(observed.monitor.capabilities.sessionNavigation,true);assert.equal(observed.monitor.capabilities.lifecycle,true);assert.equal(observed.monitor.run.runtimeId,second.id);
+   const page=await(await fetch(url.origin+'/api/session/runs',{headers})).json();assert.equal(page.items.length,2);
+   const receipt=await fetch(url.origin+`/api/runs/${one.id}/control`,{method:'POST',headers,body:JSON.stringify({generation:1,action:'stop',target:{dataInstanceId:binding.dataInstanceId,runId:one.id,runtimeId:first.id,generation:1}})});
+   assert.equal(receipt.status,202);assert.equal((await receipt.json()).marker,'first');
+   const lifecycleTarget={dataInstanceId:binding.dataInstanceId,runId:two.id,runtimeId:second.id,generation:1};
+   const hidden=await fetch(url.origin+`/api/runs/${two.id}/lifecycle`,{method:'POST',headers,body:JSON.stringify({action:'hide',runTarget:lifecycleTarget,target:{kind:'run'},generation:1,expectedRevision:0,requestId:'http-hide'})});
+   assert.equal(hidden.status,202);const saved=await hidden.json();assert.equal(saved.receipt.runId,two.id);assert.equal(saved.receipt.outcome,'applied');
+   const inspected=await fetch(url.origin+`/api/runs/${two.id}/lifecycle/receipts/http-hide`,{headers});assert.equal(inspected.status,200);assert.equal((await inspected.json()).receipt.id,'http-hide');
+   const restored=await fetch(url.origin+`/api/runs/${two.id}/lifecycle`,{method:'POST',headers,body:JSON.stringify({action:'restore',runTarget:lifecycleTarget,target:{kind:'run'},generation:1,expectedRevision:1,requestId:'http-restore'})});assert.equal(restored.status,202);
+  }finally{await fetch(url.origin+'/api/close',{method:'POST',headers,body:'{}'});}
+ const page=await services.listSessionRuns({limit:100,cursor:null,includeHidden:false});assert.deepEqual(new Set(page.items.map(item=>item.ref.runId)),new Set([one.id,two.id]));
+ const firstSnapshot=await services.readRun({runId:one.id}),target={...firstSnapshot.experience.run,generation:1};
+ assert.equal(target.runtimeId,first.id);assert.equal(firstSnapshot.lifecycle.available,true);
+ assert.deepEqual(await services.controlRun({target,action:'stop'}),{marker:'first',runId:one.id,action:'stop'});
+ const secondSnapshot=await services.readRun({runId:two.id});assert.equal((await services.controlRun({target:{...secondSnapshot.experience.run,generation:1},action:'pause'})).marker,'second');
+ await assert.rejects(services.controlRun({target:{...target,runtimeId:second.id},action:'stop'}),{code:'MONITOR_TARGET'});
+ await assert.rejects(services.controlRun({target:{...target,generation:2},action:'stop'}),{code:'REPLAY_GENERATION'});
+ await assert.rejects(services.readRun({runId:foreign.id}),/session/i);
+ const hidden=await services.lifecycle({action:'hide',runTarget:target,generation:1,expectedRevision:0,requestId:'hide-first',target:{kind:'run'}});assert.equal(hidden.receipt.outcome,'applied');
+ const filtered=await services.listSessionRuns({limit:100,includeHidden:false});assert.equal(filtered.hiddenCount,1);assert.deepEqual(filtered.items.map(item=>item.ref.runId),[two.id]);
+ assert.equal((await services.listSessionRuns({limit:100,includeHidden:true})).items.length,2);
+ assert.equal((await services.readLifecycleReceipt({runId:one.id,receiptId:'hide-first'})).receipt.id,'hide-first');
+ await assert.rejects(services.readLifecycleReceipt({runId:two.id,receiptId:'hide-first'}),{code:'LIFECYCLE_MISSING'});
+ assert.equal((await services.readRun({runId:one.id})).status,'running');
+ const before=await readFile(join(one.runDir,'controls-observed.jsonl'),'utf8');
+ await writeFile(join(first.path,'engine','controls.mjs'),control('tampered'));
+ await assert.rejects(services.controlRun({target,action:'stop'}),/digest|integrity|changed/i);
+ assert.equal(await readFile(join(one.runDir,'controls-observed.jsonl'),'utf8'),before);
 });

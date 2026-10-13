@@ -1,6 +1,6 @@
 # Candidate boundaries
 
-The 0.2.0 candidate implements the fresh engine through CLI and dashboard. Full Ultracode parity remains an acceptance objective; the [ledger](codex-parity.md) records open work. Features from 0.1.1 are not implicitly inherited.
+The 0.3.0 runtime implements the engine through CLI and dashboard. Full Ultracode parity remains an acceptance objective; the [ledger](codex-parity.md) records open work. Features from 0.1.1 are not implicitly inherited.
 
 | Area | Current behavior and limit |
 | --- | --- |
@@ -9,7 +9,7 @@ The 0.2.0 candidate implements the fresh engine through CLI and dashboard. Full 
 | Background execution | Detached local runner and SQLite persistence require the machine, account and runtime to remain available. No hosted execution or cloud restoration promise. |
 | Usage/budget | Observed per-thread usage and retained cumulative attempts are evidence. No hard shared parent budget, dollar cap or provider-cache equivalence. Run-level quota waiting and stall retry policy remain open; legacy quota/budget flags do not apply. |
 | Concurrency | Default 2, explicit 1–256; at most 4,096 collection entries and 1,000 lifetime attempts. These bounds are not large-scale throughput acceptance. |
-| Evaluator | Separate QuickJS child, JSON-only broker, bounded memory/CPU/wall time; no filesystem, shell, imports, host tools or clock/random access. General native process isolation under the same OS account is a separate boundary. |
+| Evaluator | Separate QuickJS child, JSON-only broker, bounded memory/CPU and a no-pending-work idle watchdog; overall wall deadline is optional. No filesystem, shell, imports, host tools or clock/random access. General native process isolation under the same OS account is a separate boundary. |
 | Worker permissions | Read-only/no-network/never-approve by default. Explicit authorized writers use Windows MXC worktrees. Broader network access and interactive approvals are unavailable. |
 | External tools | Child configuration disables inherited MCP, plugins/apps/hooks, notification commands, browser/computer tools, web search and nested agents. Research recipes only inspect accessible evidence. |
 | Writer integration | Each writer begins from captured source inputs in its own worktree. Dependencies schedule workers but do not transfer edits. Patches remain for reviewed integration; no automatic merge/publication. |
@@ -20,6 +20,12 @@ The 0.2.0 candidate implements the fresh engine through CLI and dashboard. Full 
 | Installation | Explicit setup selects fingerprinted immutable runtimes outside cache. Exact run IDs retain old runtime ownership. Fresh SQLite and legacy JSON data remain separate; no automatic migration. |
 | Mode/trust | Session/project routing is opt-in and grants no permissions. Host acceptance/trust of the prompt hook is separate from runtime setup and CLI correctness. |
 | Platform | Local Windows MXC is the verified writer platform. SSH verification is deferred. Other platform guarantees require their own acceptance evidence. |
+
+Worker prerequisite guidance now covers Windows executable selection, explicit offline package caches and Playwright cache discovery. Follow-up work is a coordinator-visible prerequisite report before dispatch, reusable authorized installation instructions, and explicit toolchain-path capture for later dashboard resume. These are roadmap items; the runtime does not automatically install dependencies or repair worker environments. A prerequisite failure pauses dependent execution while independent authorized authoring/review can continue.
+
+Default workspace capture includes all worker outputs, including ignored `node_modules` and `dist` files, so worker-edited ignore rules cannot hide effects. It is bounded at 20,000 files, 128 MiB of captured file bytes and 32 MiB per diff. In the Tidepool case study an authorized dependency installation/build added 4,097 untracked files totaling 188,632,310 bytes and exceeded the byte limit. Native completion and clean drain did not repair its unknown artifact outcome. Capture errors retain the failing stage and sanitized cause in `workspaceError.capture`; partial artifacts remain on disk. New runs can now use an explicit coordinator-owned [immutable capture policy](session-delivery.md#explicit-writer-capture-policy). Exclusions cannot cover tracked or assigned protected outputs. Their bounded inventory verifies omitted metadata, not excluded payload contents, and cannot retrospectively repair earlier captures.
+
+Visibility is reversible and preserves execution truth. Destructive retirement requires reviewed plans, complete identity/integrity/drain evidence and a retained runtime declaring the retirement guard. Earlier immutable runtimes cannot be pruned through a new presentation. Typed task reports and artifact claims remain unverified without authoritative acceptance receipts; this release provides no authenticated task-acceptance service.
 
 ## Windows boundary evidence
 

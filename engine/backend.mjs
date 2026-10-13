@@ -9,6 +9,7 @@ import {buildJobHost} from '../foundation/windows-job.mjs';
 import { createLaunch, assertChatgptLogin } from '../foundation/launch.mjs';
 import { assertManagedChatgpt, probe } from '../foundation/probe.mjs';
 import { runWorkerSession } from './worker-session.mjs';
+import {DEFAULT_WORKER_TIMEOUT_MS} from './deadlines.mjs';
 import { createSettings } from './settings.mjs';
 import {steerTurn} from '../foundation/turn.mjs';
 import { restrictLaunch, assertRestricted, assertDisabledInventory, fingerprint } from './policy.mjs';
@@ -73,7 +74,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost}){
     const settings=createSettings({catalog,config:config.config,defaults});
     const activeWorkers=new Map();
     const connections=new Set(),cleanupHistory=[];let closing=false,closePromise;
-    const identity = fingerprint({ version, cwd: launch.cwd, backend, account, config: config.config, defaults:settings.resolve(), layers: config.layers.filter(layer => !layer.disabledReason).map(layer => layer.config) });
+    const identity = fingerprint({ version, cwd: launch.cwd, backend, account, config: config.config, defaults:settings.resolve(),playwrightBrowsersPath:launch.env.PLAYWRIGHT_BROWSERS_PATH??null, layers: config.layers.filter(layer => !layer.disabledReason).map(layer => layer.config) });
     const setupCleanup=await client.close();
     if(!setupCleanup.serverExited)throw fault('SETUP_CLEANUP','Configuration server did not confirm termination');
     return {
@@ -105,7 +106,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost}){
           const thread = await workerClient.request('thread/start', {
             cwd:workerCwd,approvalPolicy:'never',sandbox:'read-only',...policy?.thread,ephemeral:true,modelProvider:'openai',
             model:effective.model,config:{...policy?.thread.config,model_reasoning_effort:effective.effort},
-            developerInstructions: `${writing?'You are an isolated writer. Edit and validate only inside your assigned worktree. Do not commit, merge, change Git metadata or create filesystem links. Your changes will be retained for review.':'You are a read-only workflow worker.'} Complete only your assigned task. Do not launch another agent-workflow runtime. Do not delegate. Stop and report a command startup failure without retrying it. The workflow coordinator owns orchestration.`,
+            developerInstructions: `${writing?'You are an isolated writer. Edit and validate only inside your assigned worktree. Do not commit, merge, change Git metadata or create filesystem links. Your changes will be retained for review.':'You are a read-only workflow worker.'} Complete only your assigned task. Do not launch another agent-workflow runtime. Do not delegate. If a command cannot start or a prerequisite check fails, report the blocked command, executable or cache path, and observed evidence. Pause only work that depends on that prerequisite; continue independent authorized authoring or review within your assigned scope. A command that launched and exited nonzero was executed and may have changed files; describe it as notStarted only when tool evidence explicitly confirms no process began. Never automatically retry or use a fallback after uncertain or potentially mutating effects; the coordinator must reconcile them first. Do not weaken sandbox or execution policy, change global configuration, or automatically install missing prerequisites. Use only explicitly authorized installation steps and coordinator-verified executable/cache paths; otherwise leave dependent build, test or rendering to the coordinator and disclose missing verification. The workflow coordinator owns orchestration.`,
           });
           if(writing)assertWriterThread(thread,workerCwd);
           if (thread.modelProvider !== 'openai' || thread.approvalPolicy !== 'never' || !writing&&(thread.sandbox?.type !== 'readOnly'||thread.sandbox.networkAccess!==false) || typeof thread.thread?.id !== 'string') throw fault('THREAD_POLICY', 'Worker thread did not confirm the required provider and permissions');
@@ -115,7 +116,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost}){
           assertDisabledInventory(tools);
           if (signal?.aborted) throw fault('RUN_STOPPED', 'Workflow admission is closed');
           started = true;
-          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? 120000, signal, schema:options.schema,settings:effective,execution:policy?.turn,reserveRetry,onEvent,onActive:identity=>{activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
+          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? DEFAULT_WORKER_TIMEOUT_MS, signal, schema:options.schema,settings:effective,execution:policy?.turn,reserveRetry,onEvent,onActive:identity=>{activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
           result.evidence.settings=effective;
           return result;
         } catch (error) {primary=error;if (!started) error.notStarted = true; throw error; }

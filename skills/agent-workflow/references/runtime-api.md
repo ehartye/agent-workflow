@@ -2,7 +2,9 @@
 
 The first statement is `export const meta = {name: '...', description: '...'};` using bounded JSON literals. Both strings must be nonempty; name is at most 200 characters. Scripts are at most 1 MiB. Additional imports/exports are refused. The remaining async body supports top-level return in a separate QuickJS process.
 
-Use only agent, parallel, pipeline, phase, log, JSON args and deterministic JavaScript. Omitted args are null. The evaluator has no Node, filesystem, shell, network or host tools; workers perform authorized external work. Clock/random calls are refused; supply timestamps/seeds in args. Results must be JSON. A 32 MiB heap, 512 KiB stack, CPU interrupts and wall deadline bound evaluation.
+Use only agent, parallel, pipeline, phase, log, JSON args and deterministic JavaScript. Omitted args are null. The evaluator has no Node, filesystem, shell, network or host tools; workers perform authorized external work. Clock/random calls are refused; supply timestamps/seeds in args. Results must be JSON. A 32 MiB heap, 512 KiB stack and 1-second CPU slices bound guest execution. With no outstanding broker calls, 5 seconds without progress terminates a deadlocked evaluator. Queued and active worker calls suspend that idle timer.
+
+Runs have no overall wall deadline by default: they finish with the script or explicit Stop. The dashboard is a separate persistent process and remains inspectable after completion; this is not a guarantee of detecting the end of the host conversation. `run` and `resume` accept `--run-timeout-ms` (1–86,400,000 for an explicit wall limit; 0 removes it) and `--worker-timeout-ms` (1–1,800,000, default 600,000). The run wall limit includes queueing and worker waits. Limits are persisted; resume inherits them unless overridden and starts a fresh execution window. Restart-worker retains the saved limits. Old runs retain their original runtime and timeout behavior.
 
 ## Agent calls
 
@@ -12,7 +14,7 @@ Use only agent, parallel, pipeline, phase, log, JSON args and deterministic Java
 | --- | --- |
 | label, phase | Display strings up to 500 characters; cosmetic for replay |
 | id, dependsOn | Unique ID and IDs of earlier requested workers; wait for completed prerequisites |
-| timeoutMs | Integer 1–120,000, default 120,000 |
+| timeoutMs | Integer 1–1,800,000; overrides the run's worker default (600,000 ms / 10 minutes) |
 | schema | Bounded JSON Schema subset with object root |
 | model, effort | Codex catalog settings; account entitlement is still required |
 | maxAttempts | Total structured-answer attempts, 1–5, default 5 |

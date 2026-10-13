@@ -57,6 +57,29 @@ createInterface({ input: process.stdin }).on('line', line => {
       return setTimeout(()=>reply(req.id,{turn:{id:turnId}}),mode==='turn-late-start'?300:50);
     }
     if (mode === 'turn-exit') { reply(req.id, { turn: { id: turnId } }); return setTimeout(() => process.exit(8), 20); }
+    if(['turn-phase-snapshot','turn-phase-explicit','turn-phase-invalid'].includes(mode)){
+      const progress={id:'progress',type:'agentMessage',text:'PRIVATE_PROGRESS',...(mode==='turn-phase-snapshot'?{phase:'commentary'}:{})};
+      const answer={id:'answer',type:'agentMessage',phase:'final_answer',text:mode==='turn-phase-invalid'?'Do not salvage {"count":2}':'{"count":2}'};
+      notification('item/completed',{threadId,turnId,item:progress});
+      notification('item/completed',{threadId,turnId,item:answer});
+      notification('turn/completed',{threadId,turn:{id:turnId,status:'completed',items:mode==='turn-phase-snapshot'?[progress,answer].map(({phase,...item})=>item):[]}});
+      return reply(req.id,{turn:{id:turnId}});
+    }
+    if(mode==='turn-verbose'||mode==='turn-answer-limit'){
+      reply(req.id,{turn:{id:turnId}});
+      return setTimeout(()=>{
+        if(mode==='turn-verbose'){
+          for(let n=0;n<80;n++)notification('item/commandExecution/outputDelta',{threadId,turnId,itemId:'read',delta:'x'.repeat(16384)});
+          const item={id:'read',type:'commandExecution',command:'read large metadata',status:'failed',exitCode:7,aggregatedOutput:'x'.repeat(600000)};
+          notification('item/completed',{threadId,turnId,item});
+          notification('item/completed',{threadId,turnId,item:{id:'answer',type:'agentMessage',text:'Known command failure reported.'}});
+          notification('turn/completed',{threadId,turn:{id:turnId,status:'completed',items:[item]}});
+        }else{
+          notification('item/completed',{threadId,turnId,item:{id:'answer',type:'agentMessage',text:'x'.repeat(600000)}});
+          notification('turn/completed',{threadId,turn:{id:turnId,status:'completed',items:[]}});
+        }
+      },20);
+    }
     if (mode.startsWith('turn-hang')||mode==='turn-steer') {
       reply(req.id, { turn: { id: turnId } });
       notification('turn/started', {threadId,turn:{id:turnId,status:'inProgress',items:[]}});

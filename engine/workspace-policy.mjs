@@ -1,5 +1,39 @@
 import {isAbsolute,resolve} from 'node:path';
+import {createHash} from 'node:crypto';
 import {fault} from '../foundation/client.mjs';
+
+// Coordinator-owned literal prefixes, never Git ignores or worker-supplied globs.
+export function validateCapturePolicy(value){
+  const reject=()=>{throw fault('WORKSPACE_POLICY','Capture policy requires bounded, unambiguous relative paths and disjoint source ownership');};
+  if(!value||Object.getPrototypeOf(value)!==Object.prototype||Object.keys(value).length!==3||value.version!==1
+    ||!Array.isArray(value.excludeDirs)||!Array.isArray(value.protectedPaths)||value.excludeDirs.length>256||value.protectedPaths.length>20000)reject();
+  const normalize=(values,directories)=>{
+    const normalized=Array.from(values,name=>{
+      if(typeof name!=='string'||!name||Buffer.byteLength(name)>1024||directories&&!name.endsWith('/')
+        ||name!==name.normalize('NFC')||/[\\:\x00-\x1f\x7f*?<>|"~]/.test(name)||name.startsWith('/'))reject();
+      const parts=(name.endsWith('/')?name.slice(0,-1):name).split('/');
+      if(parts.some(part=>!part||part==='.'||part==='..'||/[. ]$/.test(part)||part.toLowerCase()==='.git'
+        ||/^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(part)))reject();
+      return name;
+    }).sort();
+    const keys=new Set();
+    for(const name of normalized){
+      const key=name.replace(/\/$/,'').toLowerCase();if(keys.has(key))reject();keys.add(key);
+    }
+    for(const key of keys){const parts=key.split('/');for(let i=1;i<parts.length;i++)if(keys.has(parts.slice(0,i).join('/')))reject();}
+    return Object.freeze(normalized);
+  };
+  const policy=Object.freeze({version:1,excludeDirs:normalize(value.excludeDirs,true),protectedPaths:normalize(value.protectedPaths,false)});
+  for(const excluded of policy.excludeDirs){
+    const a=excluded.slice(0,-1).toLowerCase();
+    for(const protectedPath of policy.protectedPaths){
+      const b=protectedPath.replace(/\/$/,'').toLowerCase();
+      if(a===b||b.startsWith(a+'/')||protectedPath.endsWith('/')&&a.startsWith(b+'/'))reject();
+    }
+  }
+  const json=JSON.stringify(policy);if(Buffer.byteLength(json)>1024*1024)reject();
+  return{policy,policyHash:createHash('sha256').update(json).digest('hex')};
+}
 
 // Host supplies a canonical owned worktree. Workflow code cannot supply roots.
 export function writerPolicy(cwd){

@@ -35,7 +35,7 @@ async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, 
       calls.push({ path, ...input });
       const override = await response?.(path, input);
       if (override) return override;
-      const value = path === '/api/run' ? snapshot : path === '/api/control' ? { id: 'receipt-1', generation: 4, action: JSON.parse(input.body).action, status: 'pending', requestedAt: snapshot.updatedAt } : path === '/api/resume' ? { generation: 5 } : {};
+      const value = path === '/api/run' ? snapshot : path === '/api/health' ? {serviceInstanceId:'fixture-service',status:'available'} : path === '/api/control' ? { id: 'receipt-1', generation: 4, action: JSON.parse(input.body).action, status: 'pending', requestedAt: snapshot.updatedAt } : path === '/api/resume' ? { generation: 5 } : {};
       return { ok: true, status: 200, json: async () => structuredClone(value), text: async () => 'saved script' };
     },
   });
@@ -67,6 +67,95 @@ test('monitor removes token fragments before requests, restores session auth and
   assert.equal(missing.calls.length, 0);
   assert.match(missing.get('notice').textContent, /Open the dashboard URL from agent-workflow dashboard to authenticate/);
   assert.equal(missing.get('pause').disabled, true);
+});
+
+test('phone-game membership starts at its phase anchor without fabricating a dependency',async()=>{
+  const view=await monitor({run:{workers:[worker(0,'completed',{phase:'Build Tidepool',options:{label:'phone-game'},dependencies:[]})]}});
+  const anchor=view.get('workflow-map').querySelector('.map-phase-anchor');assert.ok(anchor);
+  const link=view.get('workflow-map').querySelector('.map-membership');assert.ok(link);
+  assert.equal(link.getAttribute('data-position'),'0');
+  assert.ok(link.getAttribute('d').startsWith(`M ${anchor.getAttribute('cx')} ${anchor.getAttribute('cy')} `));
+  assert.equal(view.get('workflow-map').querySelectorAll('.map-dependency').length,0);
+  assert.match(view.get('detail').textContent,/No prerequisites declared/);
+});
+
+test('delivery, cleanup and dashboard health remain separate and a healthy failed read retains stale evidence',async()=>{
+  let unreadable=false;
+  const view=await monitor({run:{status:'failed',cleanup:{serverExited:true,jobEmpty:true},workers:[worker(0,'completed',{result:'E_BROWSER_MISSING'})]},response:path=>path==='/api/health'?{ok:true,json:async()=>({serviceInstanceId:'service',status:'available'})}:path==='/api/run'&&unreadable?{ok:false,status:500,json:async()=>({error:{message:'Saved evidence unavailable'}})}:undefined});
+  assert.equal(view.get('run-status').textContent,'failed');assert.match(view.get('cleanup').textContent,/Owned worker App Server exited/);assert.match(view.get('cleanup').textContent,/Owned Windows job empty/);
+  assert.match(view.get('detail').textContent,/Task outcome.*unverified/i);assert.match(view.get('connection').textContent,/Dashboard connected/);
+  unreadable=true;await view.refresh();assert.match(view.get('connection').textContent,/Dashboard connected; run data unavailable/);assert.equal(view.get('stop').disabled,true);assert.equal(view.get('run-status').textContent,'failed');
+});
+
+test('visibility filtering preserves counts and discloses hidden prerequisites; missing lifecycle is unavailable',async()=>{
+  const view=await monitor({run:{workers:[worker(0,'unknown',{dependencies:[],attempts:1}),worker(1,'queued',{dependencies:[0]})],lifecycle:{schema:1,revision:2,workers:[{target:{kind:'worker',generation:4,position:0,attempt:1},visibility:'hidden'}]}}});
+  assert.equal(view.get('worker-list').children.length,1);assert.match(view.get('visibility-count').textContent,/1 hidden.*1 unknown/);
+  assert.match(view.get('map-note').textContent,/omitted prerequisite/);assert.equal(view.get('hide-run').disabled,true);assert.match(view.get('lifecycle-reason').textContent,/unavailable/i);
+  view.get('show-hidden').checked=true;view.get('show-hidden').dispatchEvent(new view.window.Event('change'));await view.flush();assert.equal(view.get('worker-list').children.length,2);
+});
+
+test('manual Close calls only authenticated close, and unavailable navigation cannot imply another run',async()=>{
+  const view=await monitor();assert.equal(view.get('run-picker').disabled,true);assert.match(view.get('navigation-reason').textContent,/unavailable/i);
+  view.context.confirm=()=>true;await view.click(view.get('close-monitor'));
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,1);assert.equal(view.calls.find(call=>call.method==='POST').path,'/api/close');
+});
+
+test('following a replacement changes viewing without arming Stop and keeps the original draft',async()=>{
+  const a={dataInstanceId:'data',runId:'original',runtimeId:'runtime-a'},b={...a,runId:'replacement',runtimeId:'runtime-b'};
+  const capabilities={sessionNavigation:true,lifecycle:false,scopedControls:true};
+  const current={generation:4,status:'running',acceptingControls:true,meta:{name:'Original'},workers:[worker(0,'running',{attempts:1,activeTurn:{turnId:'turn-a'}})],monitor:{run:a,pinnedRunId:a.runId,capabilities}};
+  const replacement={...current,meta:{name:'Replacement'},workers:[worker(0,'running',{attempts:2,activeTurn:{turnId:'turn-b'}})],monitor:{run:b,pinnedRunId:a.runId,capabilities}};
+  const view=await monitor({run:current,response:(path,input)=>path.startsWith('/api/session/runs')?{ok:true,json:async()=>({items:[{ref:b,title:'Replacement',createdAt:'2026-10-13T13:00:00Z',disposition:'visible'},{ref:a,title:'Original',createdAt:'2026-10-13T12:00:00Z',disposition:'visible'}],nextCursor:null,hiddenCount:2,unknownCount:1})}:path==='/api/runs/replacement/run'?{ok:true,json:async()=>replacement}:path==='/api/runs/original/run'?{ok:true,json:async()=>current}:input.method==='POST'?{ok:true,json:async()=>({id:'receipt',generation:4,status:'pending'})}:undefined});
+  view.get('steer-text').value='Original draft';view.get('steer-text').dispatchEvent(new view.window.Event('input'));
+  view.get('follow-run').checked=true;view.get('follow-run').dispatchEvent(new view.window.Event('change'));await view.flush();await view.flush();
+  assert.equal(view.get('run-title').textContent,'Replacement');assert.equal(view.get('stop').disabled,true);assert.match(view.get('control-target').textContent,/original/);assert.match(view.get('session-counts').textContent,/2 hidden runs.*1 unknown runs/);
+  view.context.confirm=()=>true;await view.click(view.get('stop'));assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  await view.click(view.get('arm-control'));await view.click(view.get('stop'));
+  const posted=view.calls.find(call=>call.method==='POST');assert.equal(posted.path,'/api/runs/replacement/control');assert.deepEqual(JSON.parse(posted.body).target,{...b,generation:4});
+  view.get('follow-run').checked=false;await view.change('run-picker','original');await view.flush();assert.equal(view.get('steer-text').value,'Original draft');assert.equal(view.get('stop').disabled,true);
+});
+
+test('active visibility stays reversible and settled pruning preserves exact preview and unknown receipts',async()=>{
+  const ref={dataInstanceId:'data',runId:'original',runtimeId:'runtime'},posts=[];let revision=0,visibility='visible',settled=false;
+  const run=()=>({generation:4,status:settled?'completed':'running',acceptingControls:!settled,meta:{name:'Original'},workers:[worker(0,settled?'completed':'unknown',{attempts:1})],monitor:{run:ref,pinnedRunId:ref.runId,capabilities:{lifecycle:true,lifecycleReceipt:true}},lifecycle:{schema:1,available:true,revision,run:{visibility},workers:[]}});
+  const view=await monitor({run:run(),response:(path,input)=>{
+    if(path==='/api/run')return{ok:true,json:async()=>run()};
+    if(input.method==='POST'){
+      const body=JSON.parse(input.body);posts.push(body);
+      if(body.action==='planPrune')return{ok:true,json:async()=>({preview:{id:'reviewed',planHash:'a'.repeat(64),candidates:[{path:'owned/eligible'}],blocked:[]}})};
+      if(body.action==='applyPrune')return{ok:true,json:async()=>({receipt:{id:'prune',runId:ref.runId,outcome:'unknown'}})};
+      visibility=body.action==='restore'?'visible':body.action==='archive'?'archived':'hidden';revision++;return{ok:true,json:async()=>({receipt:{id:'visibility',runId:ref.runId,outcome:'applied'}})};
+    }
+  }});
+  await view.click(view.get('hide-run'));assert.equal(posts[0].action,'hide');assert.equal(view.get('run-status').textContent,'running');assert.match(view.get('visibility-count').textContent,/run hidden/);
+  await view.click(view.get('restore-run'));assert.match(view.get('visibility-count').textContent,/run visible/);
+  settled=true;await view.refresh();
+  await view.click(view.get('review-prune'));assert.equal(posts.length,3);assert.ok(view.get('apply-prune'));assert.equal(posts[2].action,'planPrune');
+  view.context.confirm=()=>true;await view.click(view.get('apply-prune'));
+  assert.equal(posts[3].planId,'reviewed');assert.equal(posts[3].approvedPlanHash,'a'.repeat(64));assert.equal(posts[3].expectedRevision,2);assert.equal(view.get('apply-prune').disabled,true);assert.match(view.get('lifecycle-reason').textContent,/unknown/);
+  await view.click(view.get('apply-prune'));assert.equal(posts.length,4,'Unknown effects cannot be submitted again');
+});
+
+test('a reviewed zero-candidate retirement remains actionable with explicit tombstone consequence',async()=>{
+  const ref={dataInstanceId:'data',runId:'settled',runtimeId:'runtime'};
+  const view=await monitor({run:{status:'completed',monitor:{run:ref,pinnedRunId:ref.runId,capabilities:{lifecycle:true}},lifecycle:{available:true,revision:1,workers:[]}},response:(path,input)=>input.method==='POST'?{ok:true,json:async()=>({preview:{id:'retirement',planHash:'b'.repeat(64),candidates:[],blocked:[]}})}:undefined});
+  await view.click(view.get('review-prune'));assert.ok(view.get('apply-prune'));assert.equal(view.get('apply-prune').disabled,false);assert.match(view.get('lifecycle-preview').textContent,/tombstone.*audit/i);assert.match(view.get('lifecycle-preview').textContent,/no retained files/i);
+});
+
+for(const action of ['hide','applyPrune'])test(`lost ${action} response retains the exact durable receipt identity without resubmitting`,async()=>{
+  const ref={dataInstanceId:'data',runId:'settled',runtimeId:'runtime'},posts=[];let committed;
+  const view=await monitor({run:{status:'completed',monitor:{run:ref,pinnedRunId:ref.runId,capabilities:{lifecycle:true,lifecycleReceipt:true}},lifecycle:{available:true,revision:0,workers:[]}},response:(path,input)=>{
+    if(input.method==='POST'){
+      const body=JSON.parse(input.body);posts.push(body);
+      if(body.action==='planPrune')return{ok:true,json:async()=>({preview:{id:'exact-prune-plan',planHash:'b'.repeat(64),candidates:[],blocked:[]}})};
+      committed={id:action==='applyPrune'?body.planId:body.requestId,runId:ref.runId,outcome:'applied'};throw new Error('Response lost after commit');
+    }
+    if(path.startsWith('/api/lifecycle/receipts/'))return{ok:true,json:async()=>({receipt:committed})};
+  }});
+  if(action==='applyPrune'){await view.click(view.get('review-prune'));view.context.confirm=()=>true;await view.click(view.get('apply-prune'));}else await view.click(view.get('hide-run'));
+  const count=posts.length;assert.match(view.get('lifecycle-reason').textContent,/unknown/);await view.click(view.get('inspect-lifecycle'));
+  assert.ok(view.calls.some(call=>call.path===`/api/runs/${ref.runId}/lifecycle/receipts/${committed.id}`||call.path===`/api/lifecycle/receipts/${committed.id}`));
+  assert.equal(posts.length,count);assert.match(view.get('lifecycle-receipt').textContent,/applied/);assert.doesNotMatch(view.get('lifecycle-reason').textContent,/confirmation is unknown/);
 });
 
 test('restart shows suffix scope, retains reconciliation and exposes immutable earlier execution',async()=>{
@@ -134,6 +223,15 @@ test('workspace previews and unfinished patch capture do not imply a reviewable 
   assert.equal(view.calls.filter(call => call.path.startsWith('/api/patch/')).length, 0);
 });
 
+test('explicit capture exclusions are deliberate paged metadata and never a payload-integrity claim',async()=>{
+  const workspace={version:2,cwd:'C:/owned/worker',policyHash:'a'.repeat(64),excludedInventory:{entryCount:51,fileCount:50,bytes:900000000}};
+  const view=await monitor({run:{workers:[worker(0,'completed',{workspace})]},response:path=>path.startsWith('/api/exclusions/')?{ok:true,json:async()=>({policyHash:workspace.policyHash,inventoryHash:'b'.repeat(64),entries:[{name:path.includes('after=50')?'generated/last.bin':'generated/<img>.bin',size:128}],entryCount:51,fileCount:50,bytes:900000000,nextAfter:path.includes('after=50')?null:50})}:undefined});
+  assert.match(view.get('detail').textContent,/Excluded payload bytes are not retained/);assert.equal(view.calls.filter(c=>c.path.startsWith('/api/exclusions/')).length,0);
+  await view.click(view.get('detail').querySelector('[data-exclusions="outputs"]'));
+  assert.match(view.get('detail').textContent,/generated\/<img>\.bin/);assert.equal(view.get('detail').querySelectorAll('img').length,0);
+  await view.click(view.get('detail').querySelector('[data-exclusions-next="outputs"]'));assert.ok(view.calls.some(c=>c.path.includes('after=50')));assert.match(view.get('detail').textContent,/generated\/last.bin/);
+});
+
 test('workflow graph separates declared dependencies from grouping and preserves failed or unknown phase coverage', async () => {
   const view = await monitor({ run: { workers: [worker(0, 'completed', { dependencies: [] }), worker(1, 'failed', { dependencies: [0] }), worker(2, 'unknown')], coverage: { requested: 3, completed: 1, cached: 0, failed: 1, unknown: 1 } } });
   assert.equal(view.get('workflow-map').querySelectorAll('.map-dependency').length, 1);
@@ -172,7 +270,7 @@ test('live tool activity appears in graph and paged inspector without hiding dis
   const view=await monitor({run:{workers:[worker(0,'running',{activity:{seq:17,type:'commandExecution',status:'inProgress',summary:'Read README'},activityCount:270,usage:{inputTokens:20,outputTokens:4,totalTokens:24}})]},response:path=>path.startsWith('/api/activity?')?{ok:true,json:async()=>({records:[{seq:path.includes('after=17')?18:17,at:'2026-10-13T12:00:00Z',attempt:1,type:'commandExecution',status:'completed',input:'Read README',output:payload,truncated:['output']}],observed:270,retained:256,dropped:14,nextCursor:path.includes('after=17')?18:17,hasMore:!path.includes('after=17')})}:undefined});
   assert.match(view.get('workflow-map').textContent,/Read README/);
   assert.match(view.get('detail').textContent,/Read README/);
-  assert.equal(view.calls.length,1,'History is loaded deliberately');
+  assert.equal(view.calls.length,2,'Summary and health polling leave history deliberate');
   await view.click(view.get('load-activity'));
   assert(view.calls.some(call=>call.path==='/api/activity?generation=4&position=0&after=0&limit=50'));
   assert.match(view.get('activity-history').textContent,/14.*discarded/);
@@ -238,7 +336,7 @@ test('untrusted evidence stays text and full worker, result and script reads are
   assert.equal(view.get('run-title').textContent, payload);
   assert.equal(view.document.querySelectorAll('img').length, 0);
   assert.match(view.get('detail').textContent, /Preview shortened: prompt/);
-  assert.equal(view.calls.length, 1, 'Polling must not fetch large evidence automatically');
+  assert.equal(view.calls.length, 2, 'Polling reads a summary and service health, without fetching large evidence');
   await view.click([...view.get('detail').querySelectorAll('button')].find(button=>button.textContent==='Load worker details'));
   await view.click(view.get('run-evidence').querySelector('button'));
   await view.click(view.get('load-script'));

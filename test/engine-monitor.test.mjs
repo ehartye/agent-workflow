@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm,writeFile,mkdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,basename} from 'node:path';
 import {request} from 'node:http';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -15,8 +15,110 @@ import {fileURLToPath} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
 import {runWorkflow} from '../engine/controller.mjs';
 
+const reportSchema={type:'object',additionalProperties:false,properties:{
+  contract:{const:'agent-workflow.task.v1'},taskId:{type:'string',maxLength:100},outcome:{enum:['delivered','blocked','incomplete']},summary:{type:'string',maxLength:2000},
+  blockers:{type:'array',maxItems:16,items:{type:'object',additionalProperties:false,properties:{code:{type:'string'},detail:{type:'string'},evidenceRefs:{type:'array',items:{type:'string'}}},required:['code','detail','evidenceRefs']}},
+  artifacts:{type:'array',maxItems:32,items:{type:'object',additionalProperties:false,properties:{claimId:{type:'string'},relativePath:{type:'string'},sha256:{type:['string','null']},bytes:{type:['integer','null']}},required:['claimId','relativePath','sha256','bytes']}},
+  checks:{type:'array',maxItems:32,items:{type:'object',additionalProperties:false,properties:{checkId:{type:'string'},status:{enum:['passed','failed','notRun','unknown']},evidenceRefs:{type:'array',items:{type:'string'}}},required:['checkId','status','evidenceRefs']}},
+},required:['contract','taskId','outcome','summary','blockers','artifacts','checks']};
+const report=(outcome='delivered')=>({contract:'agent-workflow.task.v1',taskId:'phone-game',outcome,summary:'Source authored',blockers:[],artifacts:[{claimId:'game',relativePath:'game.mjs',sha256:null,bytes:null}],checks:[]});
+
+test('experience preserves full phase identities, explicit empty dependencies and unverified completed prose',async()=>{
+  const {projectMonitorExperience}=await import('../engine/monitor-data.mjs');
+  const run={dataInstanceId:'data',runId:'run',runtimeId:'retained'};
+  const label='Build Tidepool '+'x'.repeat(490);
+  const workers=[{position:0,status:'completed',phase:label,dependencies:[],result:'E_BROWSER_MISSING: done'}, {position:1,status:'unknown',phase:label+'y',result:{outcome:'delivered'}}];
+  const projection=projectMonitorExperience({run,summary:{generation:4,status:'failed'},workers});
+  assert.equal(projection.phases.length,2);assert.equal(projection.phases[0].label,label);
+  assert.notEqual(projection.phases[0].key,projection.phases[1].key);
+  assert.deepEqual(projection.workers[0].dependencies,{available:true,prerequisites:[]});
+  assert.equal(projection.workers[1].dependencies.available,false);
+  assert.equal(projection.workers[0].task.declaredOutcome,null);assert.equal(projection.workers[0].task.verification,'unverified');
+  assert.equal(projection.executionStatus,'failed');assert.equal(workers[1].status,'unknown');
+});
+
+test('task delivery needs schema validation and independent retained integrity and acceptance evidence',async()=>{
+  const {projectMonitorExperience}=await import('../engine/monitor-data.mjs');
+  const run={dataInstanceId:'data',runId:'run',runtimeId:'retained'}, summary={generation:4,status:'completed'};
+  const workers=[{position:0,status:'completed',options:{schema:reportSchema},result:report('blocked')},{position:1,status:'completed',options:{schema:reportSchema},result:report()}];
+  let projection=projectMonitorExperience({run,summary,workers});
+  assert.equal(projection.workers[0].executionStatus,'completed');assert.equal(projection.workers[0].task.declaredOutcome,'blocked');
+  assert.equal(projection.workers[1].task.verification,'unverified');
+  const evidence=[{id:'capture',worker:{...run,generation:4,position:1},claimId:'game',integrity:'missing',acceptance:'passed',evidenceRef:{receiptId:'retained-receipt'}}];
+  projection=projectMonitorExperience({run,summary,workers,evidence});assert.equal(projection.workers[1].task.verification,'rejected');assert.equal(projection.workers[1].task.declaredOutcome,'delivered');
+  for(const integrity of ['mismatch','unavailable','unverified']){
+    projection=projectMonitorExperience({run,summary,workers,evidence:[{...evidence[0],integrity}]});assert.notEqual(projection.workers[1].task.verification,'verified');
+  }
+  projection=projectMonitorExperience({run,summary,workers,evidence:[{...evidence[0],integrity:'verified',acceptance:'notRun'}]});assert.equal(projection.workers[1].task.verification,'unverified');
+  projection=projectMonitorExperience({run,summary,workers,evidence:[{...evidence[0],integrity:'verified'}]});assert.equal(projection.workers[1].task.verification,'verified');
+  projection=projectMonitorExperience({run,summary,workers,evidence:[{...evidence[0],integrity:'verified',worker:{...run,generation:3,position:1}}]});assert.notEqual(projection.workers[1].task.verification,'verified');
+  workers[1].result={...report(),extra:true};projection=projectMonitorExperience({run,summary,workers});assert.equal(projection.workers[1].task.protocol,null);
+});
+
+test('authenticated service health stays available when saved run reads fail and missing adapters fail explicitly',async t=>{
+  const {runDir,createMonitor}=await setup(t);await runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',backend:backend(async()=>{})});
+  const monitor=await createMonitor({runDir});t.after(()=>monitor.close());const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token');
+  const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+  assert.equal((await fetch(url.origin+'/api/health')).status,401);
+  const health=await(await fetch(url.origin+'/api/health',{headers})).json();assert.equal(health.status,'available');assert.ok(health.serviceInstanceId);
+  assert.equal((await fetch(url.origin+'/api/session/runs',{headers})).status,503);
+  assert.equal((await fetch(url.origin+'/api/lifecycle',{method:'POST',headers,body:JSON.stringify({action:'hide',generation:1,expectedRevision:0,target:{kind:'run'},requestId:'request'})})).status,503);
+  const db=new DatabaseSync(join(runDir,'run.sqlite'));db.prepare('DELETE FROM header').run();db.close();
+  assert.equal((await fetch(url.origin+'/api/run',{headers})).status,404);
+  assert.deepEqual(await(await fetch(url.origin+'/api/health',{headers})).json(),health);
+});
+
+test('session routes pin read identities and forward exact reviewed lifecycle previews without retargeting Stop',async t=>{
+  const {runDir,createMonitor}=await setup(t);await runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',backend:backend(async()=>{})});
+  const binding={version:1,scope:'session',dataInstanceId:'data',originatingSessionId:'s',pinnedRunId:basename(runDir),runtimeId:'original-runtime'};
+  await writeFile(join(runDir,'runtime.json'),JSON.stringify({schema:2,id:binding.pinnedRunId,sessionId:'s',runtime:{id:'original-runtime'}}));
+  const other={dataInstanceId:'data',runId:'replacement',runtimeId:'replacement-runtime'},calls=[];
+  const services={
+    listSessionRuns:async()=>({items:[{ref:other,title:'Replacement',createdAt:'2026-10-13',executionStatus:'running',disposition:'visible',runUrl:'https://untrusted.invalid/#token=secret'}],nextCursor:null,hiddenCount:3,unknownCount:2}),
+    readRun:async input=>{calls.push(input);if(input.runId===binding.pinnedRunId){const {monitorData}=await import('../engine/monitor-data.mjs');return monitorData(runDir,{runRef:{dataInstanceId:'data',runId:binding.pinnedRunId,runtimeId:'original-runtime'}});}return{generation:7,sessionId:'s',status:'running',workers:[],experience:{run:other}};},
+    controlRun:async input=>{calls.push(input);return{id:'control',status:'pending'};},
+    lifecycle:async input=>{calls.push(input);return{preview:{id:'reviewed',planHash:'a'.repeat(64),candidates:[],blocked:['Pinned recovery evidence']}};},
+    readLifecycleReceipt:async input=>{calls.push(input);return{receipt:{id:'reviewed',runId:input.runId,outcome:'unknown'}};},
+  };
+  const monitor=await createMonitor({runDir,binding,experienceServices:services});t.after(()=>monitor.close());const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token');
+  assert.equal(url.pathname,`/runs/${binding.pinnedRunId}`);assert.equal(new URL(monitor.sessionUrl).pathname,'/session');
+  const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'},post=(path,value)=>fetch(url.origin+path,{method:'POST',headers,body:JSON.stringify(value)});
+  const navigation=await(await fetch(url.origin+'/api/session/runs?limit=10',{headers})).json();assert.equal(navigation.items[0].runUrl,'/runs/replacement');assert.equal(navigation.hiddenCount,3);assert.equal(navigation.unknownCount,2);
+  assert.equal((await fetch(url.origin+'/api/session/runs?limit=101',{headers})).status,400);
+  const target={...other,generation:7};
+  assert.equal((await post('/api/runs/replacement/control',{target:{...target,runtimeId:'wrong'},generation:7,action:'stop'})).status,409);
+  assert.equal((await post('/api/runs/replacement/control',{target,generation:6,action:'stop'})).status,409);
+  assert.equal((await post('/api/runs/replacement/control',{target,generation:7,action:'stop'})).status,202);
+  assert.deepEqual(calls.find(item=>item.action==='stop').target,target);
+  const pinnedTarget={dataInstanceId:'data',runId:binding.pinnedRunId,runtimeId:binding.runtimeId,generation:1};
+  assert.equal((await post('/api/control',{target:pinnedTarget,generation:1,action:'stop'})).status,202);assert.ok(calls.some(item=>item.action==='stop'&&item.target.runId===binding.pinnedRunId),'Pinned controls must use the retained-runtime adapter too');
+  const value={action:'applyPrune',runTarget:target,target:{kind:'run'},generation:7,expectedRevision:3,requestId:'review',planId:'reviewed',approvedPlanHash:'a'.repeat(64)};
+  assert.equal((await post('/api/runs/replacement/lifecycle',value)).status,202);assert.deepEqual(calls.find(item=>item.action==='applyPrune'),value);
+  assert.equal((await post('/api/runs/replacement/lifecycle',{...value,runDir:'C:/elsewhere'})).status,400);
+  assert.equal((await fetch(url.origin+'/runs/replacement',{headers})).status,200);
+  assert.equal((await fetch(url.origin+'/api/run',{headers})).status,200);
+  assert.equal((await fetch(url.origin+'/api/runs/replacement/lifecycle/receipts/reviewed',{headers})).status,200);assert.deepEqual(calls.find(item=>item.receiptId),{runId:'replacement',receiptId:'reviewed'});
+  calls.length=0;assert.equal((await fetch(url.origin+'/api/lifecycle/receipts/reviewed',{headers})).status,200);assert.deepEqual(calls.find(item=>item.receiptId),{runId:binding.pinnedRunId,receiptId:'reviewed'});
+});
+
 const meta='export const meta={name:"Monitor",description:"Real run"};\n';
 const backend=execute=>({identity:'monitor-fixture',execute,close:async()=>({serverExited:true,descendants:'notVerified'})});
+
+test('dashboard stays available without activity until authenticated close, with opt-in idle expiry',async t=>{
+  const {runDir,createMonitor}=await setup(t);
+  await runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',backend:backend(async()=>{})});
+  t.mock.timers.enable({apis:['Date','setInterval']});
+  const monitor=await createMonitor({runDir});t.after(()=>monitor.close());
+  const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token');
+  const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+  t.mock.timers.tick(31*60*1000);
+  assert.equal((await fetch(url.origin+'/api/run',{headers})).status,200);
+  assert.equal((await fetch(url.origin+'/api/close',{method:'POST',headers,body:'{}'})).status,200);
+  await monitor.close();await assert.rejects(fetch(url.origin+'/api/run',{headers}));
+  const expiring=await createMonitor({runDir,idleMs:100});t.after(()=>expiring.close());
+  t.mock.timers.tick(200);await new Promise(resolve=>setImmediate(resolve));
+  await assert.rejects(fetch(new URL(expiring.url).origin+'/api/run'));
+});
 test('patch reads are authenticated, generation-bound, hash-checked and bounded for the monitor',async t=>{
   const {runDir,createMonitor}=await setup(t);
   await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("edit");',backend:backend(async()=>({value:'done',terminalObserved:true}))});

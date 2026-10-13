@@ -111,9 +111,10 @@ test('cancellation deadline includes delayed termination acknowledgement', async
 test('launcher constrains configuration and removes API credentials, endpoints and preload code', async () => {
   const module = await import('../foundation/launch.mjs').catch(() => null);
   assert.ok(module?.createLaunch, 'Fresh launch contract must exist');
-  const input = { executable: process.execPath, cwd: process.cwd(), backend: 'mxc', platform: 'win32', env: { PATH: 'os-path', CODEX_HOME: 'managed-home', OPENAI_API_KEY: 'private-key', CODEX_API_KEY: 'other-key', OPENAI_BASE_URL: 'https://other.invalid', NODE_OPTIONS: '--require unwanted', AWS_SECRET_ACCESS_KEY: 'secret', UNRELATED: 'value' } };
+  const input = { executable: process.execPath, cwd: process.cwd(), backend: 'mxc', platform: 'win32', env: { PATH: 'os-path', CODEX_HOME: 'managed-home', PLAYWRIGHT_BROWSERS_PATH:process.cwd(), OPENAI_API_KEY: 'private-key', CODEX_API_KEY: 'other-key', OPENAI_BASE_URL: 'https://other.invalid', NODE_OPTIONS: '--require unwanted', AWS_SECRET_ACCESS_KEY: 'secret', UNRELATED: 'value' } };
   const launch = module.createLaunch(input);
-  assert.deepEqual(launch.env, { PATH: 'os-path', CODEX_HOME: 'managed-home' });
+  assert.deepEqual(launch.env, { PATH: 'os-path', CODEX_HOME: 'managed-home',PLAYWRIGHT_BROWSERS_PATH:process.cwd() });
+  for(const cache of ['relative/path','0','https://example.invalid/cache'])assert.throws(()=>module.createLaunch({...input,env:{PLAYWRIGHT_BROWSERS_PATH:cache}}),{code:'LAUNCH_INVALID'});
   assert.ok(launch.args.includes('forced_login_method="chatgpt"'));
   assert.ok(launch.args.includes('model_provider="openai"'));
   assert.ok(launch.args.includes('windows.sandbox="mxc"'));
