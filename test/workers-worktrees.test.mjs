@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, access, realpath } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
@@ -21,7 +21,7 @@ test('worktree isolation carries local inputs and retains a binary patch contain
   await writeFile(path.join(source, 'tracked.txt'), 'local input\n');
   await writeFile(path.join(source, 'input.txt'), 'untracked input\n');
   const workspace = await module.createIsolatedWorkspace({ cwd: source, id: 'worker-one', isolation: 'worktree' });
-  assert.equal(path.dirname(workspace.cwd), path.join(temp, 'fixture-repo-worktrees'));
+  assert.equal(await realpath(path.dirname(workspace.cwd)), await realpath(path.join(temp, 'fixture-repo-worktrees')));
   assert.equal(await readFile(path.join(workspace.cwd, 'tracked.txt'), 'utf8'), 'local input\n');
   assert.equal(await readFile(path.join(workspace.cwd, 'input.txt'), 'utf8'), 'untracked input\n');
   await writeFile(path.join(workspace.cwd, 'tracked.txt'), 'worker edit\n');

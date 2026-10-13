@@ -45,10 +45,13 @@ test("manager bounds concurrency and persists every repeated invocation as a dis
   let active = 0,
     peak = 0,
     calls = 0;
+  let releaseFirstPair;
+  const firstPair = new Promise((resolve) => { releaseFirstPair = resolve; });
   const { manager } = await setup(t, async () => {
     calls++;
     peak = Math.max(peak, ++active);
-    await new Promise((r) => setTimeout(r, 30));
+    if (calls === 2) releaseFirstPair();
+    await firstPair;
     active--;
     return { value: "ok", usage: { outputTokens: 3, inputTokens: 1 } };
   });
@@ -59,7 +62,9 @@ test("manager bounds concurrency and persists every repeated invocation as a dis
     cwd: process.cwd(),
     concurrency: 2,
   });
-  const final = await settled(manager, run.id);
+  let final;
+  try { final = await settled(manager, run.id); }
+  finally { releaseFirstPair(); }
   assert.equal(final.status, "completed");
   assert.equal(peak, 2);
   assert.equal(calls, 5);

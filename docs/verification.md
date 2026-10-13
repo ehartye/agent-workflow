@@ -40,6 +40,8 @@ Final checks on Windows with Node 24.18.0 and pinned Codex 0.162.1: **118 tests 
 
 Release checks exposed startup-sensitive test deadlines on a busy host: a fixture's first tool event arrived at 289 ms, beyond its original 100–150 ms guards. Test files now run with concurrency two, with fixture waits deliberately longer than the stall window and hard deadlines shorter than tool completion. Expected error/effect assertions are preserved; seven focused watchdog checks and the complete 118-test suite passed. Native installation additionally verifies the MIT notice is copied into managed runtimes; schema attribution and Apache 2.0 license are retained in the distribution.
 
+The first hosted Windows CI run exposed two fixture assumptions: a 30 ms fake-worker delay did not guarantee overlap while journal writes ran, and the runner's temporary directory used an 8.3 short spelling while Git returned its long spelling. The concurrency fixture now holds the first pair until both have entered, and the worktree assertion compares real paths. Production concurrency, isolation and timeout behavior are unchanged.
+
 ## Review boundary
 
 Independent specification review and subsequent code-quality review both passed after corrections. The quality reviewer independently reran six recovery, seven runtime and six service/daemon tests, including shutdown during an actual pending native steering request in about 497 ms. No material findings remained. The final full suite, install check and authenticated parallel/replay run passed after the lifecycle changes.
