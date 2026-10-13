@@ -41,7 +41,7 @@ export async function monitorData(runDir,{kind='summary',generation,position,aft
     output.workers=[];
     for(const row of db.prepare('SELECT value FROM workers WHERE generation=? ORDER BY position').iterate(state.generation)){
       if(output.workers.length>=1000)throw fault('MONITOR_LIMIT','Saved worker count exceeded its limit');
-      output.workers.push(preview(JSON.parse(row.value),{position:20,prompt:600,options:800,phase:500,status:40,cached:10,reusedFrom:100,result:1000,error:700,interruption:300,startedAt:40,completedAt:40,evidence:800,dependencies:10000,activity:1200,activityCount:20,activeTurn:700,usage:1000,attempts:20}));
+      output.workers.push(preview(JSON.parse(row.value),{position:20,prompt:600,options:800,phase:500,status:40,cached:10,reusedFrom:100,result:1000,error:700,interruption:300,startedAt:40,completedAt:40,evidence:800,dependencies:10000,activity:1200,activityCount:20,activeTurn:700,usage:1000,attempts:20,cancelRequested:10}));
     }
     const workers=output.workers,completed=workers.filter(w=>w.status==='completed').length;
     output.coverage={requested:workers.length,completed,cached:workers.filter(w=>w.cached).length,failed:workers.filter(w=>w.status==='failed').length,unknown:workers.filter(w=>w.status==='unknown').length,complete:state.status==='completed'&&completed===workers.length};

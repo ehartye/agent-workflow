@@ -1,0 +1,107 @@
+{
+  "status": "passed",
+  "backend": "mxc",
+  "dispatches": [
+    1,
+    0
+  ],
+  "checks": [
+    {
+      "status": "completed",
+      "generation": 1,
+      "coverage": {
+        "requested": 1,
+        "completed": 1,
+        "cached": 0,
+        "failed": 0,
+        "unknown": 0,
+        "complete": true
+      },
+      "attempts": 1,
+      "markerMatched": true,
+      "commandsVerified": true,
+      "activityVerified": true,
+      "observedWhileRunning": true,
+      "activity": {
+        "observed": 60,
+        "retained": 60,
+        "dropped": 0,
+        "sourceGeneration": 1
+      },
+      "usage": {
+        "observedThreads": 1,
+        "inputTokens": 45922,
+        "cachedInputTokens": 16128,
+        "outputTokens": 170,
+        "reasoningOutputTokens": 21,
+        "totalTokens": 46092,
+        "cacheWriteInputTokens": 0
+      },
+      "settings": {
+        "model": "gpt-6-astra",
+        "effort": "high",
+        "permissions": {
+          "sandbox": "read-only",
+          "networkAccess": false,
+          "approvalPolicy": "never"
+        }
+      },
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "verified",
+        "jobEmpty": true
+      },
+      "error": null
+    },
+    {
+      "status": "completed",
+      "generation": 2,
+      "coverage": {
+        "requested": 1,
+        "completed": 1,
+        "cached": 1,
+        "failed": 0,
+        "unknown": 0,
+        "complete": true
+      },
+      "attempts": 1,
+      "markerMatched": true,
+      "commandsVerified": true,
+      "activityVerified": true,
+      "observedWhileRunning": false,
+      "activity": {
+        "observed": 60,
+        "retained": 60,
+        "dropped": 0,
+        "sourceGeneration": 1
+      },
+      "usage": {
+        "observedThreads": 1,
+        "inputTokens": 45922,
+        "cachedInputTokens": 16128,
+        "outputTokens": 170,
+        "reasoningOutputTokens": 21,
+        "totalTokens": 46092,
+        "cacheWriteInputTokens": 0
+      },
+      "settings": {
+        "model": "gpt-6-astra",
+        "effort": "high",
+        "permissions": {
+          "sandbox": "read-only",
+          "networkAccess": false,
+          "approvalPolicy": "never"
+        }
+      },
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "verified",
+        "jobEmpty": true
+      },
+      "error": null
+    }
+  ],
+  "checkedAt": "2026-10-13T17:37:45.223Z"
+}

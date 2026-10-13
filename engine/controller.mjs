@@ -7,6 +7,7 @@ import { evaluate } from './evaluate.mjs';
 import { parseScript } from './script.mjs';
 import { compileSchema } from './schema.mjs';
 import {createActivityTable,recordActivity} from './activity.mjs';
+import {assertWorkerTarget} from './controls.mjs';
 import { fault, diagnostic } from '../foundation/client.mjs';
 export {requestControl,readControl} from './controls.mjs';
 
@@ -29,7 +30,7 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','controls.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  const files = ['controller.mjs','controls.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
   return hash(process.version + files.map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
@@ -69,6 +70,9 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
   const armDrain=ms=>{drainBy=Math.min(drainBy,performance.now()+ms);clearTimeout(drainTimer);drainTimer=setTimeout(()=>expireDrain(false),Math.max(0,drainBy-performance.now()));};
   let retiredWrites=false;
   const currentWorkers=new Map();
+  const workerAborts=new Map();
+  const steering=new Set();
+  let controlsRetired=false;
   const workerIds=new Map();
   const settlements=new Map();
   const waiters = [];
@@ -94,10 +98,27 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       if(message)Object.assign(worker,next);
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   };
-  const acquire = async () => {
-    if (active >= concurrency) await new Promise(resolve => waiters.push(resolve));
+  const cancelled=()=>Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
+  const waitFor=async(promise,signal)=>{
+    if(signal.aborted)throw cancelled();
+    let cancel;
+    try{return await Promise.race([promise,new Promise((_,reject)=>{cancel=()=>reject(cancelled());signal.addEventListener('abort',cancel,{once:true});})]);}
+    finally{signal.removeEventListener('abort',cancel);}
+  };
+  const acquire = async signal => {
     if (stopped) throw fault('RUN_STOPPED', 'Workflow admission is closed');
-    active++;
+    if(signal.aborted)throw cancelled();
+    if(active<concurrency&&!waiters.length){active++;return;}
+    await new Promise((resolve,reject)=>{
+      const cancel=()=>{const index=waiters.indexOf(admit);if(index!==-1)waiters.splice(index,1);reject(cancelled());};
+      const admit=()=>{
+        signal.removeEventListener('abort',cancel);
+        if(stopped)return reject(fault('RUN_STOPPED','Workflow admission is closed'));
+        if(signal.aborted)return reject(cancelled());
+        active++;resolve();
+      };
+      waiters.push(admit);signal.addEventListener('abort',cancel,{once:true});
+    });
   };
   const release = () => { active--; waiters.shift()?.(); };
   try {
@@ -128,24 +149,65 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     state = { version: 1, sessionId, generation: (previous?.generation ?? 0) + 1, runtimeIdentity, backendIdentity: backend.identity,
       status: 'running', acceptingControls:true, meta, script, args, launch, concurrency, maxAgents, workerCount: 0, attempts: previous?.attempts ?? 0, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString() };
     saveHeader();
+    const finishSteering=(receipt,error,sent=true)=>{
+      steering.delete(receipt.position);
+      if(controlsRetired)return;
+      own();
+      receipt.status=error?(sent?'unknown':'rejected'):'applied';receipt.appliedAt=new Date().toISOString();
+      if(error)receipt.error=diagnostic(error);
+      db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
+    };
     const applyControls = (closing=false) => {
       own();
-      let applied=false;
+      let applied=false;const workerActions=[];
       db.exec('BEGIN IMMEDIATE');
       try{
         const rows=db.prepare("SELECT value FROM controls WHERE generation=? AND json_extract(value,'$.status')='pending' ORDER BY rowid").all(state.generation);
         for(const row of rows){
           const receipt=JSON.parse(row.value);
+          if(['steer','cancel-worker'].includes(receipt.action)){
+            const worker=currentWorkers.get(receipt.position);
+            try{
+              if(closing||primary||controlAction==='stop')throw fault('CONTROL_TERMINAL','Run control admission has closed');
+              assertWorkerTarget(worker,receipt);
+              if(receipt.action==='steer'&&(steering.has(receipt.position)||workerActions.some(item=>item.receipt.position===receipt.position&&item.receipt.action==='steer')))throw fault('CONTROL_BUSY','A steering request is already in flight for this worker');
+              if(receipt.action==='cancel-worker'&&workerActions.some(item=>item.receipt.position===receipt.position&&item.receipt.action==='cancel-worker'))throw fault('CONTROL_WORKER','Worker cancellation is already requested');
+              receipt.status=receipt.action==='steer'?'applying':'applied';receipt.appliedAt=new Date().toISOString();
+              if(receipt.action==='cancel-worker')db.prepare('UPDATE workers SET value=? WHERE generation=? AND position=?').run(json({...worker,cancelRequested:true}),state.generation,worker.position);
+              workerActions.push({receipt,worker});
+            }catch(error){receipt.status='rejected';receipt.error=diagnostic(error);receipt.appliedAt=new Date().toISOString();}
+            db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);continue;
+          }
           if(!['pause','stop'].includes(receipt.action))throw fault('CONTROL_CORRUPT','Stored control action is invalid');
           const denied=Boolean(primary)||controlAction==='stop'&&receipt.action==='pause';
           receipt.status=denied?'rejected':'applied';receipt.appliedAt=new Date().toISOString();
           if(!denied){applied=true;controlAction=receipt.action;state.status=controlAction==='pause'?'pausing':'stopping';state.updatedAt=receipt.appliedAt;}
           db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
         }
-        if(closing)state.acceptingControls=false;
+        if(closing){
+          state.acceptingControls=false;
+          for(const row of db.prepare("SELECT value FROM controls WHERE generation=? AND json_extract(value,'$.status')='applying'").all(state.generation)){
+            const receipt=JSON.parse(row.value);receipt.status='unknown';receipt.error=diagnostic(fault('CONTROL_UNCONFIRMED','Runner closed before steering confirmation'));receipt.appliedAt=new Date().toISOString();db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
+          }
+        }
         if(rows.length||closing)saveHeader();
         db.exec('COMMIT');
       }catch(error){db.exec('ROLLBACK');throw error;}
+      if(closing)controlsRetired=true;
+      for(const {receipt,worker} of workerActions){
+        if(receipt.action==='cancel-worker'){worker.cancelRequested=true;workerAborts.get(worker.position)?.abort();}
+        else{
+          steering.add(worker.position);
+          let sent=false;
+          Promise.resolve().then(()=>{
+            if(controlsRetired||controlAction==='stop')throw fault('CONTROL_TERMINAL','Run no longer accepts steering');
+            assertWorkerTarget(currentWorkers.get(worker.position),receipt);
+            if(typeof backend.steer!=='function')throw fault('CONTROL_UNSUPPORTED','Backend does not support live steering');
+            sent=true;
+            return backend.steer({position:receipt.position,turnId:receipt.turnId,text:receipt.text});
+          }).then(result=>{if(result?.turnId!==receipt.turnId)throw fault('CONTROL_TURN','Backend did not confirm the targeted turn');finishSteering(receipt);}).catch(error=>{try{finishSteering(receipt,error,sent);}catch(failure){fatal??=failure;stopped=true;evaluatorAbort.abort();abort.abort();}});
+        }
+      }
       if(applied){stopped=true;evaluatorAbort.abort();if(controlAction==='stop'){abort.abort();if(expireDrain)armDrain(drainTimeoutMs);}for(const resolve of waiters.splice(0))resolve();}
     };
     controlTimer=setInterval(()=>{try{applyControls();}catch(error){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();for(const resolve of waiters.splice(0))resolve();}},25);
@@ -162,6 +224,8 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs ?? 120000, dependencies, schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null }));
       const prior = oldWorkers[position];
       const worker = { position, key: chain, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
+      const workerAbort=new AbortController();workerAborts.set(position,workerAbort);
+      const signal=AbortSignal.any([abort.signal,workerAbort.signal]);
       if(Object.hasOwn(options,'dependsOn'))worker.dependencies=dependencies;
       currentWorkers.set(position,worker);
       if(options.id!==undefined)workerIds.set(options.id,position);
@@ -181,23 +245,25 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       let terminalObserved=false;
       let executionOpen=false;
       try {
-        await Promise.all(dependencies.map(position=>settlements.get(position)));
+        await waitFor(Promise.all(dependencies.map(position=>settlements.get(position))),signal);
+        if(workerAbort.signal.aborted)throw Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
         if(dependencies.some(position=>currentWorkers.get(position).status!=='completed'))throw Object.assign(fault('DEPENDENCY_FAILED','A prerequisite did not complete successfully'),{notStarted:true});
-        await acquire(); acquired = true;
+        await acquire(signal); acquired = true;
+        if(workerAbort.signal.aborted)throw Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
         if (state.attempts >= maxAgents) throw Object.assign(fault('AGENT_LIMIT', 'Lifetime agent attempt limit reached'), { notStarted: true });
         state.attempts++; worker.attempts=1; worker.status = 'running'; worker.startedAt = new Date().toISOString();
         saveHeader(); saveWorker(worker);
         dispatched = true;
         executionOpen=true;
         const reserveRetry=async()=>{
-          if(retiredWrites||abort.signal.aborted)throw fault('RUN_STOPPED','Worker admission is closed');
+          if(retiredWrites||signal.aborted)throw fault('RUN_STOPPED','Worker admission is closed');
           if(state.attempts>=maxAgents)throw fault('AGENT_LIMIT','Lifetime agent attempt limit reached');
           state.attempts++;worker.attempts++;saveWorker(worker);
         };
         const observationOpen=()=>{if(retiredWrites||!executionOpen)throw fault('RUN_RETIRED','Late worker activity cannot change terminal evidence');};
         const onActive=identity=>{observationOpen();worker.activeTurn=JSON.parse(json(identity));saveWorker(worker);};
         const onEvent=message=>{observationOpen();saveWorker(worker,message);};
-        const result = await backend.execute({ prompt, options, position, signal: abort.signal, reserveRetry, onActive,onEvent });
+        const result = await backend.execute({ prompt, options, position, signal, reserveRetry, onActive,onEvent });
         executionOpen=false;delete worker.activeTurn;
         if(retiredWrites)throw fault('RUN_RETIRED','Late worker result cannot change terminal evidence');
         if (!result?.terminalObserved) throw fault('AGENT_UNKNOWN', 'Worker terminal state was not observed');
@@ -210,13 +276,13 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       } catch (error) {
         executionOpen=false;delete worker.activeTurn;
         if(retiredWrites)throw error;
-        worker.status = !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
+        worker.status = error.evidence?.cleanup?.error ? 'unknown' : !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
         worker.error = diagnostic(error);
         if(error.evidence)worker.evidence=JSON.parse(json(error.evidence));
         if(error.interruption)worker.interruption={terminalObserved:error.interruption.terminalObserved===true,terminalStatus:['completed','failed','interrupted'].includes(error.interruption.terminalStatus)?error.interruption.terminalStatus:null,descendants:'notVerified'};
         saveWorker(worker);
         throw error;
-      } finally { if (acquired) release();settle(); }
+      } finally {workerAborts.delete(position);if (acquired) release();settle(); }
     };
     const call = (method, params) => {
       if (method === 'agent') {
@@ -265,6 +331,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     state.updatedAt = new Date().toISOString(); saveHeader();
     return snapshot(db);
   } finally {
+    controlsRetired=true;
     clearInterval(controlTimer);
     clearTimeout(drainTimer);
     stopped = true; abort.abort();

@@ -11,8 +11,17 @@ async function openRun(runDir,readOnly=false){
   const db=new DatabaseSync(path,{readOnly});db.exec('PRAGMA busy_timeout=1000');return db;
 }
 
-export async function requestControl(runDir,{sessionId,generation,action}){
-  if(!['pause','stop'].includes(action)||!Number.isInteger(generation)||generation<1)throw fault('CONTROL_INPUT','Control requires pause or stop and the observed generation');
+export function assertWorkerTarget(worker,{action,attempt,turnId}){
+  if(!worker||!['queued','running'].includes(worker.status)||worker.cancelRequested)throw fault('CONTROL_WORKER','Worker no longer accepts this live control');
+  if((worker.attempts??0)!==attempt)throw fault('CONTROL_ATTEMPT','Control targets an outdated worker attempt');
+  if((worker.activeTurn?.turnId??null)!==turnId)throw fault('CONTROL_TURN','Control targets an outdated worker turn');
+  if(action==='steer'&&!worker.activeTurn)throw fault('CONTROL_TURN','Steering requires a confirmed active turn');
+}
+export async function requestControl(runDir,{sessionId,generation,action,position,attempt,turnId,text}){
+  const individual=['steer','cancel-worker'].includes(action);
+  if(!['pause','stop','steer','cancel-worker'].includes(action)||!Number.isInteger(generation)||generation<1)throw fault('CONTROL_INPUT','Control requires a supported action and observed generation');
+  if(individual&&(!Number.isInteger(position)||position<0||position>=1000||!Number.isInteger(attempt)||attempt<0||attempt>1000||turnId!==null&&(typeof turnId!=='string'||!turnId||turnId.length>200)))throw fault('CONTROL_INPUT','Worker controls require an exact position, attempt and nullable turn identity');
+  if(action==='steer'&&(typeof text!=='string'||!text.trim()||text.length>8000))throw fault('CONTROL_INPUT','Steering requires bounded nonempty text');
   const db=await openRun(runDir);
   try{
     db.exec('BEGIN IMMEDIATE');
@@ -22,8 +31,13 @@ export async function requestControl(runDir,{sessionId,generation,action}){
     if(state.sessionId!==sessionId)throw fault('CONTROL_SESSION','Control belongs to a different originating session');
     if(state.generation!==generation)throw fault('CONTROL_GENERATION','Control targets an outdated run generation');
     if(state.acceptingControls!==true||!['running','pausing','stopping'].includes(state.status))throw fault('CONTROL_TERMINAL','Run no longer accepts live controls');
-    if(db.prepare("SELECT count(*) AS count FROM controls WHERE generation=? AND json_extract(value,'$.status')='pending'").get(generation).count>=256)throw fault('CONTROL_LIMIT','Too many pending controls');
-    const receipt={id:randomUUID(),generation,action,status:'pending',requestedAt:new Date().toISOString()};
+    if(individual){
+      const row=db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(generation,position);
+      assertWorkerTarget(row?JSON.parse(row.value):null,{action,attempt,turnId});
+      if(state.status==='stopping')throw fault('CONTROL_TERMINAL','Stopping run no longer accepts individual controls');
+    }
+    if(db.prepare("SELECT count(*) AS count FROM controls WHERE generation=? AND json_extract(value,'$.status') IN ('pending','applying')").get(generation).count>=256)throw fault('CONTROL_LIMIT','Too many outstanding controls');
+    const receipt={id:randomUUID(),generation,action,status:'pending',requestedAt:new Date().toISOString(),...(individual?{position,attempt,turnId}:{}),...(action==='steer'?{text}:{})};
     db.prepare('INSERT INTO controls(id,generation,value) VALUES(?,?,?)').run(receipt.id,generation,JSON.stringify(receipt));
     db.exec('COMMIT');return receipt;
   }catch(error){try{db.exec('ROLLBACK');}catch{}throw error;}finally{db.close();}

@@ -13,6 +13,13 @@ export function diagnostic(error) {
     : { code: 'CHECK_FAILED', message: 'Foundation check failed; untrusted diagnostic details were excluded' };
 }
 
+// Consumers attach worker-specific lifecycle evidence. Never share a mutable
+// transport error between requests, turn observers, or later callers.
+function copyFailure(error) {
+  const {code,message}=diagnostic(error);
+  return fault(code,message);
+}
+
 export function remoteDiagnostic(error) {
   const message = String(error?.message ?? '');
   // Only retain known startup signatures, never arbitrary server text/account data.
@@ -37,13 +44,16 @@ export class AppServer {
   #timeout;
   #shutdownMs;
   #maxBytes;
+  #jobOwned;
+  #jobReceipt='';
+  #exitCode;
 
   static async connect(options) {
     const client = new AppServer(options);
     try {
       client.identity = await client.request('initialize', {
         clientInfo: { name: 'agent_workflow_foundation', title: 'Workflow foundation check', version: '0.0.0' },
-        capabilities: { experimentalApi: false },
+        capabilities: { experimentalApi: options.experimentalApi === true },
       });
       client.#write({ method: 'initialized', params: {} });
       return client;
@@ -53,13 +63,15 @@ export class AppServer {
     }
   }
 
-  constructor({ command, args = [], cwd, env, requestTimeoutMs = 15000, shutdownMs = 2000, maxMessageBytes = 1024 * 1024 }) {
+  constructor({ command, args = [], cwd, env, jobHost, requestTimeoutMs = 15000, shutdownMs = jobHost ? 13000 : 2000, maxMessageBytes = 1024 * 1024 }) {
     this.#timeout = requestTimeoutMs;
     this.#shutdownMs = shutdownMs;
     this.#maxBytes = maxMessageBytes;
-    this.#child = spawn(command, args, { cwd, env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    this.#jobOwned=Boolean(jobHost);
+    this.#child = spawn(jobHost??command, jobHost?[command,...args]:args, { cwd, env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.#exited = new Promise(resolve => {
-      this.#child.once('close', () => {
+      this.#child.once('close', code => {
+        this.#exitCode=code;
         this.#closed = true;
         this.#fail(fault('SERVER_EXIT', 'Codex server connection closed'));
         resolve();
@@ -69,7 +81,11 @@ export class AppServer {
     this.#child.stdin.on('error', () => this.#fail(fault('TRANSPORT_ERROR', 'Codex input transport failed')));
     this.#child.stdout.on('error', () => this.#fail(fault('TRANSPORT_ERROR', 'Codex output transport failed')));
     // Drain diagnostics, but never retain arbitrary stderr which may contain credentials.
-    this.#child.stderr.resume();
+    if(this.#jobOwned){
+      // Child diagnostics go to NUL in the host. Only the host owns this pipe.
+      this.#child.stderr.setEncoding('utf8');
+      this.#child.stderr.on('data',chunk=>{this.#jobReceipt=(this.#jobReceipt+chunk).slice(0,256);});
+    }else this.#child.stderr.resume();
     this.#child.stdout.setEncoding('utf8');
     this.#child.stdout.on('data', chunk => this.#read(chunk));
   }
@@ -80,13 +96,13 @@ export class AppServer {
   }
 
   onFailure(listener) {
-    if (this.#failure) listener(this.#failure);
+    if (this.#failure) listener(copyFailure(this.#failure));
     else this.#failureListeners.add(listener);
     return () => this.#failureListeners.delete(listener);
   }
 
   request(method, params = {}, { timeoutMs = this.#timeout } = {}) {
-    if (this.#failure) return Promise.reject(this.#failure);
+    if (this.#failure) return Promise.reject(copyFailure(this.#failure));
     if (this.#pending.size >= 64) return Promise.reject(fault('REQUEST_LIMIT', 'Too many concurrent protocol requests'));
     return new Promise((resolve, reject) => {
       const id = ++this.#sequence;
@@ -108,11 +124,11 @@ export class AppServer {
     this.#buffer = '';
     for (const item of this.#pending.values()) {
       clearTimeout(item.timer);
-      item.reject(error);
+      item.reject(copyFailure(error));
     }
     this.#pending.clear();
     for (const listener of this.#failureListeners) {
-      try { listener(error); } catch { /* Failure observers cannot stop shutdown. */ }
+      try { listener(copyFailure(error)); } catch { /* Failure observers cannot stop shutdown. */ }
     }
     this.#failureListeners.clear();
   }
@@ -183,6 +199,7 @@ export class AppServer {
       this.#child.unref();
     }
     this.#listeners.clear();
-    return { serverExited: this.#closed && Boolean(this.#child.pid), forced, descendants: 'notVerified' };
+    const jobEmpty=this.#jobOwned&&this.#closed&&this.#exitCode===0&&this.#jobReceipt==='WORKFLOW_JOB_READY\nWORKFLOW_JOB_DRAINED\n';
+    return { serverExited: this.#jobOwned?jobEmpty:this.#closed && Boolean(this.#child.pid), forced, descendants:'notVerified',...(this.#jobOwned?{jobEmpty,ownershipScope:'windows-job-members'}: {}) };
   }
 }

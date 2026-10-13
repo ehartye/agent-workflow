@@ -5,12 +5,25 @@ const commands = new Map();
 const turns = new Map();
 let approvalRequest;
 let interruptCount = 0;
+let capabilities;
+const terminated=new Set();
 const reply = (id, result) => process.stdout.write(`${JSON.stringify({ id, result })}\n`);
 const notification = (method, params) => process.stdout.write(`${JSON.stringify({ method, params })}\n`);
 createInterface({ input: process.stdin }).on('line', line => {
   const req = JSON.parse(line);
   if (req.id === 'approval') { reply(approvalRequest, { rejected: Boolean(req.error) }); return; }
-  if (req.method === 'initialize') return reply(req.id, { userAgent: 'codex/0.162.1' });
+  if (req.method === 'initialize') {capabilities=req.params.capabilities;return reply(req.id, { userAgent: 'codex/0.162.1' });}
+  if(req.method==='capabilities')return reply(req.id,capabilities);
+  if(req.method==='thread/backgroundTerminals/list'){
+    if(!capabilities.experimentalApi||req.params.threadId!=='thread')throw new Error('Wrong terminal target/capability');
+    const id=req.params.cursor?'two':'one';
+    if(terminated.size===2)return reply(req.id,{data:mode==='terminals-remain'?[{processId:'one'}]:[],nextCursor:null});
+    return reply(req.id,{data:mode==='terminals-bad'?[{processId:42}]:[{processId:id}],nextCursor:id==='one'?'next':null});
+  }
+  if(req.method==='thread/backgroundTerminals/terminate'){
+    if(req.params.threadId!=='thread'||!['one','two'].includes(req.params.processId))throw new Error('Incorrect terminal handle');
+    terminated.add(req.params.processId);return reply(req.id,{terminated:true});
+  }
   if (req.method === 'initialized') return;
   if (req.method === 'echo') return setTimeout(() => reply(req.id, req.params.value), req.params.delay);
   if (req.method === 'interrupt-count') return reply(req.id,interruptCount);

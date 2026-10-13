@@ -18,6 +18,79 @@ async function setup(t) {
 }
 const backend = execute => ({ identity: 'fixture-v1', execute, close: async () => ({ serverExited: true, descendants: 'notVerified' }) });
 
+test('primary terminal failure retains its diagnostic but failed cleanup prohibits replay',async t=>{
+  const {runDir,runWorkflow}=await setup(t);
+  const {fault}=await import('../foundation/client.mjs');let calls=0;
+  const input={runDir,sessionId:'s',script:meta+'return await agent("A");',backend:backend(async()=>{
+    calls++;throw Object.assign(fault('RESULT_SCHEMA','Result contract failed'),{terminalObserved:true,evidence:{cleanup:{error:{code:'TERMINAL_REMAINING',message:'Native terminals remain'},descendants:'notVerified'}}});
+  })};
+  const run=await runWorkflow(input);
+  assert.equal(run.workers[0].status,'unknown');
+  assert.equal(run.workers[0].error.code,'RESULT_SCHEMA');
+  assert.equal(run.workers[0].evidence.cleanup.error.code,'TERMINAL_REMAINING');
+  await assert.rejects(runWorkflow({...input,resume:true}),{code:'REPLAY_UNKNOWN'});
+  assert.equal(calls,1);
+});
+
+test('individual steering and cancellation target one exact attempt while unrelated work completes',async t=>{
+  const {runDir,runWorkflow,requestControl,readControl}=await setup(t);let announced,finish;
+  const ready=new Promise(resolve=>{announced=resolve;}),gate=new Promise(resolve=>{finish=resolve;});let started=0;const steered=[];
+  const input={runDir,sessionId:'s',concurrency:2,script:meta+'return await parallel([()=>agent("A"),()=>agent("B")]);'};
+  const work=runWorkflow({...input,backend:{...backend(async({position,onActive,signal})=>{
+    onActive({threadId:`thread-${position}`,turnId:`turn-${position}`});if(++started===2)announced();
+    if(position===1){await gate;assert.equal(signal.aborted,false);return{value:'B survived',terminalObserved:true};}
+    return await Promise.race([gate.then(()=>({value:'A finished',terminalObserved:true})),new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(Object.assign(new Error('cancelled'),{interruption:{terminalObserved:true,terminalStatus:'interrupted',descendants:'notVerified'}})),{once:true}))]);
+  }),steer:async request=>{steered.push(request);return{turnId:request.turnId};}}});
+  await ready;let run;
+  try{
+    await assert.rejects(requestControl(runDir,{sessionId:'s',generation:1,action:'steer',position:0,attempt:2,turnId:'turn-0',text:'Change'}),{code:'CONTROL_ATTEMPT'});
+    await assert.rejects(requestControl(runDir,{sessionId:'s',generation:1,action:'steer',position:0,attempt:1,turnId:'stale',text:'Change'}),{code:'CONTROL_TURN'});
+    const steer=await requestControl(runDir,{sessionId:'s',generation:1,action:'steer',position:0,attempt:1,turnId:'turn-0',text:'Read a different line'});
+    let receipt;
+    const until=Date.now()+2000;
+    do{await new Promise(resolve=>setTimeout(resolve,10));receipt=await readControl(runDir,steer.id);}while(['pending','applying'].includes(receipt.status)&&Date.now()<until);
+    assert.equal(receipt.status,'applied');assert.equal(steered.length,1);assert.equal(steered[0].position,0);assert.equal(steered[0].text,'Read a different line');
+    const cancel=await requestControl(runDir,{sessionId:'s',generation:1,action:'cancel-worker',position:0,attempt:1,turnId:'turn-0'});
+    do{await new Promise(resolve=>setTimeout(resolve,10));receipt=await readControl(runDir,cancel.id);}while(receipt.status==='pending'&&Date.now()<until);
+    assert.equal(receipt.status,'applied');
+  }finally{finish();run=await work;}
+  assert.equal(run.workers[0].status,'unknown');assert.equal(run.workers[0].interruption.terminalStatus,'interrupted');assert.equal(run.workers[1].result,'B survived');
+  assert.deepEqual(run.result,[null,'B survived']);assert.equal(run.attempts,2);
+});
+
+for(const waitKind of ['slot','dependency'])test(`queued ${waitKind} cancellation settles before unrelated active work completes`,async t=>{
+  const {runDir,runWorkflow,readRun,requestControl,readControl}=await setup(t);let announced,finish;const ready=new Promise(resolve=>{announced=resolve;}),gate=new Promise(resolve=>{finish=resolve;});const calls=[];
+  const work=runWorkflow({runDir,sessionId:'s',concurrency:1,args:waitKind==='dependency',script:meta+'return await parallel([()=>agent("A",{id:"a"}),()=>agent("B",{dependsOn:args?["a"]:[]})]);',backend:backend(async({prompt,signal})=>{calls.push(prompt);announced();await gate;assert.equal(signal.aborted,false);return{value:prompt,terminalObserved:true};})});
+  await ready;let run;
+  try{
+    const until=Date.now()+2000;while((await readRun(runDir)).workers.length<2&&Date.now()<until)await new Promise(resolve=>setTimeout(resolve,10));
+    const cancel=await requestControl(runDir,{sessionId:'s',generation:1,action:'cancel-worker',position:1,attempt:0,turnId:null});
+    while((await readControl(runDir,cancel.id)).status==='pending'&&Date.now()<until)await new Promise(resolve=>setTimeout(resolve,10));
+    let during;do{await new Promise(resolve=>setTimeout(resolve,10));during=await readRun(runDir);}while(during.workers[1].status==='queued'&&Date.now()<until);
+    assert.equal(during.workers[1].status,'failed');assert.equal(during.workers[0].status,'running');
+  }finally{finish();run=await work;}
+  assert.deepEqual(calls,['A']);assert.equal(run.workers[1].status,'failed');assert.equal(run.workers[1].error.code,'WORKER_CANCELLED');assert.equal(run.workers[1].attempts??0,0);
+});
+
+test('whole-run stop preempts unconfirmed steering and late confirmation cannot rewrite its receipt',async t=>{
+  const {runDir,runWorkflow,requestControl,readControl}=await setup(t);let announced,confirm,finish;const ready=new Promise(resolve=>{announced=resolve;}),gate=new Promise(resolve=>{finish=resolve;}),steering=new Promise(resolve=>{confirm=resolve;});
+  const work=runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',backend:{...backend(async({onActive,signal})=>{
+    onActive({threadId:'thread',turnId:'turn'});announced();
+    return await Promise.race([gate.then(()=>({value:'finished',terminalObserved:true})),new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true}))]);
+  }),steer:()=>steering}});
+  await ready;let receipt,run;
+  try{
+    receipt=await requestControl(runDir,{sessionId:'s',generation:1,action:'steer',position:0,attempt:1,turnId:'turn',text:'Read another line'});
+    const until=Date.now()+2000;while((await readControl(runDir,receipt.id)).status==='pending'&&Date.now()<until)await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal((await readControl(runDir,receipt.id)).status,'applying');
+    await requestControl(runDir,{sessionId:'s',generation:1,action:'stop'});
+    run=await work;
+  }finally{finish();await work;}
+  assert.equal(run.status,'blocked');assert.equal((await readControl(runDir,receipt.id)).status,'unknown');
+  confirm({turnId:'turn'});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal((await readControl(runDir,receipt.id)).status,'unknown');
+});
+
 test('rolled back activity cannot leak usage into subsequent worker persistence',async t=>{
   const {runDir,runWorkflow}=await setup(t);
   const run=await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("Read");',onReady:()=>{

@@ -36,6 +36,13 @@ test('diagnostic client denies server requests instead of granting tool approval
   assert.deepEqual(await client.request('approval', {}), { rejected: true });
 });
 
+test('experimental native methods require an explicit connection capability opt-in',async t=>{
+  for(const experimentalApi of [false,true]){
+    const client=await connect(t,{experimentalApi},'capabilities');
+    assert.deepEqual(await client.request('capabilities',{}),{experimentalApi});
+  }
+});
+
 for (const [method, code, options] of [
   ['hang', 'REQUEST_TIMEOUT', { requestTimeoutMs: 150 }],
   ['bad', 'PROTOCOL_ERROR', {}],
@@ -43,9 +50,9 @@ for (const [method, code, options] of [
   ['exit', 'SERVER_EXIT', {}],
 ]) {
   test(`${method} closes admission and rejects outstanding requests with ${code}`, async t => {
-    const client = await connect(t, options);
+    const client = await connect(t, { ...options, requestTimeoutMs: 2000 });
     const outstanding = client.request('hang', {});
-    const failed = client.request(method, {});
+    const failed = client.request(method, {}, {timeoutMs:options.requestTimeoutMs??1000});
     const results = await Promise.allSettled([outstanding, failed]);
     for (const result of results) {
       assert.equal(result.status, 'rejected');

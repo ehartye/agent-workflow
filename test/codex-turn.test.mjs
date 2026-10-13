@@ -21,6 +21,19 @@ test('concurrent turns route early notifications by thread and confirmed turn ID
   assert.deepEqual(results.map(result => result.turnId), ['turn-one', 'turn-two']);
 });
 
+test('shared transport failure cannot transfer pre-start annotations into an active turn',async t=>{
+  const {client,runTurn}=await setup(t,'turn-hang');let announce;
+  const active=new Promise(resolve=>{announce=resolve;});
+  const turn=runTurn(client,{threadId:'running',prompt:'fixture',onActive:announce,interruptTimeoutMs:100}).catch(error=>error);
+  await active;
+  const failed=await client.request('hang',{}, {timeoutMs:20}).catch(error=>{error.notStarted=true;error.evidence={privateToOtherWorker:true};return error;});
+  const result=await turn;
+  assert.notEqual(result,failed);
+  assert.equal(result.notStarted,undefined);assert.equal(result.evidence,undefined);
+  assert.equal(result.code,'REQUEST_TIMEOUT');assert.equal(result.interruption.terminalObserved,false);
+  const late=await client.request('echo',{}).catch(error=>error);assert.equal(late.notStarted,undefined);
+});
+
 test('native turns forward explicit model reasoning and output schema unchanged',async t=>{
   const {client,runTurn}=await setup(t,'turn-settings');
   const outputSchema={type:'object',properties:{count:{type:'integer'}},required:['count'],additionalProperties:false};

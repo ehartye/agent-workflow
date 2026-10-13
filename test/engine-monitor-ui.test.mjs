@@ -150,6 +150,22 @@ test('monitor sends explicit generation controls, confirms stop and keeps pendin
   assert.doesNotMatch(view.get('receipt-list').textContent, /pending|Generation 4/, 'A new generation must not retain a prior generation local receipt');
 });
 
+test('worker steering preserves its draft through activity refresh and sends exact worker identity',async()=>{
+  const current=worker(0,'running',{attempts:2,activeTurn:{threadId:'thread',turnId:'turn'},dependencies:[]});
+  const view=await monitor({run:{workers:[current]}});
+  const input=view.get('steer-text');assert.ok(input,'Selected worker has steering input');
+  input.value='Read the second line';input.dispatchEvent(new view.window.Event('input'));
+  view.update({workers:[{...current,activity:{seq:1,summary:'Read marker'}}]});await view.refresh();
+  assert.equal(view.get('steer-text').value,'Read the second line');
+  await view.click(view.get('worker-steer'));
+  assert.deepEqual(JSON.parse(view.calls.find(call=>call.method==='POST').body),{generation:4,action:'steer',position:0,attempt:2,turnId:'turn',text:'Read the second line'});
+  await view.click(view.get('worker-cancel'));assert.equal(view.calls.filter(call=>call.method==='POST').length,1,'Cancellation requires confirmation');
+  view.context.confirm=()=>true;await view.click(view.get('worker-cancel'));
+  assert.deepEqual(JSON.parse(view.calls.filter(call=>call.method==='POST')[1].body),{generation:4,action:'cancel-worker',position:0,attempt:2,turnId:'turn'});
+  view.update({workers:[{...current,cancelRequested:true}]});await view.refresh();
+  assert.equal(view.get('worker-cancel').disabled,true);assert.equal(view.get('worker-steer').disabled,true);
+});
+
 test('untrusted evidence stays text and full worker, result and script reads are deliberate and generation-bound', async () => {
   const payload = '<img src=x onerror=alert(1)>';
   const view = await monitor({ run: { meta: { name: payload }, result: 'preview', truncations: ['result'], workers: [worker(0, 'unknown', { prompt: payload, error: payload, truncations: ['prompt'] })] },
@@ -158,7 +174,7 @@ test('untrusted evidence stays text and full worker, result and script reads are
   assert.equal(view.document.querySelectorAll('img').length, 0);
   assert.match(view.get('detail').textContent, /Preview shortened: prompt/);
   assert.equal(view.calls.length, 1, 'Polling must not fetch large evidence automatically');
-  await view.click(view.get('detail').querySelector('button'));
+  await view.click([...view.get('detail').querySelectorAll('button')].find(button=>button.textContent==='Load worker details'));
   await view.click(view.get('run-evidence').querySelector('button'));
   await view.click(view.get('load-script'));
   assert(view.calls.some(call => call.path === '/api/worker/0?generation=4'));

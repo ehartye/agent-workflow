@@ -8,6 +8,22 @@ function setTheme() { document.documentElement.dataset.theme = theme === 'system
 $('theme').value = theme; setTheme();
 preferredTheme.addEventListener('change', setTheme);
 $('theme').addEventListener('change', () => { theme = $('theme').value; try { localStorage.setItem(themeKey, theme); } catch { /* Persist for this page only. */ } setTheme(); });
+function toggleSettings(open, restoreFocus = false) {
+  $('settings-panel').hidden = !open;
+  $('settings-toggle').setAttribute('aria-expanded', String(open));
+  if (open) $('theme').focus();
+  else if (restoreFocus) $('settings-toggle').focus();
+}
+$('settings-toggle').addEventListener('click', () => toggleSettings($('settings-panel').hidden));
+document.addEventListener('click', event => {
+  if (!$('settings-panel').hidden && !event.target.closest('.settings')) toggleSettings(false);
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !$('settings-panel').hidden) { event.preventDefault(); toggleSettings(false, true); }
+});
+document.addEventListener('focusin', event => {
+  if (!$('settings-panel').hidden && !event.target.closest('.settings')) toggleSettings(false);
+});
 const tokenKey = 'agent-workflow.monitor.token';
 const fragment = new URLSearchParams(location.hash.slice(1));
 let token = fragment.get('token');
@@ -22,6 +38,7 @@ let snapshot, selected, timer, polling = false, busy = false, disposed = false, 
 let lastGood = 0, stale = true, listKey = '', detailKey = '', phaseKey = '', resultKey = '', receiptKey = '';
 let extendedWorker, localReceipt, actionNotice = '', mapKey = '';
 let activityHistory, activityLoading = false, activityFilter = 'tools';
+let steerDraft;
 const requests = new Set();
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -73,6 +90,10 @@ function updateButtons() {
   $('resume').disabled = !enabled || snapshot.resumable !== true;
   $('refresh').disabled = polling || busy || !authenticated;
   $('load-script').disabled = !authenticated || busy || !snapshot;
+  const worker=snapshot?.workers.find(worker=>worker.position===selected);
+  const workerEnabled=accepts&&snapshot.status!=='stopping'&&worker&&!worker.cancelRequested&&['queued','running'].includes(worker.status);
+  if($('worker-cancel'))$('worker-cancel').disabled=!workerEnabled;
+  if($('worker-steer'))$('worker-steer').disabled=!workerEnabled||!worker.activeTurn?.turnId||!$('steer-text')?.value.trim();
 }
 function renderWorkers() {
   const workers = snapshot.workers ?? [];
@@ -123,6 +144,7 @@ function renderDetail() {
   })]);
   if (key === detailKey) return;
   detailKey = key;
+  const focusedSteer=document.activeElement?.id==='steer-text',selectionStart=$('steer-text')?.selectionStart,selectionEnd=$('steer-text')?.selectionEnd;
   const detail = $('detail'); detail.replaceChildren();
   $('detail-status').hidden = !worker;
   $('detail-heading').textContent = worker ? worker.options?.label || `Worker ${worker.position + 1}` : 'Worker details';
@@ -133,6 +155,15 @@ function renderDetail() {
   if (worker.startedAt) meta.append(node('span', `Started ${dateText(worker.startedAt)}`));
   if (worker.completedAt) meta.append(node('span', `Finished ${dateText(worker.completedAt)}`));
   detail.append(meta);
+  const controls=node('section',undefined,'worker-controls');controls.append(node('h3','Worker controls'));
+  const label=node('label','Steering instruction');label.htmlFor='steer-text';
+  const input=node('textarea');input.id='steer-text';input.rows=3;input.maxLength=8000;
+  input.value=steerDraft?.generation===snapshot.generation&&steerDraft.position===worker.position?steerDraft.text:'';
+  input.addEventListener('input',()=>{steerDraft={generation:snapshot.generation,position:worker.position,text:input.value};updateButtons();});
+  const steer=node('button','Send instruction');steer.id='worker-steer';steer.type='button';steer.addEventListener('click',()=>mutateWorker('steer'));
+  const cancel=node('button',worker.cancelRequested?'Cancellation requested':'Cancel worker');cancel.id='worker-cancel';cancel.type='button';cancel.addEventListener('click',()=>mutateWorker('cancel-worker'));
+  controls.append(label,input,steer,cancel);detail.append(controls);
+  if(focusedSteer){input.focus({preventScroll:true});input.setSelectionRange?.(selectionStart,selectionEnd);}
   detail.append(node('h3', 'Prerequisites'));
   if (!Array.isArray(worker.dependencies)) detail.append(node('p', 'Prerequisite information was not declared or captured for this worker.', 'muted'));
   else if (!worker.dependencies.length) detail.append(node('p', 'No prerequisites declared.', 'muted'));
@@ -207,6 +238,7 @@ function renderDetail() {
     finally{activityLoading=false;renderDetail();}
   });
   detail.append(loadActivity);
+  updateButtons();
 }
 function renderReceipts() {
   const receipts = [...(snapshot.controls ?? [])];
@@ -219,11 +251,12 @@ function renderReceipts() {
   if (snapshot.controlCount > receipts.length) $('receipt-empty').textContent = `Showing ${receipts.length} of ${snapshot.controlCount} saved control receipts.`;
   $('receipt-list').replaceChildren(...receipts.slice().reverse().map(receipt => {
     const item = node('li', undefined, 'receipt');
-    const action = node('span', receipt.action); action.append(node('small', `Generation ${receipt.generation}`));
+    const action = node('span', receipt.action); action.append(node('small', `Generation ${receipt.generation}${receipt.position===undefined?'':` · worker ${receipt.position+1} · attempt ${receipt.attempt}`}`));
     const status = node('span', receipt.status, 'badge'); status.dataset.status = receipt.status;
-    const descriptions = { pending: 'Waiting for the runner.', applied: 'Applied by the runner. Check the run state for completion.', rejected: 'The runner did not apply this request.' };
+    const descriptions = { pending: 'Waiting for the runner.', applying:'Waiting for native confirmation.', applied: 'Applied by the runner. Check the run state for completion.', rejected: 'The runner did not apply this request.',unknown:'Confirmation was not observed. Inspect the worker before sending another instruction.' };
     const explanation = node('span', descriptions[receipt.status] || 'Inspect the saved receipt.', 'receipt-note');
     explanation.append(node('small', dateText(receipt.appliedAt || receipt.requestedAt)));
+    if(receipt.error)explanation.append(node('small',receipt.error.message));
     item.append(action, status, explanation); return item;
   }));
 }
@@ -328,7 +361,7 @@ function render() {
   $('cached').textContent = coverage.cached ?? 0;
   $('attempts').textContent = snapshot.attempts ?? 0;
   const cleanup = snapshot.cleanup;
-  $('cleanup').textContent = cleanup ? `${cleanup.serverExited === true ? 'Owned server exited' : 'Server exit unverified'}${cleanup.forced ? ' · forced' : ''}. Descendant processes ${cleanup.descendants === 'notVerified' ? 'not verified' : 'not reported'}.` : 'Awaiting shutdown evidence';
+  $('cleanup').textContent = cleanup ? `${cleanup.serverExited === true ? 'Owned server exited' : 'Server exit unverified'}${cleanup.forced ? ' · forced' : ''}. ${cleanup.jobEmpty===true?'Owned process group empty; external effects unverified.':`Descendant processes ${cleanup.descendants === 'notVerified' ? 'not verified' : 'not reported'}.`}` : 'Awaiting shutdown evidence';
   $('updated').textContent = `Run updated ${dateText(snapshot.updatedAt)}`;
   renderWorkers(); renderDetail(); renderMap(); renderReceipts();
   const key = JSON.stringify([snapshot.generation, snapshot.result, snapshot.error, snapshot.truncations]);
@@ -394,6 +427,20 @@ async function mutate(action) {
     actionNotice = `${error.message} The request was not retried. Refresh and inspect the run and control receipts before trying again.`;
     notice(actionNotice);
   } finally { busy = false; stale = true; updateButtons(); await poll(); }
+}
+async function mutateWorker(action){
+  if(busy||stale||!snapshot)return;
+  const worker=snapshot.workers.find(item=>item.position===selected);
+  if(!worker||worker.cancelRequested||!['running','queued'].includes(worker.status))return;
+  if(action==='cancel-worker'&&!confirm('Cancel this worker? Other workers will continue. An uncertain outcome can prevent restart.'))return;
+  const body={generation:snapshot.generation,action,position:worker.position,attempt:worker.attempts??0,turnId:worker.activeTurn?.turnId??null,...(action==='steer'?{text:$('steer-text').value}:{})};
+  busy=true;actionNotice='';clearTimeout(timer);updateButtons();
+  try{
+    localReceipt=await api('/api/control',{method:'POST',body});
+    actionNotice=`${action==='steer'?'Steering':'Cancellation'} requested for worker ${worker.position+1}. Check its receipt for confirmation.`;
+    if(action==='steer'){steerDraft=undefined;$('steer-text').value='';}renderReceipts();notice(actionNotice);
+  }catch(error){actionNotice=`${error.message} The request was not retried. Inspect the worker and control receipts before trying again.`;notice(actionNotice);}
+  finally{busy=false;stale=true;updateButtons();await poll();}
 }
 for (const action of ['pause', 'stop', 'resume']) $(action).addEventListener('click', () => mutate(action));
 for (const id of ['status-filter', 'phase-filter']) $(id).addEventListener('change', () => { if (snapshot) { renderWorkers(); renderDetail(); renderMap(); } });

@@ -4,7 +4,7 @@
 
 **Goal:** Display real worker tool activity and provide generation/attempt/turn-addressed steering, cancellation and verified restart.
 
-**Architecture:** The native turn runner routes only confirmed thread/turn notifications. The engine stores bounded activity rows separately from worker snapshots, with explicit retained ranges and paging. Durable control receipts target exact worker attempts; the controller owns cancellation and replacement scheduling. Native background-terminal cleanup plus MXC containment evidence governs eligibility; interruption alone never does.
+**Architecture:** The native turn runner routes only confirmed thread/turn notifications. The engine stores bounded activity rows separately from worker snapshots, with explicit retained ranges and paging. Durable control receipts target exact worker attempts; the controller owns cancellation and replacement scheduling. Native cleanup alone lacks a strict drain receipt. The evidence-driven [owned lifetime plan](2026-10-13-owned-worker-lifetime.md) adds a separate App Server and Windows job boundary per worker; external effects still require reconciliation.
 
 **Tech Stack:** Node 24, pinned Codex 0.162.1 JSON-RPC (reviewed experimental terminal methods), SQLite, existing authenticated monitor.
 
@@ -31,7 +31,7 @@ Files: create `engine/activity.mjs` and `test/engine-activity.test.mjs`; modify 
 Files: `engine/controls.mjs`, controller/backend/CLI/monitor server/UI and their existing tests.
 
 - [ ] Extend requests with `position`, `attempt`, `turnId` and bounded `text` for `steer`, `cancel-worker`, `restart-worker`. Persist pending/applying/applied/rejected receipts; reject stale generation/attempt/turn, duplicate replacement and terminal admission.
-- [ ] Give each worker its own AbortController linked to whole-run stop. Individual cancellation must leave unrelated workers running. Preserve cancelled/unknown outcomes, complete attempt history and earlier usage.
+- [x] Give each worker its own AbortController linked to whole-run stop. Individual cancellation must leave unrelated workers running. Preserve cancelled/unknown outcomes, complete attempt history and earlier usage.
 - [ ] Restart only after the native cleanup evidence supports it and the user explicitly requests the action. Reserve shared budget before replacement, keep the same logical slot, and invalidate downstream consumption/replay as necessary; never silently replace a result already consumed by JavaScript.
 - [ ] Test concurrent controls, cancellation during queue/start/correction, stale requests, rejected unknown restart and one eligible restart with retained attempts. Whole-run shutdown remains bounded.
 
@@ -39,7 +39,7 @@ Files: `engine/controls.mjs`, controller/backend/CLI/monitor server/UI and their
 
 Files: native lifecycle helper/check and sanitized report; engine README/parity/testing docs; wiki architecture/roadmap/backlog.
 
-- [ ] Read the exact pinned MXC/process-manager source and ingest new lifecycle evidence into the wiki. Enable experimental protocol only for the reviewed terminal APIs.
-- [ ] Run a bounded local worker that starts a command and child process, capture their identities, steer a confirmed active turn, cancel it, clean native background terminals and inspect termination. Keep the canary self-expiring so a failed cleanup leaves bounded work. Record actual outcomes and distinguish empty terminal inventory from descendant evidence.
+- [x] Read the exact pinned MXC/process-manager source and ingest new lifecycle evidence into the wiki. Enable experimental protocol only for the reviewed terminal APIs.
+- [x] Run a bounded local worker that starts a command and child process, capture their identities, steer a confirmed active turn, cancel it, clean native background terminals and inspect termination. Keep the canary self-expiring so a failed cleanup leaves bounded work. Record actual outcomes and distinguish empty terminal inventory from descendant evidence.
 - [ ] If the native proof is incomplete, keep restart ineligible for that execution and continue investigating the native lifecycle boundary; do not replace the required safe restart with unconditional retry or a mock-only claim.
 - [ ] Demonstrate an eligible cancelled worker restart exactly once with retained evidence. Run browser inspection, affected tests, full suite/check/smoke, agent-tests delta review and independent review. Update wiki and push the checkpoint. Then proceed to isolated writable workspaces and distribution; do not mark the overall goal complete.

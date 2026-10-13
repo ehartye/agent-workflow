@@ -13,7 +13,10 @@
   <a class="skip" href="#workers">Skip to workers</a>
   <header class="masthead">
     <div class="brand"><span class="brand-mark" aria-hidden="true">↳</span> agent workflow <span class="edition">Run monitor</span></div>
-    <div class="connection"><label class="theme-label">Theme<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label><span id="connection">Connecting…</span><button id="refresh" type="button">Refresh</button></div>
+    <div class="connection"><span id="connection">Connecting…</span><button id="refresh" type="button">Refresh</button><div class="settings">
+      <button id="settings-toggle" type="button" aria-label="Settings" title="Settings" aria-expanded="false" aria-controls="settings-panel"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m9 3-.5 2.3-2 1.2L4.2 6 2 9.8l1.8 1.5v2.4L2 15.2 4.2 19l2.3-.5 2 1.2L9 22h4l.5-2.3 2-1.2 2.3.5 2.2-3.8-1.8-1.5v-2.4L20 9.8 17.8 6l-2.3.5-2-1.2L13 3Z" transform="translate(1 -0.5)"/><circle cx="12" cy="12" r="3.2"/></svg></button>
+      <section id="settings-panel" class="settings-panel" aria-label="Settings" hidden><label class="theme-label" for="theme">Theme<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></section>
+    </div></div>
   </header>
   <main>
     <div id="notice" class="notice" role="status" hidden></div>

@@ -10,7 +10,7 @@ const assets=new Map([['/',['index.html','text/html']],['/app.mjs',['app.mjs','t
 async function body(request){
   if(request.headers['content-type']!=='application/json')throw fault('HTTP_INPUT','JSON content type is required');
   let size=0;const chunks=[];
-  for await(const chunk of request){size+=chunk.length;if(size>8192)throw fault('HTTP_INPUT','Request body exceeded its limit');chunks.push(chunk);}
+  for await(const chunk of request){size+=chunk.length;if(size>40000)throw fault('HTTP_INPUT','Request body exceeded its limit');chunks.push(chunk);}
   try{const value=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(!value||typeof value!=='object'||Array.isArray(value))throw new Error();return value;}catch{throw fault('HTTP_INPUT','Provide a JSON object');}
 }
 export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1000}){
@@ -51,9 +51,10 @@ export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1
       if(request.method==='POST'&&['/api/control','/api/resume','/api/close'].includes(url.pathname)){
         const input=await body(request);
         if(url.pathname==='/api/close'){send(response,200,{status:'closed'});setImmediate(()=>close());return;}
-        if(!Number.isInteger(input.generation)||input.generation<1||Object.keys(input).some(key=>!['generation','action'].includes(key)))throw fault('HTTP_INPUT','Provide only the observed generation and control action');
+        const allowed=url.pathname==='/api/control'?['generation','action','position','attempt','turnId','text']:['generation','action'];
+        if(!Number.isInteger(input.generation)||input.generation<1||Object.keys(input).some(key=>!allowed.includes(key)))throw fault('HTTP_INPUT','Provide the observed generation and supported control fields');
         const state=await monitorData(runDir,{generation:input.generation});
-        if(url.pathname==='/api/control')return send(response,202,await requestControl(runDir,{sessionId:state.sessionId,generation:input.generation,action:input.action}));
+        if(url.pathname==='/api/control')return send(response,202,await requestControl(runDir,{...input,sessionId:state.sessionId}));
         if(busy)throw fault('MONITOR_BUSY','Resume admission is already pending');
         if(!state.resumable)throw fault('REPLAY_UNKNOWN','Run execution is not verified for resume');
         busy=true;
@@ -61,7 +62,7 @@ export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1
       }
       return send(response,404,{error:{code:'HTTP_ROUTE',message:'Unknown monitor route'}});
     }catch(error){
-      const conflict=['REPLAY_GENERATION','REPLAY_UNKNOWN','CONTROL_GENERATION','CONTROL_TERMINAL','RUN_LOCKED','MONITOR_BUSY'].includes(error.code);
+      const conflict=['REPLAY_GENERATION','REPLAY_UNKNOWN','CONTROL_GENERATION','CONTROL_TERMINAL','CONTROL_ATTEMPT','CONTROL_TURN','CONTROL_WORKER','CONTROL_BUSY','RUN_LOCKED','MONITOR_BUSY'].includes(error.code);
       send(response,conflict?409:error.code==='MONITOR_MISSING'?404:['HTTP_INPUT','CONTROL_INPUT','ACTIVITY_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
     }
   });

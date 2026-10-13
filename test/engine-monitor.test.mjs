@@ -100,6 +100,20 @@ test('monitor pause persists a receipt and resume uses the server-owned session 
   assert.equal(resumes.length,1);assert.equal(resumes[0].sessionId,'owned-session');assert.equal(resumes[0].expectedGeneration,1);
 });
 
+test('monitor and CLI worker controls preserve attempt and turn preconditions',async t=>{
+  const {runDir,createMonitor}=await setup(t);let announced,finish;const ready=new Promise(resolve=>{announced=resolve;}),gate=new Promise(resolve=>{finish=resolve;});const steered=[];
+  const work=runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',backend:{...backend(async({onActive})=>{onActive({threadId:'thread',turnId:'turn'});announced();await gate;return{value:'A',terminalObserved:true};}),steer:async request=>{steered.push(request);return{turnId:'turn'};}}});
+  await ready;const monitor=await createMonitor({runDir});t.after(()=>monitor.close());const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token');
+  const post=body=>fetch(url.origin+'/api/control',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  try{
+    assert.equal((await post({generation:1,action:'steer',position:0,attempt:1,turnId:'stale',text:'Change'})).status,409);
+    assert.equal((await post({generation:1,action:'steer',position:0,attempt:1,turnId:'turn',text:'Read another line'})).status,202);
+    const {stdout}=await promisify(execFile)(process.execPath,[fileURLToPath(new URL('../engine/cli.mjs',import.meta.url)),'--action','steer','--run',runDir,'--session','s','--generation','1','--position','0','--attempt','1','--turn','turn','--text','CLI instruction'],{timeout:10000,windowsHide:true});
+    const receipt=JSON.parse(stdout);assert.equal(receipt.position,0);assert.equal(receipt.attempt,1);assert.equal(receipt.turnId,'turn');assert.equal(receipt.text,'CLI instruction');
+    const until=Date.now()+2000;while(steered.length<2&&Date.now()<until)await new Promise(resolve=>setTimeout(resolve,10));assert.equal(steered.length,2);
+  }finally{finish();await work;}
+});
+
 test('dashboard CLI returns an authenticated URL and its monitor survives launcher exit',async t=>{
   const {runDir}=await setup(t);
   await runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',backend:backend(async()=>{})});
