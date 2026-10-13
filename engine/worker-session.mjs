@@ -24,6 +24,7 @@ export async function runWorkerSession(client,{threadId,prompt,schema,settings,e
       const result=await turn(client,{threadId,prompt:number===1?prompt:'Correct your previous answer to match the supplied output schema. Return only the JSON object. Do not run commands or use tools; revise the answer from existing evidence.',timeoutMs:remaining,signal,model:settings.model,effort:settings.effort,execution,...(compiled?{outputSchema:compiled.schema}:{}),onActive,onEvent});
       terminalObserved=true;
       attempt.turnId=result.turnId;
+      if(result.output)attempt.output=result.output;
       evidence.commands.push(...result.items.filter(item=>item.type==='commandExecution').map(item=>({status:['completed','failed','declined','inProgress'].includes(item.status)?item.status:'unknown',exitCode:Number.isInteger(item.exitCode)?item.exitCode:null})));
       let value=result.text;
       if(compiled){
@@ -41,6 +42,7 @@ export async function runWorkerSession(client,{threadId,prompt,schema,settings,e
     }
   }catch(error){
     const last=evidence.attempts.at(-1);
+    if(last&&error.output)last.output=error.output;
     if(last?.status==='running'){last.status='failed';last.error=diagnostic(error);}
     error.evidence=evidence;
     if(terminalObserved)error.terminalObserved=true;

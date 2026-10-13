@@ -74,7 +74,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost}){
     const settings=createSettings({catalog,config:config.config,defaults});
     const activeWorkers=new Map();
     const connections=new Set(),cleanupHistory=[];let closing=false,closePromise;
-    const identity = fingerprint({ version, cwd: launch.cwd, backend, account, config: config.config, defaults:settings.resolve(), layers: config.layers.filter(layer => !layer.disabledReason).map(layer => layer.config) });
+    const identity = fingerprint({ version, cwd: launch.cwd, backend, account, config: config.config, defaults:settings.resolve(),playwrightBrowsersPath:launch.env.PLAYWRIGHT_BROWSERS_PATH??null, layers: config.layers.filter(layer => !layer.disabledReason).map(layer => layer.config) });
     const setupCleanup=await client.close();
     if(!setupCleanup.serverExited)throw fault('SETUP_CLEANUP','Configuration server did not confirm termination');
     return {

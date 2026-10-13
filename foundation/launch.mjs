@@ -5,8 +5,14 @@ export function createLaunch({ executable, cwd, backend = 'configured', platform
   if (!executable || !isAbsolute(executable) || !cwd || !['configured', 'mxc'].includes(backend) || (backend === 'mxc' && platform !== 'win32')) {
     throw fault('LAUNCH_INVALID', 'Provide an absolute native executable, cwd and supported backend');
   }
-  const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'HOME', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'CODEX_HOME', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMDATA', 'NUMBER_OF_PROCESSORS']);
+  const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'HOME', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'CODEX_HOME', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMDATA', 'NUMBER_OF_PROCESSORS','PLAYWRIGHT_BROWSERS_PATH']);
   const filtered = Object.fromEntries(Object.entries(env).filter(([key]) => allowed.has(key.toUpperCase())));
+  const browserCache=Object.entries(filtered).find(([key])=>key.toUpperCase()==='PLAYWRIGHT_BROWSERS_PATH');
+  if(browserCache){
+    const [key,value]=browserCache;
+    if(typeof value!=='string'||!isAbsolute(value)||value.length>4096||/[\u0000-\u001f\u007f]/.test(value))throw fault('LAUNCH_INVALID','PLAYWRIGHT_BROWSERS_PATH must name an absolute browser cache directory');
+    delete filtered[key];filtered.PLAYWRIGHT_BROWSERS_PATH=value;
+  }
   const args = ['app-server', '--listen', 'stdio://',
     '-c', 'model_provider="openai"', '-c', 'forced_login_method="chatgpt"',
     '-c', 'approval_policy="never"', '-c', 'sandbox_mode="read-only"',

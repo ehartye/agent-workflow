@@ -21,6 +21,26 @@ test('concurrent turns route early notifications by thread and confirmed turn ID
   assert.deepEqual(results.map(result => result.turnId), ['turn-one', 'turn-two']);
 });
 
+test('large cumulative tool output keeps bounded previews and final command outcomes',async t=>{
+  const {client,runTurn}=await setup(t,'turn-verbose');let streamed=0,terminalEvents=0;
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:3000,onEvent:message=>{
+    if(message.method==='item/commandExecution/outputDelta')streamed++;
+    if(message.method==='turn/completed')terminalEvents++;
+  }});
+  assert.equal(result.text,'Known command failure reported.');assert.equal(result.status,'completed');
+  const item=result.items.find(item=>item.id==='read');
+  assert.equal(item.status,'failed');assert.equal(item.exitCode,7);assert.ok(item.aggregatedOutput.length<=4000);
+  assert.ok(item.truncated.includes('aggregatedOutput'));assert.equal(result.items.filter(item=>item.id==='read').length,1);
+  assert.equal(streamed,80);assert.equal(terminalEvents,1);assert.ok(result.output.observedBytes>1024*1024);
+  assert.equal(result.output.truncatedItems,1);assert.ok(Buffer.byteLength(JSON.stringify(result))<32000);
+  assert.equal(await client.request('interrupt-count',{}),0);
+});
+
+test('final answer size remains a hard bounded failure without silent truncation',async t=>{
+  const {client,runTurn}=await setup(t,'turn-answer-limit');
+  await assert.rejects(runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:3000}),{code:'TURN_OUTPUT_LIMIT'});
+});
+
 test('shared transport failure cannot transfer pre-start annotations into an active turn',async t=>{
   const {client,runTurn}=await setup(t,'turn-hang');let announce;
   const active=new Promise(resolve=>{announce=resolve;});
