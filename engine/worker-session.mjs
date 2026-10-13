@@ -2,7 +2,7 @@ import {fault,diagnostic} from '../foundation/client.mjs';
 import {runTurn} from '../foundation/turn.mjs';
 import {compileSchema} from './schema.mjs';
 
-export async function runWorkerSession(client,{threadId,prompt,schema,settings,timeoutMs=120000,signal,reserveRetry,turn=runTurn}){
+export async function runWorkerSession(client,{threadId,prompt,schema,settings,timeoutMs=120000,signal,reserveRetry,turn=runTurn,onActive,onEvent}){
   const compiled=schema===undefined?null:compileSchema(schema);
   const maxAttempts=compiled?settings.maxAttempts:1;
   if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>5||!Number.isFinite(timeoutMs)||timeoutMs<=0)throw Object.assign(fault('WORKER_SETTINGS','Invalid worker attempt limit or deadline'),{notStarted:true});
@@ -20,7 +20,7 @@ export async function runWorkerSession(client,{threadId,prompt,schema,settings,t
       if(remaining<=0)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');
       const attempt={number,status:'running'};evidence.attempts.push(attempt);
       terminalObserved=false;
-      const result=await turn(client,{threadId,prompt:number===1?prompt:'Correct your previous answer to match the supplied output schema. Return only the JSON object. Do not run commands or use tools; revise the answer from existing evidence.',timeoutMs:remaining,signal,model:settings.model,effort:settings.effort,...(compiled?{outputSchema:compiled.schema}:{})});
+      const result=await turn(client,{threadId,prompt:number===1?prompt:'Correct your previous answer to match the supplied output schema. Return only the JSON object. Do not run commands or use tools; revise the answer from existing evidence.',timeoutMs:remaining,signal,model:settings.model,effort:settings.effort,...(compiled?{outputSchema:compiled.schema}:{}),onActive,onEvent});
       terminalObserved=true;
       attempt.turnId=result.turnId;
       evidence.commands.push(...result.items.filter(item=>item.type==='commandExecution').map(item=>({status:['completed','failed','declined','inProgress'].includes(item.status)?item.status:'unknown',exitCode:Number.isInteger(item.exitCode)?item.exitCode:null})));

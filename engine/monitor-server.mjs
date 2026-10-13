@@ -29,6 +29,17 @@ export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1
       lastActivity=Date.now();
       if(request.method==='GET'){
         if(url.pathname==='/api/run')return send(response,200,await monitorData(runDir));
+        if(url.pathname==='/api/activity'){
+          const integer=(name,fallback)=>{
+            const value=url.searchParams.get(name);
+            if(value===null&&fallback!==undefined)return fallback;
+            if(!/^(0|[1-9][0-9]*)$/.test(value??''))throw fault('HTTP_INPUT','Activity reads require an observed generation, worker and bounded cursor');
+            const parsed=Number(value);if(!Number.isSafeInteger(parsed))throw fault('HTTP_INPUT','Activity cursor exceeded its limit');return parsed;
+          };
+          const generation=integer('generation'),position=integer('position'),after=integer('after',0),limit=integer('limit',50);
+          if(generation<1||position>=1000||limit<1||limit>100)throw fault('HTTP_INPUT','Activity paging exceeded its limits');
+          return send(response,200,await monitorData(runDir,{kind:'activity',generation,position,after,limit}));
+        }
         const match=/^\/api\/worker\/(0|[1-9][0-9]{0,3})$/.exec(url.pathname);
         const kind=match?'worker':url.pathname==='/api/script'?'script':url.pathname==='/api/result'?'result':null;
         if(kind){
@@ -51,7 +62,7 @@ export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1
       return send(response,404,{error:{code:'HTTP_ROUTE',message:'Unknown monitor route'}});
     }catch(error){
       const conflict=['REPLAY_GENERATION','REPLAY_UNKNOWN','CONTROL_GENERATION','CONTROL_TERMINAL','RUN_LOCKED','MONITOR_BUSY'].includes(error.code);
-      send(response,conflict?409:error.code==='MONITOR_MISSING'?404:['HTTP_INPUT','CONTROL_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
+      send(response,conflict?409:error.code==='MONITOR_MISSING'?404:['HTTP_INPUT','CONTROL_INPUT','ACTIVITY_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
     }
   });
   server.requestTimeout=5000;server.headersTimeout=5000;server.keepAliveTimeout=1000;

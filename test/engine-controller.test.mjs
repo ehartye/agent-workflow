@@ -18,6 +18,58 @@ async function setup(t) {
 }
 const backend = execute => ({ identity: 'fixture-v1', execute, close: async () => ({ serverExited: true, descendants: 'notVerified' }) });
 
+test('rolled back activity cannot leak usage into subsequent worker persistence',async t=>{
+  const {runDir,runWorkflow}=await setup(t);
+  const run=await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("Read");',onReady:()=>{
+    const db=new DatabaseSync(join(runDir,'run.sqlite'));
+    try{db.exec("CREATE TRIGGER activity_failure BEFORE INSERT ON activity_counts BEGIN SELECT RAISE(ABORT,'fixture persistence failure'); END;");}finally{db.close();}
+  },backend:backend(async({onEvent})=>{
+    onEvent({method:'thread/tokenUsage/updated',params:{threadId:'thread',turnId:'turn',tokenUsage:{total:{inputTokens:10,cachedInputTokens:0,outputTokens:2,reasoningOutputTokens:0,totalTokens:12}}}});
+    return{value:'must not succeed',terminalObserved:true};
+  })});
+  assert.equal(run.workers[0].status,'unknown');
+  assert.equal(run.workers[0].usage,undefined);assert.equal(run.workers[0].usageByThread,undefined);
+  assert.equal(run.workers[0].activityCount,undefined);
+  const {monitorData}=await import('../engine/monitor-data.mjs');
+  const page=await monitorData(runDir,{kind:'activity',generation:1,position:0});
+  assert.equal(page.observed,0);assert.equal(page.retained,0);
+});
+
+test('live native activity is durable before worker completion and late events cannot alter history',async t=>{
+  const {runDir,runWorkflow,readRun}=await setup(t);let announced,finish,late;
+  const ready=new Promise(resolve=>{announced=resolve;}),gate=new Promise(resolve=>{finish=resolve;});
+  const {monitorData}=await import('../engine/monitor-data.mjs');
+  const message={method:'item/started',params:{threadId:'thread',turnId:'turn',item:{id:'command',type:'commandExecution',command:'Read marker',status:'inProgress'}}};
+  const work=runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("Read");',backend:backend(async({onActive,onEvent})=>{
+    try{onActive?.({threadId:'thread',turnId:'turn'});onEvent?.(message);late=()=>onEvent?.(message);}finally{announced();}
+    await gate;return{value:'marker',terminalObserved:true};
+  })});
+  await ready;let snapshot,page;
+  try{snapshot=await readRun(runDir);page=await monitorData(runDir,{kind:'activity',generation:1,position:0});}finally{finish();}
+  const done=await work;
+  assert.deepEqual(snapshot.workers[0].activeTurn,{threadId:'thread',turnId:'turn'});assert.equal(snapshot.workers[0].activity.summary,'Read marker');
+  assert.equal(page.records[0].status,'inProgress');assert.equal(done.workers[0].activeTurn,undefined);
+  assert.throws(late,{code:'RUN_RETIRED'});
+  assert.equal((await monitorData(runDir,{kind:'activity',generation:1,position:0})).records.length,1);
+});
+
+test('cached workers retain original activity usage and attempt evidence without new observations',async t=>{
+  const {runDir,runWorkflow}=await setup(t);let calls=0;
+  const {monitorData}=await import('../engine/monitor-data.mjs');
+  const input={runDir,sessionId:'s',script:meta+'return await agent("Read");',backend:backend(async({onEvent})=>{
+    calls++;onEvent({method:'thread/tokenUsage/updated',params:{threadId:'thread',turnId:'turn',tokenUsage:{total:{inputTokens:10,cachedInputTokens:0,outputTokens:2,reasoningOutputTokens:0,totalTokens:12}}}});
+    return{value:'marker',terminalObserved:true,evidence:{attempts:[{number:1,status:'completed'}]}};
+  })};
+  await runWorkflow(input);await runWorkflow({...input,resume:true});
+  const third=await runWorkflow({...input,resume:true});
+  assert.equal(calls,1);assert.equal(third.attempts,1);assert.equal(third.workers[0].usage.totalTokens,12);
+  assert.deepEqual(third.workers[0].reusedFrom,{generation:1,position:0});
+  assert.equal(third.workers[0].evidence.attempts.length,1);
+  const page=await monitorData(runDir,{kind:'activity',generation:3,position:0});
+  assert.equal(page.records.length,1);assert.equal(page.observed,1);assert.equal(page.sourceGeneration,1);
+  await assert.rejects(monitorData(runDir,{kind:'activity',generation:1,position:0}),{code:'REPLAY_GENERATION'});
+});
+
 test('correction attempts reserve the shared lifetime budget before another native turn',async t=>{
   const {runDir,runWorkflow,readRun}=await setup(t);
   const {runWorkerSession}=await import('../engine/worker-session.mjs');

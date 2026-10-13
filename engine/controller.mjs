@@ -6,6 +6,7 @@ import { join, isAbsolute } from 'node:path';
 import { evaluate } from './evaluate.mjs';
 import { parseScript } from './script.mjs';
 import { compileSchema } from './schema.mjs';
+import {createActivityTable,recordActivity} from './activity.mjs';
 import { fault, diagnostic } from '../foundation/client.mjs';
 export {requestControl,readControl} from './controls.mjs';
 
@@ -28,7 +29,7 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','controls.mjs','schema.mjs','settings.mjs','worker-session.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  const files = ['controller.mjs','controls.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
   return hash(process.version + files.map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
@@ -80,14 +81,17 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
   const closeBackend = () => closed ??= Promise.resolve().then(() => backend.close());
   const own = () => { if (readFileSync(lock, 'utf8') !== token) throw fault('RUN_OWNERSHIP', 'Run ownership changed'); };
   const saveHeader = () => { own(); db.prepare('INSERT OR REPLACE INTO header(id,value) VALUES(1,?)').run(json(state)); };
-  const saveWorker = worker => {
+  const saveWorker = (worker,message) => {
     own();
+    const next=message?structuredClone(worker):worker;
     state.workerCount = Math.max(state.workerCount, worker.position + 1);
     db.exec('BEGIN IMMEDIATE');
     try {
-      db.prepare('INSERT OR REPLACE INTO workers(generation,position,value) VALUES(?,?,?)').run(state.generation, worker.position, json(worker));
+      if(message)recordActivity(db,{generation:state.generation,worker:next,message});
+      db.prepare('INSERT OR REPLACE INTO workers(generation,position,value) VALUES(?,?,?)').run(state.generation, next.position, json(next));
       db.prepare('INSERT OR REPLACE INTO header(id,value) VALUES(1,?)').run(json(state));
       db.exec('COMMIT');
+      if(message)Object.assign(worker,next);
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   };
   const acquire = async () => {
@@ -109,6 +113,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     await regular(path, true);
     db = new DatabaseSync(path);
     db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=1000; CREATE TABLE IF NOT EXISTS header(id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS workers(generation INTEGER NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(generation,position)); CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS controls(id TEXT PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL);');
+    createActivityTable(db);
     const previous = snapshot(db);
     if(expectedGeneration!==undefined&&previous?.generation!==expectedGeneration)throw fault('REPLAY_GENERATION','Run generation changed; refresh before resuming');
     const runtimeIdentity = identity();
@@ -165,6 +170,8 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         if (!Object.hasOwn(prior, 'result') || hash(json(prior.result)) !== prior.resultHash) throw fault('REPLAY_CORRUPT', 'Saved worker result is missing or corrupt');
         if(compiled&&!compiled.validate(prior.result))throw fault('REPLAY_CORRUPT','Saved worker result violates its schema');
         Object.assign(worker, { status: 'completed', cached: true, result: prior.result, resultHash: prior.resultHash });
+        worker.reusedFrom=prior.reusedFrom??{generation:previous.generation,position:prior.position};
+        for(const key of ['evidence','attempts','usageByThread','usage','activity','activityCount','startedAt','completedAt'])if(Object.hasOwn(prior,key))worker[key]=structuredClone(prior[key]);
         saveWorker(worker);settle(); return worker.result;
       }
       reuse = false;
@@ -172,6 +179,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       let acquired = false;
       let dispatched = false;
       let terminalObserved=false;
+      let executionOpen=false;
       try {
         await Promise.all(dependencies.map(position=>settlements.get(position)));
         if(dependencies.some(position=>currentWorkers.get(position).status!=='completed'))throw Object.assign(fault('DEPENDENCY_FAILED','A prerequisite did not complete successfully'),{notStarted:true});
@@ -180,12 +188,17 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         state.attempts++; worker.attempts=1; worker.status = 'running'; worker.startedAt = new Date().toISOString();
         saveHeader(); saveWorker(worker);
         dispatched = true;
+        executionOpen=true;
         const reserveRetry=async()=>{
           if(retiredWrites||abort.signal.aborted)throw fault('RUN_STOPPED','Worker admission is closed');
           if(state.attempts>=maxAgents)throw fault('AGENT_LIMIT','Lifetime agent attempt limit reached');
           state.attempts++;worker.attempts++;saveWorker(worker);
         };
-        const result = await backend.execute({ prompt, options, position, signal: abort.signal, reserveRetry });
+        const observationOpen=()=>{if(retiredWrites||!executionOpen)throw fault('RUN_RETIRED','Late worker activity cannot change terminal evidence');};
+        const onActive=identity=>{observationOpen();worker.activeTurn=JSON.parse(json(identity));saveWorker(worker);};
+        const onEvent=message=>{observationOpen();saveWorker(worker,message);};
+        const result = await backend.execute({ prompt, options, position, signal: abort.signal, reserveRetry, onActive,onEvent });
+        executionOpen=false;delete worker.activeTurn;
         if(retiredWrites)throw fault('RUN_RETIRED','Late worker result cannot change terminal evidence');
         if (!result?.terminalObserved) throw fault('AGENT_UNKNOWN', 'Worker terminal state was not observed');
         terminalObserved=true;
@@ -195,6 +208,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         Object.assign(worker, { status: 'completed', result: value, resultHash: hash(json(value)), completedAt: new Date().toISOString() });
         saveWorker(worker); return value;
       } catch (error) {
+        executionOpen=false;delete worker.activeTurn;
         if(retiredWrites)throw error;
         worker.status = !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
         worker.error = diagnostic(error);

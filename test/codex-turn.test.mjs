@@ -28,6 +28,70 @@ test('native turns forward explicit model reasoning and output schema unchanged'
   assert.deepEqual(JSON.parse(result.text),{model:'fixture-model',effort:'high',outputSchema});
 });
 
+test('live activity routes early tool output and usage only to the confirmed worker turn',async t=>{
+  const {client,runTurn}=await setup(t,'turn-activity');
+  const seen=new Map();
+  await Promise.all(['one','two'].map(threadId=>runTurn(client,{threadId,prompt:'fixture',onActive:identity=>{assert.equal(identity.threadId,threadId);seen.set(threadId,[]);},onEvent:event=>{
+    assert.ok(seen.has(threadId),'turn identity confirmed before activity');
+    assert.equal(event.params.threadId,threadId);assert.equal(event.params.turnId??event.params.turn?.id,`turn-${threadId}`);seen.get(threadId).push(event);
+  }})));
+  for(const [threadId,events] of seen){
+    assert.equal(events.filter(event=>event.method==='item/started').length,1);
+    assert.equal(events.find(event=>event.method==='item/commandExecution/outputDelta').params.delta,threadId+' output');
+    assert.equal(events.filter(event=>event.method==='thread/tokenUsage/updated').length,1);
+    assert.equal(events.filter(event=>event.method==='turn/completed').length,1);
+    assert.doesNotMatch(JSON.stringify(events),/RAW_REASONING|WRONG/);
+  }
+  assert.equal(seen.size,2);
+});
+
+test('activity persistence failure interrupts a live turn and preserves the primary error',async t=>{
+  const {client,runTurn}=await setup(t,'turn-hang');
+  await assert.rejects(runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:300,onActive:()=>{throw new Error('fixture persistence failure');}}),error=>{
+    assert.equal(error.message,'fixture persistence failure');assert.equal(error.interruption.terminalObserved,true);return true;
+  });
+  assert.equal(await client.request('interrupt-count',{}),1);
+});
+
+test('early completed turn cannot mask an activity persistence failure',async t=>{
+  const {client,runTurn}=await setup(t,'turn-activity');
+  await assert.rejects(runTurn(client,{threadId:'one',prompt:'fixture',onEvent:()=>{throw new Error('fixture lost activity');}}),/fixture lost activity/);
+});
+
+test('completion in the start acknowledgement microtask cannot mask lost activity',async()=>{
+  const {runTurn}=await import('../foundation/turn.mjs');let notify;
+  const client={onFailure(){return()=>{};},onNotification(fn){notify=fn;return()=>{};},request(method){
+    if(method==='turn/start')return new Promise(resolve=>setImmediate(()=>{
+      resolve({turn:{id:'turn'}});
+      queueMicrotask(()=>notify({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'completed',items:[{id:'answer',type:'agentMessage',text:'ACCEPTED'}]}}}));
+    }));
+    return Promise.resolve({});
+  }};
+  await assert.rejects(runTurn(client,{threadId:'thread',prompt:'fixture',onEvent(){throw Object.assign(new Error('Persistence failed'),{code:'REVIEW_PERSISTENCE'});}}),{code:'REVIEW_PERSISTENCE'});
+});
+
+test('terminal item collections exclude raw reasoning from activity and returned evidence',async()=>{
+  const {runTurn}=await import('../foundation/turn.mjs');let notify;const observed=[];
+  const client={onFailure(){return()=>{};},onNotification(fn){notify=fn;return()=>{};},async request(){
+    notify({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'completed',items:[{id:'reason',type:'reasoning',content:['RAW_REASONING']},{id:'answer',type:'agentMessage',text:'Answer'}]}}});
+    return{turn:{id:'turn'}};
+  }};
+  const result=await runTurn(client,{threadId:'thread',prompt:'fixture',onEvent:event=>observed.push(event)});
+  assert.equal(result.text,'Answer');assert.doesNotMatch(JSON.stringify({result,observed}),/RAW_REASONING/);
+});
+
+test('steering targets the confirmed active turn and rejects stale or retired identity',async t=>{
+  const {client,runTurn}=await setup(t,'turn-steer');
+  const module=await import('../foundation/turn.mjs');assert.equal(typeof module.steerTurn,'function');
+  let confirm;const ready=new Promise(resolve=>{confirm=resolve;});
+  const running=runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:1500,onActive:confirm});
+  const identity=await ready;
+  await assert.rejects(module.steerTurn(client,{...identity,turnId:'stale',text:'Change direction'}),{code:'CONTROL_TURN'});
+  assert.deepEqual(await module.steerTurn(client,{...identity,text:'Return STEERED'}),{turnId:identity.turnId});
+  assert.equal((await running).text,'STEERED');
+  await assert.rejects(module.steerTurn(client,{...identity,text:'Too late'}),{code:'CONTROL_TURN'});
+});
+
 test('failed terminal turn is never an accepted result', async t => {
   const { client, runTurn } = await setup(t, 'turn-failed');
   await assert.rejects(runTurn(client, { threadId: 'one', prompt: 'fixture' }), error => {

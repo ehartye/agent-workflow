@@ -768,6 +768,18 @@ button.primary {
   font:600 12px var(--body);
   fill:var(--ink)
 }
+.activity-filter {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin:16px 0;
+  color:var(--muted)
+}
+#activity-history {
+  max-height:440px;
+  overflow:auto;
+  scrollbar-gutter:stable
+}
 @media(max-width:900px) {
   .flow-panel .section-heading {
     flex-direction:column;

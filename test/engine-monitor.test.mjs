@@ -11,6 +11,7 @@ import {request} from 'node:http';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
+import {DatabaseSync} from 'node:sqlite';
 import {runWorkflow} from '../engine/controller.mjs';
 
 const meta='export const meta={name:"Monitor",description:"Real run"};\n';
@@ -56,6 +57,31 @@ test('monitor previews are bounded and full evidence is generation-bound and del
   assert.equal((await (await get('/api/result?generation=1')).json()).result,evidence);
   assert.equal((await get('/api/worker/0?generation=2')).status,409);
   assert.equal((await get('/api/worker/0')).status,400);
+});
+
+test('activity HTTP reads require authentication and generation and disclose bounded history coverage',async t=>{
+  const {runDir,createMonitor}=await setup(t);
+  await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("Read");',backend:backend(async({onEvent})=>{
+    for(let i=0;i<270;i++)onEvent({method:'item/commandExecution/outputDelta',params:{threadId:'thread',turnId:'turn',itemId:'command',delta:String(i)}});
+    return{value:'done',terminalObserved:true};
+  })});
+  const monitor=await createMonitor({runDir});t.after(()=>monitor.close());
+  const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token');
+  const get=path=>fetch(url.origin+path,{headers:{Authorization:`Bearer ${token}`}});
+  assert.equal((await fetch(url.origin+'/api/activity?generation=1&position=0')).status,401);
+  assert.equal((await get('/api/activity?position=0')).status,400);
+  assert.equal((await get('/api/activity?generation=1')).status,400);
+  assert.equal((await get('/api/activity?generation=1&position=0&limit=101')).status,400);
+  assert.equal((await get('/api/activity?generation=2&position=0')).status,409);
+  assert.equal((await get('/api/activity?generation=1&position=1')).status,404);
+  const first=await (await get('/api/activity?generation=1&position=0&limit=10')).json();
+  assert.equal(first.observed,270);assert.equal(first.retained,256);assert.equal(first.dropped,14);assert.equal(first.records.length,10);
+  const second=await (await get(`/api/activity?generation=1&position=0&after=${first.nextCursor}&limit=10`)).json();
+  assert.equal(second.records[0].output,'24');
+  const db=new DatabaseSync(join(runDir,'run.sqlite'));
+  try{db.exec('DELETE FROM activity; DELETE FROM activity_counts');}finally{db.close();}
+  const corrupt=await get('/api/activity?generation=1&position=0');
+  assert.equal(corrupt.status,500);assert.equal((await corrupt.json()).error.code,'ACTIVITY_CORRUPT');
 });
 test('monitor pause persists a receipt and resume uses the server-owned session and observed generation',async t=>{
   const {runDir,createMonitor}=await setup(t);

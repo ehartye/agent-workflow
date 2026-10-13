@@ -102,6 +102,25 @@ test('capped workflow map keeps phase aggregates truthful about workers outside 
   assert.match(view.get('workflow-map').textContent, /1 failed · 1 unknown/);
 });
 
+test('live tool activity appears in graph and paged inspector without hiding discarded evidence',async()=>{
+  const payload='<img src=x onerror=alert(1)>';
+  const view=await monitor({run:{workers:[worker(0,'running',{activity:{seq:17,type:'commandExecution',status:'inProgress',summary:'Read README'},activityCount:270,usage:{inputTokens:20,outputTokens:4,totalTokens:24}})]},response:path=>path.startsWith('/api/activity?')?{ok:true,json:async()=>({records:[{seq:path.includes('after=17')?18:17,at:'2026-10-13T12:00:00Z',attempt:1,type:'commandExecution',status:'completed',input:'Read README',output:payload,truncated:['output']}],observed:270,retained:256,dropped:14,nextCursor:path.includes('after=17')?18:17,hasMore:!path.includes('after=17')})}:undefined});
+  assert.match(view.get('workflow-map').textContent,/Read README/);
+  assert.match(view.get('detail').textContent,/Read README/);
+  assert.equal(view.calls.length,1,'History is loaded deliberately');
+  await view.click(view.get('load-activity'));
+  assert(view.calls.some(call=>call.path==='/api/activity?generation=4&position=0&after=0&limit=50'));
+  assert.match(view.get('activity-history').textContent,/14.*discarded/);
+  assert.match(view.get('activity-history').textContent,/Shortened: output/);
+  assert.match(view.get('activity-history').textContent,/Read README/);
+  assert.equal(view.document.querySelectorAll('img').length,0);
+  await view.click(view.get('load-activity'));
+  assert(view.calls.some(call=>call.path.includes('after=17')));
+  assert.equal(view.get('activity-history').querySelectorAll('.activity-record').length,2);
+  view.update({generation:5,workers:[worker(0,'running')]});await view.refresh();
+  assert.doesNotMatch(view.get('detail').textContent,/14.*discarded|Read README|onerror/);
+});
+
 test('monitor sends explicit generation controls, confirms stop and keeps pending receipts distinct from run completion', async () => {
   const view = await monitor();
   await view.click(view.get('pause'));

@@ -44,10 +44,18 @@ createInterface({ input: process.stdin }).on('line', line => {
       return setTimeout(()=>reply(req.id,{turn:{id:turnId}}),mode==='turn-late-start'?300:50);
     }
     if (mode === 'turn-exit') { reply(req.id, { turn: { id: turnId } }); return setTimeout(() => process.exit(8), 20); }
-    if (mode.startsWith('turn-hang')) {
+    if (mode.startsWith('turn-hang')||mode==='turn-steer') {
       reply(req.id, { turn: { id: turnId } });
       notification('turn/started', {threadId,turn:{id:turnId,status:'inProgress',items:[]}});
       return;
+    }
+    if(mode==='turn-activity'){
+      notification('item/started',{threadId,turnId:'unrelated',item:{id:'wrong',type:'commandExecution',command:'WRONG'}});
+      notification('item/started',{threadId,turnId,item:{id:'command',type:'commandExecution',command:'fixture read',status:'inProgress'}});
+      notification('item/commandExecution/outputDelta',{threadId,turnId,itemId:'command',delta:threadId+' output'});
+      notification('item/reasoning/textDelta',{threadId,turnId,itemId:'reasoning',delta:'RAW_REASONING'});
+      notification('item/completed',{threadId,turnId,item:{id:'reasoning',type:'reasoning',content:['RAW_REASONING']}});
+      notification('thread/tokenUsage/updated',{threadId,turnId,tokenUsage:{total:{inputTokens:10,cachedInputTokens:0,outputTokens:2,reasoningOutputTokens:1,totalTokens:12},last:{inputTokens:10,cachedInputTokens:0,outputTokens:2,reasoningOutputTokens:1,totalTokens:12}}});
     }
     notification('item/completed', { threadId, turnId: 'unrelated', item: { type: 'agentMessage', id: 'wrong', text: 'WRONG' } });
     const answer=mode==='turn-settings'?JSON.stringify({model:req.params.model,effort:req.params.effort,outputSchema:req.params.outputSchema}):threadId;
@@ -60,6 +68,11 @@ createInterface({ input: process.stdin }).on('line', line => {
     reply(req.id, {});
     if (mode !== 'turn-hang-ignore') notification('turn/completed', { threadId: req.params.threadId, turn: { id: turns.get(req.params.threadId), status: mode==='turn-hang-complete'?'completed':'interrupted', items: [] } });
     return;
+  }
+  if(req.method==='turn/steer'){
+    if(req.params.expectedTurnId!==turns.get(req.params.threadId)||req.params.input[0].text!=='Return STEERED')throw new Error('Incorrect steering target/input');
+    reply(req.id,{turnId:req.params.expectedTurnId});
+    notification('turn/completed',{threadId:req.params.threadId,turn:{id:req.params.expectedTurnId,status:'completed',items:[{id:'steered',type:'agentMessage',text:'STEERED'}]}});return;
   }
   if (req.method === 'command/exec') {
     if (req.params.sandboxPolicy?.type !== 'readOnly' || req.params.sandboxPolicy.networkAccess !== false) throw new Error('Probe broadened permissions');

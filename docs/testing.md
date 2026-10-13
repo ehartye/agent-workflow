@@ -143,3 +143,19 @@ The checked Agent-tests 0.3.2 runtime inventories 29 files after this delta, wit
 Counts and token estimates above are the static scan before the final partial-resume regression; they are not runtime cases or timing estimates. The added partial-override assertions first failed and then passed in the existing detached test. Final verification passed all 222 native-expanded cases in one observed 52.7-second run, plus package check and smoke. Independent review confirmed the resume fix and found no remaining important findings in this slice. Static tooling does not measure CI cost or statistical reliability.
 
 The native `structured-check.mjs` separately proves one managed-ChatGPT command, exact validated JSON and zero-dispatch replay; its sanitized report is committed. Offline tests own correction/failure permutations so CI does not spend subscription usage. Independent review found and resolved nullable schema contradictions, silent non-JSON serialization, unconstrained enum work and partial-resume default loss. Keep the existing architecture advisory above: focused edit checks plus full merge checks, without a new selector/cache or duplicate native smoke calls.
+
+## Live activity checkpoint
+
+Agent-tests 0.3.2 inventories 30 test files with no missing tiers, wiring or shim findings. This delta retains the existing unchanged-file verdicts and the Windows PR exception. Six worktree warnings resolve to unique temporary roots or owned fixture `.git` markers. No tests were deleted, merged, demoted or quarantined; estimated tokens removed and edit-lane demotions remain zero. The existing cost/architecture advisory applies; no new runner, cache or duplicate native smoke was introduced.
+
+| Reviewed file | Tier | Verdict | Ownership and evidence | Estimated tokens | Churn/edits |
+|---|---|---|---|---|---|
+| engine-controller.test.mjs | critical | keep | Real SQLite rollback cannot leak usage; cached evidence preserves original history and attempts; active state is observable before completion. Fixed database names are inside unique roots. | 6384 | 0/3 |
+| engine-monitor.test.mjs | critical | keep | Actual authenticated HTTP paging, generation preconditions, bounded retention and corrupted counter rejection. Shared controller imports protect the HTTP seam. | 2061 | 0/0 |
+| codex-turn.test.mjs | critical | keep | Real subprocess routing/steering plus deterministic microtask reproduction of a completion masking lost activity; raw reasoning excluded. | 2384 | 0/2 |
+| engine-activity.test.mjs | critical | keep | In-memory SQLite owns normalization, bounded retention, pagination and monotonic per-thread usage. | Not ranked in abbreviated report | New file |
+| engine-monitor-ui.test.mjs | critical | keep | Executed DOM app checks generation-bound history, graph activity, text-only evidence and disclosed omissions; distinct from layout verification. | Not ranked in abbreviated report | Existing file |
+
+The final full suite passed 238 expanded cases in one observed 52.3-second run, plus package check and smoke. Independent review passed 59 affected cases and found no remaining important issues. Review regressions first failed for the terminal callback race, rollback leakage and inconsistent activity coverage, then passed after fixes. Static inventory does not measure CI cost, flakiness or numerical coverage.
+
+The extended existing native check consumed one managed-ChatGPT turn, observed persisted command startup while the worker was running, retained 59 activity records and token usage, then reused them with no new dispatch. `reports/activity-local-acceptance.json` and `reports/activity-browser-check.json` separate execution proof from light/dark/mobile inspection. No native calls run in CI. Individual worker controls and descendant/restart proof remain separate work.

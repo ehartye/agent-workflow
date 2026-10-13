@@ -5,6 +5,7 @@ import { createLaunch, assertChatgptLogin } from '../foundation/launch.mjs';
 import { assertManagedChatgpt, probe } from '../foundation/probe.mjs';
 import { runWorkerSession } from './worker-session.mjs';
 import { createSettings } from './settings.mjs';
+import {steerTurn} from '../foundation/turn.mjs';
 import { restrictLaunch, assertRestricted, assertDisabledInventory, fingerprint } from './policy.mjs';
 
 export async function createManagedBackend({ executable, cwd, backend = 'configured', defaults={} }) {
@@ -44,10 +45,16 @@ export async function createManagedBackend({ executable, cwd, backend = 'configu
       if(typeof cursor!=='string'||!cursor||page===9)throw fault('MODEL_CATALOG','Codex model catalog exceeded its page limit');
     }
     const settings=createSettings({catalog,config:config.config,defaults});
+    const activeWorkers=new Map();
     const identity = fingerprint({ version, cwd: launch.cwd, backend, account, config: config.config, defaults:settings.resolve(), layers: config.layers.filter(layer => !layer.disabledReason).map(layer => layer.config) });
     return {
       identity, admission, resolveOptions:settings.resolve,
-      async execute({ prompt, options = {}, signal, reserveRetry }) {
+      async steer({position,turnId,text}){
+        const identity=activeWorkers.get(position);
+        if(!identity||identity.turnId!==turnId)throw fault('CONTROL_TURN','Worker no longer owns that active turn');
+        return steerTurn(client,{...identity,text});
+      },
+      async execute({ prompt, options = {}, signal, reserveRetry, position, onActive,onEvent }) {
         if (signal?.aborted) throw Object.assign(fault('RUN_STOPPED', 'Workflow admission is closed'), { notStarted: true });
         let started = false;
         try {
@@ -63,10 +70,11 @@ export async function createManagedBackend({ executable, cwd, backend = 'configu
           assertDisabledInventory(tools);
           if (signal?.aborted) throw fault('RUN_STOPPED', 'Workflow admission is closed');
           started = true;
-          const result = await runWorkerSession(client, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? 120000, signal, schema:options.schema,settings:effective,reserveRetry });
+          const result = await runWorkerSession(client, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? 120000, signal, schema:options.schema,settings:effective,reserveRetry,onEvent,onActive:identity=>{activeWorkers.set(position,identity);onActive?.(identity);} });
           result.evidence.settings=effective;
           return result;
         } catch (error) { if (!started) error.notStarted = true; throw error; }
+        finally{activeWorkers.delete(position);}
       },
       close: () => client.close(),
     };

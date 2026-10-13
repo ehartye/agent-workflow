@@ -21,6 +21,7 @@ const authMessage = 'Open the dashboard URL from agent-workflow dashboard to aut
 let snapshot, selected, timer, polling = false, busy = false, disposed = false, authenticated = Boolean(token);
 let lastGood = 0, stale = true, listKey = '', detailKey = '', phaseKey = '', resultKey = '', receiptKey = '';
 let extendedWorker, localReceipt, actionNotice = '', mapKey = '';
+let activityHistory, activityLoading = false, activityFilter = 'tools';
 const requests = new Set();
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -29,6 +30,8 @@ function node(tag, text, className) {
   return element;
 }
 function valueText(value) { return typeof value === 'string' ? value : JSON.stringify(value, null, 2); }
+function activityType(value) { return ({commandExecution:'Command',agentMessage:'Response',userMessage:'Instruction',fileChange:'File change',mcpToolCall:'Tool call',webSearch:'Web search',usage:'Token usage',turn:'Worker turn',plan:'Plan'})[value]??value??'Event'; }
+function activityStatus(value) { return ({inProgress:'running',completed:'completed',failed:'failed',updated:'updated'})[value]??value??'updated'; }
 function dateText(value) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? 'Time unavailable' : date.toLocaleString(); }
 function badge(element, status) { element.textContent = status; element.dataset.status = status; }
 function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
@@ -113,7 +116,8 @@ function renderWorkers() {
 function renderDetail() {
   const base = snapshot.workers?.find(worker => worker.position === selected);
   const worker = extendedWorker?.generation === snapshot.generation && extendedWorker.position === selected ? extendedWorker.worker : base;
-  const key = JSON.stringify([snapshot.generation, worker, worker?.dependencies?.map(position => {
+  const history = activityHistory?.generation === snapshot.generation && activityHistory.position === selected ? activityHistory : undefined;
+  const key = JSON.stringify([snapshot.generation, worker, history, activityLoading, activityFilter, worker?.dependencies?.map(position => {
     const prerequisite = snapshot.workers.find(item => item.position === position);
     return [position, prerequisite?.status, prerequisite?.options?.label];
   })]);
@@ -162,6 +166,47 @@ function renderDetail() {
   if (worker.error) evidence(detail, 'Worker error', worker.error, true);
   if (worker.interruption) evidence(detail, 'Interruption evidence', worker.interruption);
   if (worker.evidence) evidence(detail, 'Execution evidence', worker.evidence);
+  detail.append(node('h3', 'Activity'));
+  if(worker.activity && typeof worker.activity==='object') {
+    detail.append(node('p', `${activityType(worker.activity.type)} · ${activityStatus(worker.activity.status)}`, 'muted'),node('pre',worker.activity.summary));
+  } else detail.append(node('p', 'No native activity has been recorded for this worker.', 'muted'));
+  if(worker.usage && typeof worker.usage==='object')detail.append(node('p',`Observed tokens: ${worker.usage.inputTokens} input · ${worker.usage.outputTokens} output · ${worker.usage.totalTokens} total.`, 'muted'));
+  const filterLabel=node('label','Show activity ', 'activity-filter'),filter=node('select');filter.id='activity-filter';
+  filter.append(new Option('Tool activity','tools'),new Option('All events','all'));filter.value=activityFilter;
+  filter.addEventListener('change',()=>{activityFilter=filter.value;renderDetail();});filterLabel.append(filter);detail.append(filterLabel);
+  const historyPanel=node('div');historyPanel.id='activity-history';historyPanel.tabIndex=0;historyPanel.setAttribute('aria-label','Recorded activity history');detail.append(historyPanel);
+  if(history){
+    if(history.sourceGeneration!==undefined&&history.sourceGeneration!==snapshot.generation)historyPanel.append(node('p',`Recorded in generation ${history.sourceGeneration}; this result was reused.`, 'muted'));
+    historyPanel.append(node('p', `${history.records.length} events displayed · ${history.retained} retained of ${history.observed} observed · ${history.dropped} older events discarded.`,history.dropped?'truncation':'muted'));
+    if(history.displayDropped)historyPanel.append(node('p',`${history.displayDropped} previously loaded events left this bounded view.`, 'muted'));
+    const visible=activityFilter==='all'?history.records:history.records.filter(record=>!['agentMessage','userMessage','usage','turn','plan'].includes(record.type));
+    historyPanel.append(node('p',`${visible.length} matching events in the loaded history.`, 'muted'));
+    for(const record of visible){
+      const entry=node('details',undefined,'activity-record');
+      entry.append(node('summary',`${activityType(record.type)} · ${activityStatus(record.status)} · attempt ${record.attempt} · ${dateText(record.at)}`));
+      if(record.truncated?.length)entry.append(node('p',`Shortened: ${record.truncated.join(', ')}.`, 'truncation'));
+      if(record.input!==undefined)evidence(entry,'Tool input',record.input);
+      if(record.output!==undefined)evidence(entry,'Output',record.output);
+      if(record.exitCode!==undefined)entry.append(node('p',`Exit code ${record.exitCode}`));
+      if(record.usage)evidence(entry,'Native cumulative usage',record.usage);
+      historyPanel.append(entry);
+    }
+  }
+  const loadActivity=node('button',history?(history.hasMore?'Load next activity page':'Check for new activity'):'Load activity history');
+  loadActivity.id='load-activity';loadActivity.type='button';loadActivity.disabled=activityLoading;
+  loadActivity.addEventListener('click',async()=>{
+    if(activityLoading)return;
+    const generation=snapshot.generation,position=worker.position,after=history?.nextCursor??0;
+    activityLoading=true;renderDetail();
+    try{
+      const page=await api(`/api/activity?generation=${generation}&position=${position}&after=${after}&limit=50`);
+      if(snapshot.generation!==generation||selected!==position)return;
+      const records=[...(history?.records??[]),...page.records];
+      activityHistory={...page,generation,position,records:records.slice(-256),displayDropped:(history?.displayDropped??0)+Math.max(0,records.length-256)};
+    }catch(error){readError(error);}
+    finally{activityLoading=false;renderDetail();}
+  });
+  detail.append(loadActivity);
 }
 function renderReceipts() {
   const receipts = [...(snapshot.controls ?? [])];
@@ -202,7 +247,7 @@ function renderMap() {
   const displayed = workers.slice(0, 60);
   const unknownDependencies = displayed.filter(worker => !Array.isArray(worker.dependencies)).length;
   $('map-note').textContent = `Grouping does not imply execution order. ${unknownDependencies ? `Dependency evidence is unavailable for ${unknownDependencies} displayed workers.` : 'Arrows show recorded prerequisites.'}${workers.length > displayed.length ? ` Map shows the first ${displayed.length} of ${workers.length} workers; the full list is below.` : ''}`;
-  const key = JSON.stringify([snapshot.generation, snapshot.status, selected, workers.map(worker => [worker.position, worker.status, worker.cached, worker.options?.label, worker.phase, worker.options?.phase, worker.dependencies])]);
+  const key = JSON.stringify([snapshot.generation, snapshot.status, selected, workers.map(worker => [worker.position, worker.status, worker.cached, worker.options?.label, worker.phase, worker.options?.phase, worker.dependencies,worker.activity])]);
   if (key === mapKey) return;
   mapKey = key;
   const groups = new Map();
@@ -214,9 +259,9 @@ function renderMap() {
   const placements = new Map(), groupLayouts = [];
   let y = 106;
   for (const [name, members] of groups) {
-    const height = Math.ceil(members.length / 3) * 90 + 24;
+    const height = Math.ceil(members.length / 3) * 110 + 24;
     groupLayouts.push({ name, members, y, height });
-    members.forEach((worker, index) => placements.set(worker.position, { x: 290 + index % 3 * 255, y: y + 13 + Math.floor(index / 3) * 90, worker }));
+    members.forEach((worker, index) => placements.set(worker.position, { x: 290 + index % 3 * 255, y: y + 13 + Math.floor(index / 3) * 110, worker }));
     y += height + 20;
   }
   const svg = svgNode('svg', { viewBox: `0 0 1080 ${Math.max(190, y)}`, role: 'group', 'aria-label': 'Workflow structure and recorded dependencies' });
@@ -257,9 +302,12 @@ function renderMap() {
   for (const { x, y: workerY, worker } of placements.values()) {
     const label = worker.options?.label || `Worker ${worker.position + 1}`;
     const card = svgNode('g', { class: 'map-worker', tabindex: 0, role: 'button', 'aria-label': `${label}, ${worker.status}${worker.cached ? ', reused result' : ''}`, 'aria-pressed': String(selected === worker.position), 'data-position': worker.position });
-    card.append(svgNode('rect', { x, y: workerY, width: 226, height: 66, rx: 5 }),
+    card.append(svgNode('rect', { x, y: workerY, width: 226, height: 86, rx: 5 }),
       svgNode('text', { x: x + 12, y: workerY + 25, class: 'map-worker-title' }, `${String(worker.position + 1).padStart(2, '0')}  ${label.length > 23 ? label.slice(0, 22) + '…' : label}`),
       svgNode('text', { x: x + 12, y: workerY + 48, class: 'map-caption', 'data-status': worker.status }, `${worker.status}${worker.cached ? ' · reused result' : ''}`));
+    const activity=worker.activity?.summary;
+    const caption=svgNode('text',{x:x+12,y:workerY+69,class:'map-caption'},typeof activity==='string'?(activity.length>28?activity.slice(0,27)+'…':activity):'No activity recorded');
+    if(activity)caption.append(svgNode('title',{},activity));card.append(caption);
     const choose = () => { selected = worker.position; extendedWorker = undefined; $('status-filter').value = ''; $('phase-filter').value = ''; renderWorkers(); renderDetail(); renderMap(); $('detail-heading').scrollIntoView({ block: 'nearest', behavior: 'instant' }); };
     card.addEventListener('click', choose);
     card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(); } });
@@ -319,7 +367,7 @@ async function poll() {
     if (!next || !Array.isArray(next.workers) || !Number.isInteger(next.generation)) throw new Error('The monitor received an invalid run snapshot. Refresh to try again.');
     if (snapshot?.generation !== next.generation || snapshot?.updatedAt !== next.updatedAt) extendedWorker = undefined;
     if (extendedWorker && extendedWorker.previewKey !== JSON.stringify(next.workers.find(worker => worker.position === extendedWorker.position))) extendedWorker = undefined;
-    if (snapshot?.generation !== next.generation) { $('script').hidden = true; $('script').textContent = ''; }
+    if (snapshot?.generation !== next.generation) { $('script').hidden = true; $('script').textContent = ''; activityHistory=undefined; }
     snapshot = next; lastGood = Date.now(); stale = false;
     $('connection').textContent = 'Connected · updates every second';
     notice(actionNotice); render();
