@@ -2,13 +2,18 @@
 
 Run durable JavaScript workflows with parallel Codex workers, ordered replay and an authenticated local monitor. Workers use the existing managed ChatGPT subscription through pinned native Codex App Server. The fresh runtime exposes CLI and dashboard surfaces; it has no custom MCP server or API-key fallback.
 
-This checkout is the **0.2.0 release candidate**, not a published release or a claim of full Ultracode parity. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
+This is the **0.2.0 implementation**. Publication is recorded in [GitHub Releases](https://github.com/ehartye/agent-workflow/releases); broader Ultracode parity remains tracked separately. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
 
 ## Install and start
 
-Require Node 24+ with npm and an existing managed ChatGPT login. For candidate testing, use this branch/local package. Once a version is published, use its verified release tag; do not assume a v0.2.0 tag exists.
+Require Node 24+ with npm and an existing managed ChatGPT login. Install the version pinned by the shared marketplace:
 
-From a local candidate checkout, native plugin installation is:
+```powershell
+codex plugin marketplace upgrade hartye-plugins
+codex plugin add agent-workflow@hartye-plugins
+```
+
+For development, native plugin installation from a local checkout is:
 
 ```powershell
 codex plugin marketplace add C:/path/to/agent-workflow

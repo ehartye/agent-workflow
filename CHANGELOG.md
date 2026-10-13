@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — release candidate
+## 0.2.0
 
 - Replace the old supervisor/MCP runtime with a CLI and skill integration around pinned native Codex App Server workers, using managed ChatGPT subscription authentication.
 - Add validated structured results, model/reasoning settings, live activity, exact-worker steering/cancellation, and explicitly reconciled suffix restart.
@@ -10,7 +10,7 @@
 - Install complete source/dependency fingerprints outside mutable caches; retain each run’s runtime and original session across upgrades. Preserve existing 0.1.x data/runtimes without interpreting them as new runs.
 - Remove custom MCP configuration and obsolete source/dependencies. Rewrite all skills with paired Yoda checks and migrate all six recipes to the new evaluator.
 
-Publication and exact-version marketplace verification are still pending.
+Release availability and its pinned commit are recorded in GitHub Releases and the shared marketplace.
 
 ## 0.1.1
 
