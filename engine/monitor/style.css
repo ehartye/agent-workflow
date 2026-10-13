@@ -856,6 +856,52 @@ button.primary {
   padding:10px 22px;
   border-top:1px solid var(--line)
 }
+.workspace-review {
+  margin:24px 0;
+  padding:0 0 20px;
+  border-bottom:1px solid var(--line);
+}
+.workspace-review>h3 {
+  color:var(--cyan);
+}
+.workspace-review>.muted {
+  font-size:12px;
+}
+.workspace-path {
+  font:11px/1.6 var(--mono);
+  overflow-wrap:anywhere;
+  color:var(--muted);
+}
+.changed-files {
+  max-height:180px;
+  overflow:auto;
+  padding-left:20px;
+  font:11px/1.7 var(--mono);
+  overflow-wrap:anywhere;
+}
+.patch-actions {
+  flex-wrap:wrap;
+  margin:14px 0;
+}
+.workspace-review details {
+  margin:12px 0;
+  padding:12px;
+}
+.patch-hash {
+  font:10px/1.6 var(--mono);
+  color:var(--muted);
+}
+.patch-hash span,.patch-hash code {
+  display:block;
+  overflow-wrap:anywhere;
+}
+pre.patch-content {
+  white-space:pre;
+  overflow:auto;
+  max-height:360px;
+  font-size:11px;
+  line-height:1.6;
+}
 @media(max-width:850px) {
   .map-scroll-hint {
     display:block

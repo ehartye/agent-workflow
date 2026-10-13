@@ -12,6 +12,8 @@ import { runWorkerSession } from './worker-session.mjs';
 import { createSettings } from './settings.mjs';
 import {steerTurn} from '../foundation/turn.mjs';
 import { restrictLaunch, assertRestricted, assertDisabledInventory, fingerprint } from './policy.mjs';
+import {writerPolicy,assertWriterThread} from './workspace-policy.mjs';
+import {assertWorkspaceReady} from './workspaces.mjs';
 
 export function workerCleanup(ownership,nativeTerminals,requiresJob){
   const cleanup={...ownership,...(nativeTerminals?{nativeTerminals}:{})};
@@ -21,6 +23,7 @@ export function workerCleanup(ownership,nativeTerminals,requiresJob){
 }
 
 export async function createManagedBackend({ executable, cwd, backend = 'configured', defaults={} }) {
+  if(defaults.permissions?.sandbox==='workspace-write'&&(process.platform!=='win32'||backend!=='mxc'))throw fault('WORKSPACE_BACKEND','Writers require the verified Windows MXC backend; select --backend mxc');
   let directory;
   try{
     let jobHost;
@@ -80,32 +83,39 @@ async function createBackend({executable,cwd,backend,defaults,jobHost}){
         if(!identity||identity.turnId!==turnId)throw fault('CONTROL_TURN','Worker no longer owns that active turn');
         return steerTurn(identity.client,{threadId:identity.threadId,turnId:identity.turnId,text});
       },
-      async execute({ prompt, options = {}, signal, reserveRetry, position, onActive,onEvent }) {
-        if (closing||signal?.aborted) throw Object.assign(fault('RUN_STOPPED', 'Workflow admission is closed'), { notStarted: true });
+      async execute({ prompt, options = {}, signal, reserveRetry, position, onActive,onEvent,workspace }) {
+        if (closing||signal?.aborted) throw Object.assign(fault('RUN_STOPPED', 'Workflow admission is closed'), { notStarted: true,noProcessStarted:true });
+        const effective=settings.resolve(options),writing=effective.permissions.sandbox==='workspace-write';
+        if(writing){
+          if(!jobHost||!workspace)throw Object.assign(fault('WORKSPACE_REQUIRED','Writer execution requires an owned Windows job and isolated workspace'),{notStarted:true,noProcessStarted:true});
+          try{await assertWorkspaceReady(workspace);}catch(error){error.notStarted=true;error.noProcessStarted=true;throw error;}
+        }else if(workspace)throw Object.assign(fault('WORKSPACE_POLICY','Read-only workers cannot receive writable workspaces'),{notStarted:true,noProcessStarted:true});
+        const workerCwd=writing?workspace.cwd:launch.cwd,policy=writing?writerPolicy(workerCwd):null;
+        if(closing||signal?.aborted)throw Object.assign(fault('RUN_STOPPED','Worker admission is closed'),{notStarted:true,noProcessStarted:true});
         let started = false;
         let ownedThread,result,primary,workerClient;
-        const connection=AppServer.connect({...launch,experimentalApi:true,env:{...launch.env,AGENT_WORKFLOW_WORKER:'1'}});
+        const connection=AppServer.connect({...launch,args:[...launch.args,...(policy?.launchArgs??[])],cwd:workerCwd,experimentalApi:true,env:{...launch.env,AGENT_WORKFLOW_WORKER:'1'}});
         connections.add(connection);
         try {
           workerClient=await connection;
           if(closing||signal?.aborted)throw fault('RUN_STOPPED','Workflow admission is closed');
-          const workerConfig=await workerClient.request('config/read',{cwd:launch.cwd,includeLayers:true});
+          const workerConfig=await workerClient.request('config/read',{cwd:workerCwd,includeLayers:true});
           assertRestricted(workerConfig.config);
           assertManagedChatgpt(await workerClient.request('account/read',{refreshToken:false}),workerConfig);
-          const effective=settings.resolve(options);
           const thread = await workerClient.request('thread/start', {
-            cwd: launch.cwd, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only', modelProvider: 'openai',
-            model:effective.model,config:{model_reasoning_effort:effective.effort},
-            developerInstructions: 'You are a read-only workflow worker. Complete only your assigned task. Do not launch another agent-workflow runtime. Do not delegate. Stop and report a command startup failure without retrying it. The workflow coordinator owns orchestration.',
+            cwd:workerCwd,approvalPolicy:'never',sandbox:'read-only',...policy?.thread,ephemeral:true,modelProvider:'openai',
+            model:effective.model,config:{...policy?.thread.config,model_reasoning_effort:effective.effort},
+            developerInstructions: `${writing?'You are an isolated writer. Edit and validate only inside your assigned worktree. Do not commit, merge, change Git metadata or create filesystem links. Your changes will be retained for review.':'You are a read-only workflow worker.'} Complete only your assigned task. Do not launch another agent-workflow runtime. Do not delegate. Stop and report a command startup failure without retrying it. The workflow coordinator owns orchestration.`,
           });
-          if (thread.modelProvider !== 'openai' || thread.approvalPolicy !== 'never' || thread.sandbox?.type !== 'readOnly' || thread.sandbox.networkAccess !== false || typeof thread.thread?.id !== 'string') throw fault('THREAD_POLICY', 'Worker thread did not confirm the required provider and permissions');
+          if(writing)assertWriterThread(thread,workerCwd);
+          if (thread.modelProvider !== 'openai' || thread.approvalPolicy !== 'never' || !writing&&(thread.sandbox?.type !== 'readOnly'||thread.sandbox.networkAccess!==false) || typeof thread.thread?.id !== 'string') throw fault('THREAD_POLICY', 'Worker thread did not confirm the required provider and permissions');
           if(thread.model!==effective.model||thread.reasoningEffort!==effective.effort)throw fault('THREAD_SETTINGS','Worker thread did not confirm its model and reasoning settings');
           ownedThread=thread.thread.id;
           const tools = await workerClient.request('mcpServerStatus/list', {threadId:thread.thread.id,detail:'toolsAndAuthOnly',limit:100});
           assertDisabledInventory(tools);
           if (signal?.aborted) throw fault('RUN_STOPPED', 'Workflow admission is closed');
           started = true;
-          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? 120000, signal, schema:options.schema,settings:effective,reserveRetry,onEvent,onActive:identity=>{activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
+          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? 120000, signal, schema:options.schema,settings:effective,execution:policy?.turn,reserveRetry,onEvent,onActive:identity=>{activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
           result.evidence.settings=effective;
           return result;
         } catch (error) {primary=error;if (!started) error.notStarted = true; throw error; }

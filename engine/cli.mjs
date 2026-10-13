@@ -17,8 +17,12 @@ const { values } = parseArgs({ options: {
   position:{type:'string'},attempt:{type:'string'},turn:{type:'string'},text:{type:'string'},
   reconcile:{type:'string'},worker:{type:'string'},'source-generation':{type:'string'},
   model:{type:'string'},effort:{type:'string'},'max-attempts':{type:'string'},
+  writable:{type:'boolean'},
+  patch:{type:'string'},basis:{type:'string'},
 } });
 if (values.help) {
+  console.log('Read a verified complete patch: --patch <worker position> --run <directory> --generation <observed generation> [--basis inputs|base] [--source-generation <prior generation>]. Returns JSON with patch text and SHA-256.');
+  console.log('Isolated edits: --writable authorizes workspace-write workers in separate Git worktrees. Default is read-only. Writers require a Git project and a run directory outside it; changes are retained for review.');
   console.log('Restart saved worker and its suffix: --action restart-worker --run <directory> --session <identity> --generation <observed generation> --position <worker position> --attempt <observed attempt> --reconcile <external-effect reconciliation note>\nRead worker evidence: --worker <position> --run <directory> --generation <observed generation> [--source-generation <prior execution generation>]');
   console.log('Dashboard: --dashboard --run <directory>\nWorker control: --action <steer|cancel-worker> --run <directory> --session <identity> --generation <observed generation> --position <worker position> --attempt <observed attempt> [--turn <observed active turn>] [--text <steering instruction>]');
   console.log('Start in background: node engine/cli.mjs --codex <native executable> --cwd <project> --script <workflow.js> --run <directory> --session <identity> [--backend mxc] [--args <JSON>]\nWorker defaults: [--model <catalog model>] [--effort <supported effort>] [--max-attempts <1-5>]\nInspect: --status --run <directory>\nPause/stop: --action <pause|stop> --run <directory> --session <identity> --generation <observed generation>\nControl receipt: --control <id> --run <directory>\nResume saved script: --resume --run <directory> --session <identity> [--script <edited workflow.js>]\nUse --foreground for synchronous diagnostics.');
@@ -28,9 +32,10 @@ if (values.help) {
     let run;
     const runDir=resolve(values.run);
     if(values.dashboard){console.log(JSON.stringify(await startMonitor(runDir),null,2));}
-    else if(values.worker!==undefined){
-      if(!/^(0|[1-9][0-9]*)$/.test(values.worker)||!Number.isInteger(Number(values.generation))||Number(values.generation)<1)throw fault('CLI_INPUT','Worker reads require position and observed generation');
-      console.log(JSON.stringify(await monitorData(runDir,{kind:'worker',position:Number(values.worker),generation:Number(values.generation),...(values['source-generation']!==undefined?{sourceGeneration:Number(values['source-generation'])}:{})}),null,2));
+    else if(values.worker!==undefined||values.patch!==undefined){
+      const position=values.patch??values.worker;
+      if(!/^(0|[1-9][0-9]*)$/.test(position)||!Number.isInteger(Number(values.generation))||Number(values.generation)<1)throw fault('CLI_INPUT','Worker reads require position and observed generation');
+      console.log(JSON.stringify(await monitorData(runDir,{kind:values.patch!==undefined?'patch':'worker',position:Number(position),generation:Number(values.generation),basis:values.basis??'inputs',previewBytes:32*1024*1024,...(values['source-generation']!==undefined?{sourceGeneration:Number(values['source-generation'])}:{})}),null,2));
     }
     else if(values.action==='restart-worker')console.log(JSON.stringify(await startBackground({runDir,sessionId:values.session,resume:true,expectedGeneration:Number(values.generation),restart:{position:Number(values.position),attempt:Number(values.attempt),reconciliation:values.reconcile}}),null,2));
     else if(values.action){console.log(JSON.stringify(await requestControl(runDir,{sessionId:values.session,generation:Number(values.generation),action:values.action,...(['steer','cancel-worker'].includes(values.action)?{position:Number(values.position),attempt:Number(values.attempt),turnId:values.turn??null,...(values.text!==undefined?{text:values.text}:{})}:{})}),null,2));}
@@ -41,7 +46,7 @@ if (values.help) {
         ...(values.codex?{codex:values.codex}:{}),...(values.cwd?{cwd:values.cwd}:{}),...(values.backend?{backend:values.backend}:{}),
         ...(values.script?{script:await readFile(resolve(values.script),'utf8')}:{}),
         ...(values.args!==undefined?{args:JSON.parse(values.args)}:{}),...(values.concurrency?{concurrency:Number(values.concurrency)}:{}),
-        ...(['model','effort','max-attempts'].some(key=>values[key]!==undefined)?{defaults:{...(values.model!==undefined?{model:values.model}:{}),...(values.effort!==undefined?{effort:values.effort}:{}),...(values['max-attempts']!==undefined?{maxAttempts:Number(values['max-attempts'])}:{})}}:{})};
+        ...(['model','effort','max-attempts','writable'].some(key=>values[key]!==undefined)?{defaults:{...(values.model!==undefined?{model:values.model}:{}),...(values.effort!==undefined?{effort:values.effort}:{}),...(values['max-attempts']!==undefined?{maxAttempts:Number(values['max-attempts'])}:{}),...(values.writable?{permissions:{sandbox:'workspace-write'}}:{})}}:{})};
       if(!values.foreground)console.log(JSON.stringify(await startBackground(input),null,2));
       else {
         const previous=values.resume?await readRun(runDir):null;

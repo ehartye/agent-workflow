@@ -85,9 +85,13 @@ async function tree(cwd,capture,artifactsDir){
   return{tree:(await git(cwd,['write-tree'],{index})).trim(),index};
 }
 async function checkCapture(capture){
+  await checkIndex(capture);
   for(const item of capture.files){
     const bytes=await boundedRead(item.blobPath);if(bytes.length!==item.size||digest(bytes)!==item.sha256)throw fault('WORKSPACE_ARTIFACT','Captured input bytes changed');
   }
+}
+async function checkIndex(record){
+  if(!(await lstat(record.inputIndex)).isFile()||digest(await boundedRead(record.inputIndex,maxPatch))!==record.inputIndexHash)throw fault('WORKSPACE_ARTIFACT','Captured input index is missing or changed');
 }
 export async function captureInputs({source,artifactsDir}){
   try{
@@ -109,9 +113,22 @@ export async function captureInputs({source,artifactsDir}){
     for(const name of entries.keys())if(!capturedNames.has(name)&&await file(source,name,{optional:true,allowHardlinks:true}))throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
     for(const item of captured.files)if(digest(await boundedRead((await file(source,item.name,{allowHardlinks:true})).path))!==item.sha256)throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
     const built=await tree(source,captured,artifactsDir);
-    const result={version:1,source,common,base,parent:await realpath(parent),artifactsDir,inputTree:built.tree,inputIndex:built.index,...captured};
-    await writeFile(join(artifactsDir,'inputs.json'),JSON.stringify(result)+'\n',{flag:'wx'});return result;
+    const result={version:1,source,common,base,parent:await realpath(parent),artifactsDir,inputTree:built.tree,inputIndex:built.index,inputIndexHash:digest(await boundedRead(built.index,maxPatch)),...captured};
+    const manifestPath=join(artifactsDir,'inputs.json'),manifest=JSON.stringify(result)+'\n';
+    await writeFile(manifestPath,manifest,{flag:'wx'});return{...result,manifestPath,manifestHash:digest(manifest)};
   }catch(error){throw Object.assign(fault('WORKSPACE_INPUT','Could not capture isolated writer inputs'),{cause:error});}
+}
+export function describeInputs(inputs){
+  return{manifestPath:inputs.manifestPath,manifestHash:inputs.manifestHash,source:inputs.source,base:inputs.base,inputTree:inputs.inputTree};
+}
+export async function loadInputs(record){
+  try{
+    const bytes=await boundedRead(record.manifestPath,maxPatch);
+    if(digest(bytes)!==record.manifestHash)throw Error('manifest');
+    const inputs=JSON.parse(bytes.toString('utf8'));
+    if(inputs.version!==1||inputs.source!==record.source||inputs.base!==record.base||inputs.inputTree!==record.inputTree||!Array.isArray(inputs.files)||inputs.files.length>maxFiles||inputs.files.some(item=>! /^[a-f0-9]{64}$/.test(item.sha256)||item.blobPath!==join(inputs.artifactsDir,'blobs',item.sha256)))throw Error('inputs');
+    await checkCapture(inputs);return{...inputs,...record};
+  }catch(error){throw Object.assign(fault('WORKSPACE_ARTIFACT','Captured run inputs are missing or changed'),{cause:error});}
 }
 export async function createWorkspace({inputs,artifactsDir}){
   let cwd;
@@ -124,7 +141,7 @@ export async function createWorkspace({inputs,artifactsDir}){
       const target=join(cwd,safeName(item.name));await mkdir(dirname(target),{recursive:true});await copyFile(item.blobPath,target);if(process.platform!=='win32')await chmod(target,item.mode==='100755'?0o755:0o644);
     }
     await git(cwd,['read-tree',inputs.inputTree]);
-    const identity={version:1,cwd:await realpath(cwd),source:inputs.source,common:inputs.common,base:inputs.base,inputTree:inputs.inputTree,artifactsDir,inputIndex:inputs.inputIndex,gitPointerHash:digest(await boundedRead(join(cwd,'.git'),8192))};
+    const identity={version:1,cwd:await realpath(cwd),source:inputs.source,common:inputs.common,base:inputs.base,inputTree:inputs.inputTree,artifactsDir,inputIndex:inputs.inputIndex,inputIndexHash:inputs.inputIndexHash,gitPointerHash:digest(await boundedRead(join(cwd,'.git'),8192))};
     await writeFile(join(artifactsDir,'workspace.json'),JSON.stringify(identity)+'\n',{flag:'wx'});return identity;
   }catch(error){throw Object.assign(fault('WORKSPACE_CREATE','Could not establish an isolated writer workspace'),{cause:error,...(cwd?{workspacePath:cwd}:{})});}
 }
@@ -147,6 +164,7 @@ export async function collectWorkspace(workspace){
   }catch(error){throw Object.assign(fault('WORKSPACE_ARTIFACT','Could not retain a complete workspace diff; workspace remains on disk'),{cause:error,workspacePath:workspace.cwd});}
 }
 async function verifyIdentity(workspace){
+  await checkIndex(workspace);
   if(await realpath(workspace.cwd)!==workspace.cwd||(await lstat(workspace.cwd)).isSymbolicLink()||(await lstat(join(workspace.cwd,'.git'))).isSymbolicLink()||digest(await boundedRead(join(workspace.cwd,'.git'),8192))!==workspace.gitPointerHash)throw fault('WORKSPACE_PATH','Worker workspace identity changed');
   if(await realpath((await git(workspace.cwd,['rev-parse','--path-format=absolute','--git-common-dir'])).trim())!==workspace.common)throw fault('WORKSPACE_PATH','Worker Git metadata changed');
 }
@@ -171,4 +189,17 @@ export async function verifyWorkspace(workspace){
     if(expected.size)throw Error('missing workspace files');
     return true;
   }catch(error){throw Object.assign(fault('WORKSPACE_ARTIFACT','Retained workspace or diff is missing or changed'),{cause:error});}
+}
+export async function readWorkspacePatch(workspace,{basis='inputs',previewBytes=maxPatch}={}){
+  if(!['inputs','base'].includes(basis)||!Number.isInteger(previewBytes)||previewBytes<1||previewBytes>maxPatch)throw fault('PATCH_INPUT','Choose an inputs or base patch and a bounded preview');
+  if(!workspace?.patchPath)throw fault('MONITOR_MISSING','A finalized workspace diff is not available');
+  try{
+    const path=basis==='base'?workspace.basePatchPath:workspace.patchPath,sha256=basis==='base'?workspace.basePatchHash:workspace.patchHash;
+    if(!inside(workspace.artifactsDir,path)||!(await lstat(path)).isFile())throw Error('path');
+    const bytes=await boundedRead(path,maxPatch);
+    if(digest(bytes)!==sha256)throw Error('hash');
+    // TextDecoder's streaming mode omits an incomplete UTF-8 character at the preview boundary.
+    const truncated=bytes.length>previewBytes,patch=new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(0,previewBytes),{stream:truncated});
+    return{basis,patch,sha256,bytes:bytes.length,truncated,cwd:workspace.cwd,changedFiles:workspace.changedFiles};
+  }catch(error){throw Object.assign(fault('WORKSPACE_ARTIFACT','Saved patch is missing or changed'),{cause:error});}
 }

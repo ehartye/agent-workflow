@@ -8,7 +8,9 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {captureInputs,createWorkspace,collectWorkspace,verifyWorkspace,assertWorkspaceReady} from '../engine/workspaces.mjs';
+import {captureInputs,describeInputs,loadInputs,createWorkspace,collectWorkspace,verifyWorkspace,assertWorkspaceReady} from '../engine/workspaces.mjs';
+import {runWorkflow,readRun} from '../engine/controller.mjs';
+import {createSettings} from '../engine/settings.mjs';
 
 const exec=promisify(execFile);
 const git=async(cwd,...args)=>(await exec('git',args,{cwd,windowsHide:true,timeout:10000})).stdout.trim();
@@ -90,4 +92,60 @@ test('input copying breaks hardlink aliases and planted aliases prevent worker a
   const inputs=await captureInputs({source,artifactsDir:join(artifacts,'inputs')});const workspace=await createWorkspace({inputs,artifactsDir:join(artifacts,'worker')});
   await assertWorkspaceReady(workspace);await writeFile(join(workspace.cwd,'linked.txt'),'independent');assert.equal(await readFile(outside,'utf8'),'outside');
   await link(outside,join(workspace.cwd,'planted.txt'));await assert.rejects(assertWorkspaceReady(workspace),{code:'WORKSPACE_PATH'});await assert.rejects(collectWorkspace(workspace),{code:'WORKSPACE_ARTIFACT'});
+});
+test('modified private input index is rejected before admission collection or replay',async t=>{
+  const {source,artifacts}=await fixture(t),inputs=await captureInputs({source,artifactsDir:join(artifacts,'inputs')}),workspace=await createWorkspace({inputs,artifactsDir:join(artifacts,'worker')});
+  await exec('git',['update-index','--chmod=+x','note.txt'],{cwd:source,env:{...process.env,GIT_INDEX_FILE:inputs.inputIndex},windowsHide:true});
+  await assert.rejects(loadInputs(describeInputs(inputs)),{code:'WORKSPACE_ARTIFACT'});
+  await assert.rejects(assertWorkspaceReady(workspace),{code:'WORKSPACE_ARTIFACT'});
+  await assert.rejects(collectWorkspace(workspace),{code:'WORKSPACE_ARTIFACT'});
+});
+
+const cleanup={serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members',nativeTerminals:{inventoryEmpty:true}};
+function writerBackend(execute){
+  const settings=createSettings({catalog:[{model:'fixture',isDefault:true,defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}]}],defaults:{permissions:{sandbox:'workspace-write'}}});
+  return{identity:'writer-fixture',resolveOptions:settings.resolve,execute,close:async()=>cleanup};
+}
+test('a writer rejected before any process starts retains its empty diff with a known failure',async t=>{
+  const {root,source}=await fixture(t);
+  const result=await runWorkflow({runDir:join(root,'run'),sessionId:'s',launch:{cwd:source},script:'export const meta={name:"prestart",description:"proof"};return await agent("edit");',
+    backend:writerBackend(async()=>{throw Object.assign(new Error('Admission closed'),{code:'RUN_STOPPED',notStarted:true,noProcessStarted:true});})});
+  const worker=result.workers[0];assert.equal(worker.status,'failed');assert.equal(worker.notStarted,true);assert.equal(worker.workspaceError,undefined);assert.deepEqual(worker.workspace.changedFiles,[]);assert.equal(await readFile(worker.workspace.patchPath,'utf8'),'');
+});
+test('writer preparation cannot bypass an attempt budget consumed by a concurrent correction',async t=>{
+  const {root,source}=await fixture(t),runDir=join(root,'run');let writers=0;
+  const result=await runWorkflow({runDir,sessionId:'s',launch:{cwd:source},maxAgents:2,
+    script:'export const meta={name:"budget",description:"proof"};return await parallel([()=>agent("reader",{permissions:{sandbox:"read-only"}}),()=>agent("writer")]);',
+    backend:writerBackend(async({workspace,reserveRetry})=>{
+      if(workspace)writers++;
+      else{
+        const deadline=Date.now()+5000;
+        while(!(await readRun(runDir)).workspaceInputs){if(Date.now()>deadline)throw new Error('Writer capture not observed');await new Promise(resolve=>setTimeout(resolve,5));}
+        await reserveRetry();
+      }
+      return{value:'done',terminalObserved:true,evidence:{cleanup}};
+    })});
+  assert.equal(result.attempts,2);assert.equal(writers,0);assert.equal(result.workers[1].notStarted,true);assert.equal(result.workers[1].error.code,'AGENT_LIMIT');
+});
+test('controller persists writer diffs, reuses intact work and rejects changed retained files before dispatch',async t=>{
+  const {root,source}=await fixture(t);await writeFile(join(source,'local.txt'),'local input');let calls=0;
+  const input={runDir:join(root,'run'),sessionId:'s',launch:{cwd:source},script:'export const meta={name:"writers",description:"proof"};return await parallel([()=>agent("A"),()=>agent("B")]);'};
+  const backend=()=>writerBackend(async({prompt,workspace})=>{calls++;assert.equal(await readFile(join(workspace.cwd,'local.txt'),'utf8'),'local input');await writeFile(join(workspace.cwd,'note.txt'),prompt+'\n');return{value:prompt,terminalObserved:true,evidence:{cleanup}};});
+  const first=await runWorkflow({...input,backend:backend()});assert.equal(first.status,'completed');assert.equal(calls,2);assert.notEqual(first.workers[0].workspace.cwd,first.workers[1].workspace.cwd);
+  assert.equal(await readFile(join(source,'note.txt'),'utf8'),'base\n');assert.match(await readFile(first.workers[0].workspace.patchPath,'utf8'),/\+A/);
+  await writeFile(join(source,'local.txt'),'source changes do not rewrite captured inputs');
+  const replay=await runWorkflow({...input,resume:true,backend:backend()});assert.equal(replay.coverage.cached,2);assert.equal(calls,2);assert.deepEqual(replay.workspaceInputs,first.workspaceInputs);
+  await writeFile(join(first.workers[0].workspace.cwd,'note.txt'),'tampered');
+  await assert.rejects(runWorkflow({...input,resume:true,backend:backend()}),{code:'WORKSPACE_ARTIFACT'});assert.equal(calls,2);
+});
+
+test('interrupted writer keeps its patch and restart uses a new workspace from original captured inputs',async t=>{
+  const {root,source}=await fixture(t);const input={runDir:join(root,'run'),sessionId:'s',launch:{cwd:source},script:'export const meta={name:"writer-restart",description:"proof"};return await agent("edit");'};
+  const first=await runWorkflow({...input,backend:writerBackend(async({workspace})=>{await writeFile(join(workspace.cwd,'note.txt'),'interrupted edit\n');throw Object.assign(new Error('cancelled'),{code:'TURN_CANCELLED',evidence:{cleanup}});})});
+  assert.equal(first.workers[0].status,'unknown');assert.match(await readFile(first.workers[0].workspace.patchPath,'utf8'),/interrupted edit/);
+  await writeFile(join(source,'note.txt'),'later source edit\n');
+  const second=await runWorkflow({...input,resume:true,expectedGeneration:1,restart:{position:0,attempt:1,reconciliation:'Reviewed retained edit; repeat from original inputs.'},backend:writerBackend(async({workspace})=>{
+    assert.notEqual(workspace.cwd,first.workers[0].workspace.cwd);assert.equal(await readFile(join(workspace.cwd,'note.txt'),'utf8'),'base\n');await writeFile(join(workspace.cwd,'note.txt'),'replacement\n');return{value:'done',terminalObserved:true,evidence:{cleanup}};
+  })});
+  assert.equal(second.status,'completed');assert.equal(await readFile(join(first.workers[0].workspace.cwd,'note.txt'),'utf8'),'interrupted edit\n');assert.equal(await readFile(join(source,'note.txt'),'utf8'),'later source edit\n');
 });

@@ -40,12 +40,12 @@ export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1
           if(generation<1||position>=1000||limit<1||limit>100)throw fault('HTTP_INPUT','Activity paging exceeded its limits');
           return send(response,200,await monitorData(runDir,{kind:'activity',generation,position,after,limit,...(url.searchParams.has('sourceGeneration')?{sourceGeneration:integer('sourceGeneration')}:{})}));
         }
-        const match=/^\/api\/worker\/(0|[1-9][0-9]{0,3})$/.exec(url.pathname);
-        const kind=match?'worker':url.pathname==='/api/script'?'script':url.pathname==='/api/result'?'result':null;
+        const match=/^\/api\/(?:worker|patch)\/(0|[1-9][0-9]{0,3})$/.exec(url.pathname);
+        const kind=match?(url.pathname.startsWith('/api/patch/')?'patch':'worker'):url.pathname==='/api/script'?'script':url.pathname==='/api/result'?'result':null;
         if(kind){
           const generation=Number(url.searchParams.get('generation'));
           if(!Number.isInteger(generation)||generation<1)throw fault('HTTP_INPUT','Observed generation is required');
-          return send(response,200,await monitorData(runDir,{kind,generation,position:match?Number(match[1]):undefined,...(url.searchParams.has('sourceGeneration')?{sourceGeneration:Number(url.searchParams.get('sourceGeneration'))}:{})}),kind==='script'?'text/plain':'application/json');
+          return send(response,200,await monitorData(runDir,{kind,generation,position:match?Number(match[1]):undefined,basis:url.searchParams.get('basis')??'inputs',...(url.searchParams.has('sourceGeneration')?{sourceGeneration:Number(url.searchParams.get('sourceGeneration'))}:{})}),kind==='script'?'text/plain':'application/json');
         }
       }
       if(request.method==='POST'&&['/api/control','/api/resume','/api/restart','/api/close'].includes(url.pathname)){
@@ -64,7 +64,7 @@ export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1
       return send(response,404,{error:{code:'HTTP_ROUTE',message:'Unknown monitor route'}});
     }catch(error){
       const conflict=['REPLAY_GENERATION','REPLAY_UNKNOWN','CONTROL_GENERATION','CONTROL_TERMINAL','CONTROL_ATTEMPT','CONTROL_TURN','CONTROL_WORKER','CONTROL_BUSY','RUN_LOCKED','MONITOR_BUSY','RESTART_ACTIVE','RESTART_WORKER','RESTART_PREFIX','RESTART_DRAIN','RESTART_CHANGED','AGENT_LIMIT'].includes(error.code);
-      send(response,conflict?409:error.code==='MONITOR_MISSING'?404:['HTTP_INPUT','CONTROL_INPUT','ACTIVITY_INPUT','RESTART_INPUT','RESTART_RECONCILE','HISTORY_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
+      send(response,conflict?409:error.code==='MONITOR_MISSING'?404:['HTTP_INPUT','CONTROL_INPUT','ACTIVITY_INPUT','RESTART_INPUT','RESTART_RECONCILE','HISTORY_INPUT','PATCH_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
     }
   });
   server.requestTimeout=5000;server.headersTimeout=5000;server.keepAliveTimeout=1000;

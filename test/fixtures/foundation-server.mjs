@@ -51,7 +51,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     const threadId = req.params.threadId;
     const turnId = `turn-${threadId}`;
     turns.set(threadId, turnId);
-    if (req.params.approvalPolicy !== 'never' || req.params.sandboxPolicy.type !== 'readOnly' || req.params.sandboxPolicy.networkAccess !== false) throw new Error('Turn broadened permissions');
+    if (req.params.approvalPolicy !== 'never' || req.params.sandboxPolicy.type !== (mode==='turn-writer-policy'?'workspaceWrite':'readOnly') || req.params.sandboxPolicy.networkAccess !== false) throw new Error('Turn broadened permissions');
     if (mode === 'turn-delayed-start' || mode === 'turn-late-start') {
       notification('turn/started', {threadId,turn:{id:turnId,status:'inProgress',items:[]}});
       return setTimeout(()=>reply(req.id,{turn:{id:turnId}}),mode==='turn-late-start'?300:50);
@@ -71,7 +71,7 @@ createInterface({ input: process.stdin }).on('line', line => {
       notification('thread/tokenUsage/updated',{threadId,turnId,tokenUsage:{total:{inputTokens:10,cachedInputTokens:0,outputTokens:2,reasoningOutputTokens:1,totalTokens:12},last:{inputTokens:10,cachedInputTokens:0,outputTokens:2,reasoningOutputTokens:1,totalTokens:12}}});
     }
     notification('item/completed', { threadId, turnId: 'unrelated', item: { type: 'agentMessage', id: 'wrong', text: 'WRONG' } });
-    const answer=mode==='turn-settings'?JSON.stringify({model:req.params.model,effort:req.params.effort,outputSchema:req.params.outputSchema}):threadId;
+    const answer=mode==='turn-writer-policy'?JSON.stringify({cwd:req.params.cwd,runtimeWorkspaceRoots:req.params.runtimeWorkspaceRoots,approvalPolicy:req.params.approvalPolicy,sandboxPolicy:req.params.sandboxPolicy}):mode==='turn-settings'?JSON.stringify({model:req.params.model,effort:req.params.effort,outputSchema:req.params.outputSchema}):threadId;
     notification('item/completed', { threadId, turnId, item: { type: 'agentMessage', id: 'answer', text: answer } });
     notification('turn/completed', { threadId, turn: { id: turnId, status: mode === 'turn-failed' ? 'failed' : 'completed', error: mode === 'turn-failed' ? { message: 'runner pipe-in timeout REVIEW_SECRET_SENTINEL private@example.invalid' } : null, items: [] } });
     return setTimeout(() => reply(req.id, { turn: { id: turnId } }), threadId === 'one' ? 20 : 5);

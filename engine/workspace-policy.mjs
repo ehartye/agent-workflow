@@ -8,6 +8,9 @@ export function writerPolicy(cwd){
   // Omit environments: [] selects no local execution environment and removes roots.
   const common={cwd,runtimeWorkspaceRoots:[cwd],approvalPolicy:'never'};
   return{
+    // Trust only this owned cwd in the worker process. Native thread/start otherwise
+    // persists project trust globally, changing replay identity after the first writer.
+    launchArgs:['-c',`projects={${JSON.stringify(cwd)}={trust_level="trusted"}}`],
     thread:{...common,sandbox:'workspace-write',config:{sandbox_workspace_write:{writable_roots:[],network_access:false,exclude_tmpdir_env_var:true,exclude_slash_tmp:true}}},
     turn:{...common,sandboxPolicy},
   };

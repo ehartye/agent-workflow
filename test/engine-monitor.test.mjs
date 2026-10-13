@@ -4,7 +4,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile,mkdir} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {request} from 'node:http';
@@ -16,6 +17,27 @@ import {runWorkflow} from '../engine/controller.mjs';
 
 const meta='export const meta={name:"Monitor",description:"Real run"};\n';
 const backend=execute=>({identity:'monitor-fixture',execute,close:async()=>({serverExited:true,descendants:'notVerified'})});
+test('patch reads are authenticated, generation-bound, hash-checked and bounded for the monitor',async t=>{
+  const {runDir,createMonitor}=await setup(t);
+  await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("edit");',backend:backend(async()=>({value:'done',terminalObserved:true}))});
+  const artifactsDir=join(runDir,'patches');await mkdir(artifactsDir);
+  const patch='diff --git a/note b/note\n+'+'x'.repeat(300000),basePatch='base-relative patch\n',patchPath=join(artifactsDir,'changes.patch'),basePatchPath=join(artifactsDir,'base.patch');
+  await writeFile(patchPath,patch);await writeFile(basePatchPath,basePatch);
+  const digest=value=>createHash('sha256').update(value).digest('hex');
+  const db=new DatabaseSync(join(runDir,'run.sqlite'));
+  try{const worker=JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value);worker.workspace={cwd:join(runDir,'owned-worktree'),artifactsDir,changedFiles:['note'],patchPath,basePatchPath,patchHash:digest(patch),basePatchHash:digest(basePatch)};db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(JSON.stringify(worker));}finally{db.close();}
+  const monitor=await createMonitor({runDir});t.after(()=>monitor.close());const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token');
+  const get=path=>fetch(url.origin+path,{headers:{Authorization:`Bearer ${token}`}});
+  assert.equal((await fetch(url.origin+'/api/patch/0?generation=1')).status,401);
+  assert.equal((await get('/api/patch/0')).status,400);assert.equal((await get('/api/patch/0?generation=2')).status,409);
+  assert.equal((await get('/api/patch/0?generation=1&basis=invalid')).status,400);
+  const result=await(await get('/api/patch/0?generation=1&basis=inputs')).json();
+  assert.equal(result.sha256,digest(patch));assert.equal(result.bytes,Buffer.byteLength(patch));assert.equal(result.truncated,true);assert.ok(Buffer.byteLength(result.patch)<=256*1024);assert.deepEqual(result.changedFiles,['note']);
+  assert.equal((await(await get('/api/patch/0?generation=1&basis=base')).json()).patch,basePatch);
+  const summary=await(await get('/api/run')).json();assert.deepEqual(summary.workers[0].workspace.changedFiles,['note']);
+  const cli=JSON.parse((await promisify(execFile)(process.execPath,[fileURLToPath(new URL('../engine/cli.mjs',import.meta.url)),'--patch','0','--basis','inputs','--run',runDir,'--generation','1'],{windowsHide:true,maxBuffer:1024*1024})).stdout);assert.equal(cli.patch,patch);assert.equal(cli.truncated,false);
+  await writeFile(patchPath,'corrupted');const corrupt=await get('/api/patch/0?generation=1');assert.equal(corrupt.status,500);assert.equal((await corrupt.json()).error.code,'WORKSPACE_ARTIFACT');
+});
 async function setup(t){
   const runDir=await mkdtemp(join(tmpdir(),'workflow-monitor-'));
   t.after(()=>rm(runDir,{recursive:true,force:true,maxRetries:10,retryDelay:50}));

@@ -9,6 +9,8 @@ import { compileSchema } from './schema.mjs';
 import {createActivityTable,recordActivity} from './activity.mjs';
 import {assertWorkerTarget} from './controls.mjs';
 import {restartPlan} from './restart.mjs';
+import {runWorkspaces} from './workspace-run.mjs';
+import {collectWorkspace,verifyWorkspace,loadInputs} from './workspaces.mjs';
 import { fault, diagnostic } from '../foundation/client.mjs';
 export {requestControl,readControl} from './controls.mjs';
 
@@ -31,7 +33,7 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  const files = ['controller.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
   return hash(process.version + files.map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
@@ -154,8 +156,16 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if (previous && previous.runtimeIdentity !== runtimeIdentity) throw fault('REPLAY_RUNTIME', 'Saved results require their original runtime version');
     reuse = !previous || previous.backendIdentity === backend.identity;
     const oldWorkers = previous?.workers ?? [];
+    if(previous?.workspaceInputs)await loadInputs(previous.workspaceInputs);
+    if(reuse)for(const worker of oldWorkers){
+      if(worker.status!=='completed'||restartAdmission&&worker.position>=restartAdmission.position)break;
+      if(worker.options?.permissions?.sandbox==='workspace-write'&&!worker.workspace)throw fault('WORKSPACE_ARTIFACT','Completed writer workspace is missing');
+      if(worker.workspace)await verifyWorkspace(worker.workspace);
+    }
     state = { version: 1, sessionId, generation: (previous?.generation ?? 0) + 1, runtimeIdentity, backendIdentity: backend.identity,
       status: 'running', acceptingControls:true, meta, script, args, launch, concurrency, maxAgents, workerCount: 0, attempts: previous?.attempts ?? 0, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString() };
+    if(previous?.workspaceInputs)state.workspaceInputs=previous.workspaceInputs;
+    const workspaces=runWorkspaces({runDir,source:launch?.cwd,inputs:state.workspaceInputs,onInputs:record=>{if(retiredWrites)throw fault('RUN_RETIRED','Run no longer owns workspace admission');state.workspaceInputs=record;saveHeader();}});
     if(restartAdmission){
       state.restart={...restartAdmission,sourceGeneration:previous.generation,receiptId:randomUUID()};
       const receipt={id:state.restart.receiptId,generation:state.generation,sourceGeneration:previous.generation,action:'restart-worker',status:'applied',requestedAt:state.updatedAt,appliedAt:state.updatedAt,...restartAdmission};
@@ -249,7 +259,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         if(compiled&&!compiled.validate(prior.result))throw fault('REPLAY_CORRUPT','Saved worker result violates its schema');
         Object.assign(worker, { status: 'completed', cached: true, result: prior.result, resultHash: prior.resultHash });
         worker.reusedFrom=prior.reusedFrom??{generation:previous.generation,position:prior.position};
-        for(const key of ['evidence','attempts','attemptOffset','priorExecutions','usageByThread','usage','activity','activityCount','startedAt','completedAt'])if(Object.hasOwn(prior,key))worker[key]=structuredClone(prior[key]);
+        for(const key of ['workspace','evidence','attempts','attemptOffset','priorExecutions','usageByThread','usage','activity','activityCount','startedAt','completedAt'])if(Object.hasOwn(prior,key))worker[key]=structuredClone(prior[key]);
         saveWorker(worker);settle(); return worker.result;
       }
       reuse = false;
@@ -263,6 +273,16 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       let dispatched = false;
       let terminalObserved=false;
       let executionOpen=false;
+      let workspaceCollected=false;
+      const retainWorkspace=async(evidence,noProcessStarted=false)=>{
+        if(!worker.workspace||workspaceCollected)return;workspaceCollected=true;
+        try{
+          if(dispatched&&(!noProcessStarted||evidence?.cleanup?.error)&&(evidence?.cleanup?.serverExited!==true||evidence.cleanup.jobEmpty!==true||evidence.cleanup.error))throw fault('WORKSPACE_DRAIN','Workspace retained without a final diff because worker termination is unverified');
+          const retained=await collectWorkspace(worker.workspace);
+          if(retiredWrites)throw fault('RUN_RETIRED','Late artifacts cannot change terminal evidence');
+          worker.workspace=retained;
+        }catch(error){if(!retiredWrites)worker.workspaceError=diagnostic(error);throw error;}
+      };
       try {
         await waitFor(Promise.all(dependencies.map(position=>settlements.get(position))),signal);
         if(workerAbort.signal.aborted)throw Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
@@ -270,6 +290,14 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         await acquire(signal); acquired = true;
         if(workerAbort.signal.aborted)throw Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
         if (state.attempts >= maxAgents) throw Object.assign(fault('AGENT_LIMIT', 'Lifetime agent attempt limit reached'), { notStarted: true });
+        if(options.permissions?.sandbox==='workspace-write'){
+          const workspace=await workspaces.prepare({generation:state.generation,position});
+          if(retiredWrites)throw fault('RUN_RETIRED','Late workspace admission cannot change terminal evidence');
+          worker.workspace=workspace;saveWorker(worker);
+          if(signal.aborted||stopped)throw Object.assign(fault('RUN_STOPPED','Worker admission closed while preparing its workspace'),{notStarted:true});
+        }
+        if(workerAbort.signal.aborted)throw cancelled();
+        if(state.attempts>=maxAgents)throw Object.assign(fault('AGENT_LIMIT','Lifetime agent attempt limit reached'),{notStarted:true});
         state.attempts++; worker.attempts=(worker.attemptOffset??0)+1; worker.status = 'running'; worker.startedAt = new Date().toISOString();
         saveHeader(); saveWorker(worker);
         dispatched = true;
@@ -282,12 +310,14 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         const observationOpen=()=>{if(retiredWrites||!executionOpen)throw fault('RUN_RETIRED','Late worker activity cannot change terminal evidence');};
         const onActive=identity=>{observationOpen();worker.activeTurn=JSON.parse(json(identity));saveWorker(worker);};
         const onEvent=message=>{observationOpen();saveWorker(worker,message);};
-        const result = await backend.execute({ prompt, options, position, signal, reserveRetry, onActive,onEvent });
+        const result = await backend.execute({ prompt, options, position, signal, reserveRetry, onActive,onEvent,workspace:worker.workspace });
         executionOpen=false;delete worker.activeTurn;
         if(retiredWrites)throw fault('RUN_RETIRED','Late worker result cannot change terminal evidence');
         if (!result?.terminalObserved) throw fault('AGENT_UNKNOWN', 'Worker terminal state was not observed');
         terminalObserved=true;
         if (result.evidence) worker.evidence = JSON.parse(json(result.evidence));
+        await retainWorkspace(result.evidence);
+        if(retiredWrites)throw fault('RUN_RETIRED','Late artifacts cannot change terminal evidence');
         const value = JSON.parse(json(result.value));
         if(compiled&&!compiled.validate(value))throw fault('RESULT_SCHEMA','Worker result does not satisfy its declared schema');
         Object.assign(worker, { status: 'completed', result: value, resultHash: hash(json(value)), completedAt: new Date().toISOString() });
@@ -295,10 +325,13 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       } catch (error) {
         executionOpen=false;delete worker.activeTurn;
         if(retiredWrites)throw error;
+        try{await retainWorkspace(error.evidence,error.noProcessStarted===true);}catch{ /* Primary failure and separate workspace diagnostic both survive. */ }
+        if(retiredWrites)throw error;
         worker.status = error.evidence?.cleanup?.error ? 'unknown' : !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
         worker.error = diagnostic(error);
         worker.notStarted=!dispatched||error.notStarted===true;
         if(error.evidence)worker.evidence=JSON.parse(json(error.evidence));
+        if(worker.workspaceError)worker.status='unknown';
         if(error.interruption)worker.interruption={terminalObserved:error.interruption.terminalObserved===true,terminalStatus:['completed','failed','interrupted'].includes(error.interruption.terminalStatus)?error.interruption.terminalStatus:null,descendants:'notVerified'};
         saveWorker(worker);
         throw error;

@@ -40,6 +40,8 @@ let extendedWorker, localReceipt, actionNotice = '', mapKey = '';
 let activityHistory, activityLoading = false, activityFilter = 'tools';
 let steerDraft;
 let reconcileDraft,earlierEvidence;
+const patchEvidence = new Map(), patchLoading = new Set();
+let patchRevision = 0;
 const requests = new Set();
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -136,11 +138,74 @@ function renderWorkers() {
   $('empty').hidden = filtered.length !== 0;
   $('empty').textContent = workers.length ? 'No workers match these filters.' : 'Workers appear here when the workflow requests them.';
 }
+function renderWorkspace(container, worker, sourceGeneration) {
+  if (!worker.workspace && !worker.workspaceError) return;
+  const section = node('section', undefined, 'workspace-review');
+  section.dataset.sourceGeneration = sourceGeneration ?? snapshot.generation;
+  section.append(node('h3', sourceGeneration ? `Writer changes · generation ${sourceGeneration}` : 'Writer changes'));
+  const workspace = worker.workspace;
+  if (workspace && typeof workspace === 'object' && !Array.isArray(workspace)) {
+    if (workspace.cwd) {
+      section.append(node('p', 'Isolated workspace', 'muted'), node('p', workspace.cwd, 'workspace-path'));
+    }
+    if (Array.isArray(workspace.changedFiles)) {
+      const files = node('details');
+      files.append(node('summary', `${workspace.changedFiles.length} files changed by this worker`));
+      const list = node('ul', undefined, 'changed-files');
+      for (const file of workspace.changedFiles) list.append(node('li', file));
+      files.append(list); section.append(files);
+    }
+    const available = [
+      { basis: 'inputs', label: 'Read worker-only diff', path: workspace.patchPath, hash: workspace.patchHash },
+      { basis: 'base', label: 'Read diff from base', path: workspace.basePatchPath, hash: workspace.basePatchHash },
+    ].filter(item => typeof item.path === 'string' && typeof item.hash === 'string');
+    if (!available.length) section.append(node('p', 'Diff not available. Patch capture is pending or did not finish.', 'muted'));
+    else {
+      section.append(node('p', 'Worker-only compares this worker’s inputs with its result. From base also includes the local changes captured when the run started.', 'muted'));
+      const generation = snapshot.generation, position = worker.position, workspaceKey = JSON.stringify(workspace);
+      const buttons = node('div', undefined, 'button-row patch-actions');
+      for (const item of available) {
+        const key = `${generation}:${position}:${sourceGeneration ?? generation}:${item.basis}`;
+        const saved = patchEvidence.get(key), patch = saved?.workspaceKey === workspaceKey ? saved.result : undefined;
+        const load = node('button', patchLoading.has(key) ? 'Reading diff…' : item.label);
+        load.type = 'button'; load.dataset.basis = item.basis; load.disabled = patchLoading.has(key);
+        load.addEventListener('click', async () => {
+          if (patchLoading.has(key)) return;
+          patchLoading.add(key); patchRevision++; renderDetail();
+          try {
+            const result = await api(`/api/patch/${position}?generation=${generation}&basis=${item.basis}${sourceGeneration ? `&sourceGeneration=${sourceGeneration}` : ''}`);
+            if (snapshot.generation !== generation || selected !== position || sourceGeneration && earlierEvidence?.sourceGeneration !== sourceGeneration) return;
+            if (typeof result.patch !== 'string' || result.basis !== item.basis || !/^[a-f0-9]{64}$/i.test(result.sha256 ?? '') || !Number.isSafeInteger(result.bytes) || result.bytes < 0) throw new Error('The monitor received invalid patch evidence. Refresh and read the diff again.');
+            const bounded = { ...result, patch: result.patch.slice(0, 262144), truncated: result.truncated === true || result.patch.length > 262144 };
+            patchEvidence.delete(key);
+            patchEvidence.set(key, { workspaceKey, result: bounded });
+            while (patchEvidence.size > 4) patchEvidence.delete(patchEvidence.keys().next().value);
+          } catch (error) { readError(error); }
+          finally { patchLoading.delete(key); patchRevision++; renderDetail(); }
+        });
+        buttons.append(load);
+        if (patch) {
+          const disclosure = node('details', undefined, 'patch-disclosure'); disclosure.open = true;
+          disclosure.setAttribute('open', '');
+          disclosure.append(node('summary', item.basis === 'inputs' ? 'Worker-only diff' : 'Diff from base'));
+          disclosure.append(node('p', patch.truncated ? `Preview truncated · full patch ${patch.bytes} bytes. Read the saved artifact for the complete diff.` : `Complete patch · ${patch.bytes} bytes.`, patch.truncated ? 'truncation' : 'muted'));
+          const hash = node('p', undefined, 'patch-hash'); hash.append(node('span', 'Full artifact SHA-256'), node('code', patch.sha256));
+          disclosure.append(hash, node('p', item.path, 'workspace-path'));
+          const pre = node('pre', patch.patch || 'No differences recorded for this comparison.', 'patch-content'); pre.tabIndex = 0;
+          disclosure.append(pre); section.append(disclosure);
+        }
+      }
+      section.insertBefore(buttons, section.querySelector('.patch-disclosure'));
+    }
+  } else if (workspace) section.append(node('p', 'Workspace preview shortened. Load worker details to inspect the workspace and available diffs.', 'truncation'));
+  if (worker.workspaceError) evidence(section, 'Workspace capture error', worker.workspaceError, true);
+  container.append(section);
+}
 function renderDetail() {
   const base = snapshot.workers?.find(worker => worker.position === selected);
   const worker = extendedWorker?.generation === snapshot.generation && extendedWorker.position === selected ? extendedWorker.worker : base;
   const history = activityHistory?.generation === snapshot.generation && activityHistory.position === selected ? activityHistory : undefined;
-  const key = JSON.stringify([snapshot.generation, worker, history, activityLoading, activityFilter,snapshot.restartPreview,earlierEvidence, worker?.dependencies?.map(position => {
+  const key = JSON.stringify([snapshot.generation, worker, history, activityLoading, activityFilter,snapshot.restartPreview,earlierEvidence,patchRevision, worker?.dependencies?.map(position => {
     const prerequisite = snapshot.workers.find(item => item.position === position);
     return [position, prerequisite?.status, prerequisite?.options?.label];
   })]);
@@ -205,6 +270,7 @@ function renderDetail() {
     section.append(label,select,load);
     if(earlier){
       const content=node('div');content.id='earlier-evidence';evidence(content,`Execution in generation ${earlier.sourceGeneration}`,earlier.worker);
+      renderWorkspace(content, earlier.worker, earlier.sourceGeneration);
       if(earlier.activity){
         content.append(node('p',`${earlier.activity.retained} retained of ${earlier.activity.observed} observed events · ${earlier.activity.dropped} discarded.`, 'muted'));
         evidence(content,'Earlier activity page',earlier.activity.records);
@@ -249,6 +315,7 @@ function renderDetail() {
     });
     detail.append(load);
   }
+  renderWorkspace(detail, worker);
   if (Object.hasOwn(worker, 'prompt')) evidence(detail, 'Prompt', worker.prompt);
   if (Object.hasOwn(worker, 'result')) evidence(detail, 'Accepted result', worker.result);
   else detail.append(node('h3', 'Accepted result'), node('p', worker.status === 'unknown' ? 'Outcome unknown. No result has been accepted.' : 'No result has been accepted.', 'muted'));
@@ -458,7 +525,7 @@ async function poll() {
     if (!next || !Array.isArray(next.workers) || !Number.isInteger(next.generation)) throw new Error('The monitor received an invalid run snapshot. Refresh to try again.');
     if (snapshot?.generation !== next.generation || snapshot?.updatedAt !== next.updatedAt) extendedWorker = undefined;
     if (extendedWorker && extendedWorker.previewKey !== JSON.stringify(next.workers.find(worker => worker.position === extendedWorker.position))) extendedWorker = undefined;
-    if (snapshot?.generation !== next.generation) { $('script').hidden = true; $('script').textContent = ''; activityHistory=undefined; }
+    if (snapshot?.generation !== next.generation) { $('script').hidden = true; $('script').textContent = ''; activityHistory=undefined; patchEvidence.clear(); patchLoading.clear(); }
     snapshot = next; lastGood = Date.now(); stale = false;
     $('connection').textContent = 'Connected · updates every second';
     notice(actionNotice); render();

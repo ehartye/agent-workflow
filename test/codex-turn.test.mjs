@@ -41,6 +41,12 @@ test('native turns forward explicit model reasoning and output schema unchanged'
   assert.deepEqual(JSON.parse(result.text),{model:'fixture-model',effort:'high',outputSchema});
 });
 
+test('writer turns carry the exact owned roots and exclude temporary write grants',async t=>{
+  const {client,runTurn}=await setup(t,'turn-writer-policy');const {writerPolicy}=await import('../engine/workspace-policy.mjs');
+  const cwd=fileURLToPath(new URL('.',import.meta.url)),execution=writerPolicy(cwd).turn;
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture',execution});assert.deepEqual(JSON.parse(result.text),execution);
+});
+
 test('live activity routes early tool output and usage only to the confirmed worker turn',async t=>{
   const {client,runTurn}=await setup(t,'turn-activity');
   const seen=new Map();

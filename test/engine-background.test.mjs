@@ -16,6 +16,16 @@ import {readRun,requestControl,readControl} from '../engine/controller.mjs';
 
 const exec=promisify(execFile);
 
+test('CLI writable opt-in persists the permission ceiling before native admission',async t=>{
+  const base=await mkdtemp(join(tmpdir(),'workflow-cli-write-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
+  const runDir=join(base,'run'),script=join(base,'workflow.mjs');await writeFile(script,'export const meta={name:"writer",description:"proof"};return await agent("edit");');
+  // Node deliberately fails the pinned Codex version check, so this exercises CLI launch without inference.
+  await exec(process.execPath,[fileURLToPath(new URL('../engine/cli.mjs',import.meta.url)),'--writable','--codex',process.execPath,'--cwd',base,'--script',script,'--run',runDir,'--session','s'],{timeout:15000,windowsHide:true}).catch(()=>{});
+  const files=await readdir(runDir),launch=files.find(name=>name.startsWith('launch-'));
+  assert.ok(launch);assert.deepEqual(JSON.parse(await readFile(join(runDir,launch),'utf8')).launch.defaults.permissions,{sandbox:'workspace-write'});
+  const finish=files.find(name=>name.startsWith('finish-'));assert.ok(finish);assert.equal(JSON.parse(await readFile(join(runDir,finish),'utf8')).status,'failed');
+});
+
 test('detached restart forwards reconciliation and preserves its original failed execution',async t=>{
   const {startBackground}=await import('../engine/background.mjs');const {runWorkflow}=await import('../engine/controller.mjs');
   const base=await mkdtemp(join(tmpdir(),'workflow-background-restart-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));

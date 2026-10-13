@@ -12,7 +12,7 @@ export async function steerTurn(client,{threadId,turnId,text}){
   if(result?.turnId!==turnId)throw fault('CONTROL_TURN','Codex did not confirm the targeted turn');
   return{turnId};
 }
-export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, interruptTimeoutMs = 3000, signal, model, effort, outputSchema, onActive, onEvent }) {
+export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, interruptTimeoutMs = 3000, signal, model, effort, outputSchema, execution, onActive, onEvent }) {
   if (typeof threadId !== 'string' || !threadId || typeof prompt !== 'string' || !prompt ||
       !Number.isFinite(timeoutMs) || timeoutMs <= 0 || !Number.isFinite(interruptTimeoutMs) || interruptTimeoutMs <= 0) {
     throw fault('TURN_INPUT', 'A thread, prompt and positive deadlines are required');
@@ -68,7 +68,8 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, in
   try {
     start = client.request('turn/start', {
       threadId, input: [{ type: 'text', text: prompt }], approvalPolicy: 'never',
-      sandboxPolicy: { type: 'readOnly', networkAccess: false },
+      sandboxPolicy: execution?.sandboxPolicy??{ type: 'readOnly', networkAccess: false },
+      ...(execution?{cwd:execution.cwd,runtimeWorkspaceRoots:execution.runtimeWorkspaceRoots}:{}),
       ...(model===undefined?{}:{model}),...(effort===undefined?{}:{effort}),...(outputSchema===undefined?{}:{outputSchema}),
     }).then(started => {
       if (retired) return;

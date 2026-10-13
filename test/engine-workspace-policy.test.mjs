@@ -8,6 +8,7 @@ import {writerPolicy,assertWriterThread} from '../engine/workspace-policy.mjs';
 
 test('writer admission rejects extra roots, temporary grants, network and permission profiles',()=>{
   const cwd=resolve('owned-workspace'),policy=writerPolicy(cwd);
+  assert.deepEqual(policy.launchArgs,['-c',`projects={${JSON.stringify(cwd)}={trust_level="trusted"}}`]);
   const thread={cwd,runtimeWorkspaceRoots:[cwd],approvalPolicy:'never',sandbox:policy.turn.sandboxPolicy,activePermissionProfile:null};
   assert.doesNotThrow(()=>assertWriterThread(thread,cwd));
   for(const change of [

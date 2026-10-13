@@ -83,6 +83,57 @@ test('restart shows suffix scope, retains reconciliation and exposes immutable e
   assert.equal(view.get('worker-cancel').disabled,true);
 });
 
+test('writer diffs disclose bounded text only on request and bind current and historical artifacts to their generations', async () => {
+  const payload = '+<img src=x onerror=alert(1)>';
+  let releasePatch;
+  const workspace = { cwd: 'C:/owned/writer', changedFiles: ['src/<script>.mjs'], patchPath: 'C:/owned/changes.patch', basePatchPath: 'C:/owned/from-base.patch', patchHash: 'a'.repeat(64), basePatchHash: 'b'.repeat(64) };
+  const view = await monitor({ run: { workers: [worker(0, 'completed', { workspace, priorExecutions: [{ generation: 3, position: 0 }] })] }, response: path => {
+    if (path.startsWith('/api/patch/')) {
+      const result = { ok: true, json: async () => ({ basis: path.includes('basis=base') ? 'base' : 'inputs', patch: payload + (path.includes('sourceGeneration=3') ? ' earlier change' : ' current change'), sha256: 'a'.repeat(64), bytes: 400000, cwd: workspace.cwd, changedFiles: workspace.changedFiles, truncated: true }) };
+      return path.includes('generation=6&') ? new Promise(resolve => { releasePatch = () => resolve(result); }) : result;
+    }
+    if (path.startsWith('/api/worker/') && path.includes('sourceGeneration=3')) return { ok: true, json: async () => worker(0, 'failed', { workspace, historyGeneration: 3 }) };
+  } });
+  assert.match(view.get('detail').textContent, /C:\/owned\/writer/);
+  assert.match(view.get('detail').textContent, /src\/<script>\.mjs/);
+  assert.equal(view.calls.filter(call => call.path.startsWith('/api/patch/')).length, 0);
+  const current = () => view.get('detail').querySelector('.workspace-review');
+  await view.click(current().querySelector('[data-basis="inputs"]'));
+  assert(view.calls.some(call => call.path === '/api/patch/0?generation=4&basis=inputs'));
+  assert.match(current().textContent, /Preview truncated.*400000 bytes/);
+  assert.match(current().textContent, /Full artifact SHA-256/);
+  assert.match(current().textContent, /current change/);
+  assert.equal(current().querySelectorAll('img,script').length, 0);
+  await view.click(current().querySelector('[data-basis="base"]'));
+  assert(view.calls.some(call => call.path === '/api/patch/0?generation=4&basis=base'));
+  await view.click(view.get('load-earlier'));
+  const earlier = view.get('earlier-evidence').querySelector('.workspace-review');
+  await view.click(earlier.querySelector('[data-basis="inputs"]'));
+  assert(view.calls.some(call => call.path === '/api/patch/0?generation=4&basis=inputs&sourceGeneration=3'));
+  assert.match(view.get('earlier-evidence').textContent, /earlier change/);
+  view.update({ generation: 5 }); await view.refresh();
+  assert.doesNotMatch(view.get('detail').textContent, /current change|earlier change/);
+  assert.equal(view.calls.filter(call => call.path.startsWith('/api/patch/')).length, 3, 'A refresh must not fetch full artifacts automatically');
+  view.update({ generation: 6 }); await view.refresh();
+  await view.click(current().querySelector('[data-basis="inputs"]'));
+  view.update({ generation: 7 }); await view.refresh();
+  releasePatch(); await view.flush();
+  assert.doesNotMatch(view.get('detail').textContent, /current change/, 'Late patch responses cannot appear under a newer generation');
+});
+
+test('workspace previews and unfinished patch capture do not imply a reviewable diff exists', async () => {
+  const view = await monitor({ run: { workers: [worker(0, 'running', { workspace: 'Workspace preview…', truncations: ['workspace'] })] } });
+  assert.match(view.get('detail').textContent, /Load worker details.*workspace|workspace.*Load worker details/i);
+  assert.equal(view.get('detail').querySelectorAll('[data-basis]').length, 0);
+  view.update({ workers: [worker(0, 'unknown', { workspace: { cwd: 'C:/owned/writer' }, workspaceError: { code: 'WORKSPACE_CAPTURE', message: '<script>capture failed</script>' } })] });
+  await view.refresh();
+  assert.match(view.get('detail').textContent, /Diff not available/);
+  assert.match(view.get('detail').textContent, /WORKSPACE_CAPTURE/);
+  assert.equal(view.get('detail').querySelectorAll('[data-basis]').length, 0);
+  assert.equal(view.get('detail').querySelectorAll('script').length, 0);
+  assert.equal(view.calls.filter(call => call.path.startsWith('/api/patch/')).length, 0);
+});
+
 test('workflow graph separates declared dependencies from grouping and preserves failed or unknown phase coverage', async () => {
   const view = await monitor({ run: { workers: [worker(0, 'completed', { dependencies: [] }), worker(1, 'failed', { dependencies: [0] }), worker(2, 'unknown')], coverage: { requested: 3, completed: 1, cached: 0, failed: 1, unknown: 1 } } });
   assert.equal(view.get('workflow-map').querySelectorAll('.map-dependency').length, 1);
