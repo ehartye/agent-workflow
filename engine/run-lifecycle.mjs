@@ -111,6 +111,7 @@ export async function readLifecycle(runDir){
   try{
     db.exec('BEGIN');const context=execution(db),meta=metadata(db);
     const run=view(meta,{kind:'run'},context.state.generation,context.state.status);
+    run.title=typeof context.state.meta?.name==='string'?context.state.meta.name.slice(0,500):null;
     const workers=context.workers.map(r=>view(meta,{kind:'worker',generation:r.generation,position:r.position,attempt:r.worker.attempts??0},r.generation,r.worker.status));
     return{schema:1,revision:meta.revision,run,workers,counts:{hiddenRuns:run.visibility==='visible'?0:1,hiddenWorkers:workers.filter(w=>w.visibility!=='visible').length,archivedWorkers:workers.filter(w=>w.visibility==='archived').length,unknownWorkers:workers.filter(w=>w.executionStatus==='unknown').length,uncertainPrunes:meta.receipts.filter(r=>r.action==='prune'&&['applying','unknown'].includes(r.outcome)).length}};
   }finally{db.close();}

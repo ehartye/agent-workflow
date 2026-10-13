@@ -40,5 +40,7 @@ test('public launcher selects the run-pinned runtime after upgrade and refuses f
  await assert.rejects(invoke(['run','demo','--codex','unowned']),e=>/unknown option/i.test(e.stderr));
  await assert.rejects(invoke(['dashboard',bound.id],{CODEX_THREAD_ID:'other'}),e=>/session/i.test(e.stderr));
  assert.equal(JSON.parse((await invoke(['--data-dir',dataDir,'dashboard'],{CODEX_THREAD_ID:'origin'})).stdout).marker,'first');
+ assert.equal(JSON.parse((await invoke(['dashboard',bound.id,'--current-ui'],{CODEX_THREAD_ID:'origin'})).stdout).marker,'second');
+ await assert.rejects(invoke(['dashboard',bound.id,'--current-ui'],{CODEX_THREAD_ID:'other'}),e=>/session/i.test(e.stderr));
  assert.match((await invoke(['help'])).stdout,/dashboard/);
 });

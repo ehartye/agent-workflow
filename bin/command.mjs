@@ -15,6 +15,7 @@ import {monitorData} from '../engine/monitor-data.mjs';
 import {MAX_RUN_TIMEOUT_MS,MAX_WORKER_TIMEOUT_MS} from '../engine/deadlines.mjs';
 import {readLifecycle,readLifecycleReceipt,requestLifecycle,planPrune,applyPrune} from '../engine/run-lifecycle.mjs';
 import * as workspacePolicy from '../engine/workspace-policy.mjs';
+import {createSessionServices} from '../engine/monitor-adapters.mjs';
 const print=value=>console.log(JSON.stringify(value,null,2));
 function integer(value,name,{min=0,max=Number.MAX_SAFE_INTEGER,required=false}={}){if(value===undefined&&!required)return undefined;if(typeof value!=='string'||!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)<min||Number(value)>max)throw Error(`--${name} requires an integer from ${min} to ${max}`);return Number(value);}
 function deadlines(options){
@@ -36,7 +37,7 @@ function lifecycleRequest(p){
 export async function main(tokens=process.argv.slice(2)){
  const p=parseCommand(tokens),o=p.values;if(p.command==='help'||o.help){process.stdout.write(help);return 0;}
  let owner;
- if(p.runCommand){owner=await resolveRun({dataDir:p.dataDir,id:p.id,...(p.mutation?{sessionId:p.sessionId}:{})});if(resolve(owner.runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select this run’s original runtime');}
+ if(p.runCommand){owner=await resolveRun({dataDir:p.dataDir,id:p.id,...(p.mutation?{sessionId:p.sessionId}:{})});if(p.command==='dashboard'&&o['current-ui']){const current=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(current.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the explicitly installed current UI');}else if(resolve(owner.runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select this run’s original runtime');}
  else{const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the managed runtime');}
  if(p.command==='mode'){const options={dataDir:p.dataDir,cwd:p.cwd,sessionId:p.sessionId,scope:o.scope??'session'};print(p.id==='status'?await readMode(options):await setMode(p.id,options));return 0;}
  const registry={cwd:p.cwd};
@@ -79,7 +80,7 @@ export async function main(tokens=process.argv.slice(2)){
  const runDir=owner.runDir;
  if(p.command==='status'){print({id:p.id,runDir,...await monitorData(runDir),lifecycle:await readLifecycle(runDir)});return 0;}
  if(p.command==='result'){print(await monitorData(runDir,{kind:'result'}));return 0;}
- if(p.command==='dashboard'){print({id:p.id,...await startMonitor(runDir)});return 0;}
+ if(p.command==='dashboard'){const {binding}=await createSessionServices({dataDir:p.dataDir,sessionId:p.sessionId,pinnedRunId:p.id});print({id:p.id,...await startMonitor(runDir,{binding})});return 0;}
  if(p.command==='control'){if(!o.receipt)throw Error('--receipt is required');print(await readControl(runDir,o.receipt));return 0;}
  // Settled lifecycle operations never use the live-control mailbox.
  if(p.command==='lifecycle'){print(await readLifecycle(runDir));return 0;}

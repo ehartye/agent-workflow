@@ -16,6 +16,7 @@ export async function main(tokens=process.argv.slice(2)){
    candidates.sort((a,b)=>b.createdAt.localeCompare(a.createdAt));if(!candidates.length)throw Error('No saved runs; start a workflow first');parsed.id=candidates[0].id;tokens=[...tokens,parsed.id];
   }
   runtime=(await resolveRun({dataDir:parsed.dataDir,id:parsed.id,...(parsed.mutation?{sessionId:parsed.sessionId}:{})})).runtime;
+  if(parsed.command==='dashboard'&&parsed.values['current-ui'])runtime=await selectRuntime({pluginRoot,dataDir:parsed.dataDir});
  }else{
   try{runtime=await selectRuntime({pluginRoot,dataDir:parsed.dataDir});}catch(e){if(e.code==='ENOENT')throw Error(`Managed runtime is missing. Run node "${join(pluginRoot,'bin','launch.mjs')}" setup --data-dir "${parsed.dataDir}"`);throw e;}
  }
