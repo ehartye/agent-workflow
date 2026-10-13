@@ -5,6 +5,8 @@ description: Create, run, save, inspect or control Agent Workflow scripts when t
 
 Use `node "<plugin-root>/bin/launch.mjs" <command>`. Resolve plugin-root from this installed skill (two parents above its directory). Read [the runtime API](references/runtime-api.md) before writing scripts and [controls](references/controls.md) before changing a run.
 
+For multi-worker deliverables, read [workflow authoring](../workflow-authoring/SKILL.md) to define scope/ownership, pass scout JSON into actual writers, review retained artifact handoffs, and require coordinator integration plus fresh verification. The bundled `decomposition-delivery` recipe preserves missing coverage and explicit revisions; dependency completion does not transfer worktree files.
+
 For workers that need package managers, browsers or rendering tools, read [worker prerequisites](references/worker-prerequisites.md). Supply verified executable/cache paths and explicit install authorization; a missing prerequisite should not prevent independent authorized authoring.
 
 1. Inspect definitions with `workflows --cwd "<project>"` and `read "<scope:name>" --cwd "<project>"`. Read the selected script before dispatch. Preserve the user's objective when incorporating follow-ups; a status question does not replace it.
