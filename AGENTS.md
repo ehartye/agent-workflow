@@ -1,6 +1,6 @@
 # Agent Workflow
 
-Build option 1 from the approved wiki research: a Codex plugin with an owned local runtime and dashboard. Preserve the Claude-style JS broker API and ordered prefix replay. State native-host permission/UI/budgeting differences honestly.
+The current requirement is full Ultracode/dynamic-workflow parity with no API-key billing. The owner authorized discarding the existing architecture. `foundation/` is the fresh App Server prototype; `docs/codex-parity.md` records open acceptance work. The installed 0.1.1 runtime remains separate. Initial host UI/budget exceptions do not waive rebuild requirements. SSH verification is deferred; first prove execution locally.
 
 - Node 24+, ESM, pinned dependencies, `node --test` meaningful behavior tests.
 - Write the failing test before feature code. Test real processes, persistence and failure boundaries where relevant.
@@ -21,7 +21,9 @@ Build option 1 from the approved wiki research: a Codex plugin with an owned loc
 - Keep full merge coverage: scripts, subprocesses, HTML and recipe files are inputs that import-only selection misses. Lane tags document ownership; they do not select tests automatically.
 - CI verifies Windows on PRs, nightly and release tags. This is the verified deployment platform; Linux/macOS coverage is follow-up work. Required PR checks and tag verification gate publication. Avoid duplicate branch-push jobs.
 
-## Integration contracts
+## Released 0.1.1 integration contracts
+
+These describe the existing release, not constraints on the fresh implementation.
 
 `src/runtime/manager.mjs` exports `RuntimeManager`. Construct with `{ dataDir, backend, workflowsDir? }`. Methods: `start(input) -> Promise<runSnapshot>`, `get(id)`, `list()`, `events(id, since = 0)`, `control(id, action, options = {})`, `approve(id, approvalId, decision)`, `shutdown()`.
 

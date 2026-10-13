@@ -31,6 +31,9 @@ lanes:
     os:
       - windows
 areas:
+  - path: foundation/**
+    tier: critical
+    why: Fresh Codex admission, authentication and execution boundary must fail closed.
   - path: src/runtime/**
     tier: critical
     why: Replay, uncertain effects, persistence and admission must fail closed.

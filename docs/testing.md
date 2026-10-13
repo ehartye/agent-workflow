@@ -1,5 +1,22 @@
 # Test audit and strategy
 
+## Fresh foundation reassessment
+
+Agent-tests 0.3.2's checked runtime inventories 20 test files after the independent foundation work. The existing owner-approved production/consumer map applies; `foundation/**` has the same critical auth/execution tier as the worker boundary it will replace. The new tests are merge-lane subprocess contracts, not model calls. The scoped reassessment reads both new files and the existing flagged temporary `.git` fixtures; unchanged release files retain the prior audit below, rather than claiming another fresh review of every legacy seam.
+
+| File | Tier | Verdict | Evidence | Estimated agent tokens | Churn/edits |
+|---|---|---|---|---:|---|
+| codex-foundation.test.mjs | critical | keep | Real stdio children exercise framing, request identity, auth/config gates, terminal cancellation and redacted failure reports. Shared client subject with turn tests protects a different seam. | 2,429 | 0/0 |
+| codex-turn.test.mjs | critical | keep | Early events and overlapping threads must not cross-route results; failed turns, disconnects and unknown interruption state never become success. | 593 | 0/0 |
+
+The 23 expanded new cases passed in about 3.4 seconds. The complete suite passed 162 cases in 39.3 seconds on this host; this is a single observation, not a benchmark. Package check and offline smoke passed. Separately, the explicit native acceptance check passed six zero-model stages and two managed-ChatGPT worker reads with MXC. Native checks consume subscription usage only when `model-check.mjs` is explicitly run; they are outside automated CI. Ordinary tests never read credentials or invoke Codex.
+
+No missing tiers or wiring gaps were reported. Five unflagged existing files retain the earlier keep verdict without reopening: dashboard, observation, journal, worktrees and evaluator. The 13 flagged unchanged release files retain their prior reviewed verdicts; this delta audit does not newly certify them. The `.git` warnings are temporary fixtures, not reads of the real checkout's Git directory. The Windows PR frequency finding remains the existing verified-target exception. No tests were deleted, merged, demoted or quarantined: estimated tokens removed 0, edit-lane demotions 0. Statistical flakiness, CI minutes and full OS portability remain unmeasured.
+
+Keep direct file selection for foundation edits and full merge checks before pushing. Time: about 3.4 seconds for the new seam versus one observed 39.3-second full run, with broad regression detection at merge. Risk: transport/probe/turn changes may share failure handling, so select both files together. Complexity: no new runner or cache. Best practice: fixture transport owns deterministic protocol failures; explicit native acceptance owns actual Codex behavior. Maintainability: the fresh transport has no legacy imports, so no need to preserve or optimize the failed architecture to test it. Review this decision when the fresh controller replaces released entrypoints.
+
+## Released runtime audit
+
 Agent-tests 0.3.2 audited the v0.1.0 release and the v0.1.1 monitor change using its checked managed runtime. The owner confirmed production, consumers of plugin installs, saved workflows/commands, persisted runs and MCP, and the tiers in [.testing/risk.yml](../.testing/risk.yml). Preserve these consumers when changing versions. The compact client's older-supervisor path protects an actual installed 0.1.0 controller; it does not replace the matching immutable runtime required by stored runs.
 
 The monitor reassessment inventories 18 files with no missing tiers, shim or wiring findings. Keep the seven observation cases and 14 dashboard cases: they own bounded authenticated response/CLI contracts and actual HTML/app behavior, respectively. They caught real oversized metadata, lost journal ranges, hidden recovered failures and misleading resume controls. Shared-subject findings on existing manager/transport/integration files retain the earlier keep verdicts; their seams differ. The two `.git` warnings remain unique temporary repository fixtures. Windows PR execution remains the approved verified-target exception. No tests are removed, merged, demoted or quarantined.
