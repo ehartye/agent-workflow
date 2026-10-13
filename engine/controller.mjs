@@ -12,6 +12,9 @@ import {assertWorkerTarget} from './controls.mjs';
 import {restartPlan} from './restart.mjs';
 import {runWorkspaces} from './workspace-run.mjs';
 import {collectWorkspace,verifyWorkspace,loadInputs} from './workspaces.mjs';
+import * as workspaceCapture from './workspaces.mjs';
+import * as workspacePolicy from './workspace-policy.mjs';
+import {assertLifecycleReplay} from './run-lifecycle.mjs';
 import { fault, diagnostic } from '../foundation/client.mjs';
 export {requestControl,readControl} from './controls.mjs';
 
@@ -34,7 +37,7 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','deadlines.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  const files = ['controller.mjs','run-lifecycle.mjs','deadlines.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
   return hash(process.version + files.map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
@@ -57,7 +60,7 @@ export async function readRun(runDir) {
   try { return snapshot(db); } finally { db.close(); }
 }
 
-export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, restart, concurrency = 2, maxAgents = 1000, timeoutMs, workerTimeoutMs, drainTimeoutMs=20000, onReady, launch=null }) {
+export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, restart, capturePolicy, concurrency = 2, maxAgents = 1000, timeoutMs, workerTimeoutMs, drainTimeoutMs=20000, onReady, launch=null }) {
   let db, lease, state, primary;
   let leaseOwned = false;
   let stopped = false;
@@ -141,6 +144,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=1000; CREATE TABLE IF NOT EXISTS header(id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS workers(generation INTEGER NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(generation,position)); CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS controls(id TEXT PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL);');
     createActivityTable(db);
     const previous = snapshot(db);
+    assertLifecycleReplay(db);
     ({timeoutMs,workerTimeoutMs}=resolveDeadlines({timeoutMs,workerTimeoutMs},previous??{}));
     const previousHeader=db.prepare('SELECT value FROM header WHERE id=1').get()?.value;
     if(expectedGeneration!==undefined&&previous?.generation!==expectedGeneration)throw fault('REPLAY_GENERATION','Run generation changed; refresh before resuming');
@@ -149,6 +153,15 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if (!previous && resume) throw fault('REPLAY_MISSING', 'No saved run exists to replay');
     if (previous && (previous.version !== 1 || !Number.isInteger(previous.generation) || !Number.isInteger(previous.workerCount) || previous.workerCount !== previous.workers.length || previous.workers.some((worker, index) => worker.position !== index || !['queued','running','completed','failed','unknown'].includes(worker.status) || worker.status === 'completed' && (!Object.hasOwn(worker,'result') || hash(json(worker.result)) !== worker.resultHash)))) throw fault('REPLAY_CORRUPT', 'Saved run or worker evidence is missing or corrupt');
     if (previous?.sessionId && previous.sessionId !== sessionId) throw fault('REPLAY_SESSION', 'Saved results belong to a different session');
+    if(previous&&(capturePolicy!==undefined||launch?.capturePolicy!==undefined&&canonical(launch.capturePolicy)!==canonical(previous.capturePolicy??null)))throw fault('CAPTURE_POLICY_OVERRIDE','Resume/restart must use the saved capture policy; a change requires a new run');
+    const suppliedPolicy=previous?previous.capturePolicy:capturePolicy??launch?.capturePolicy;
+    let normalizedPolicy;
+    if(suppliedPolicy!==undefined){
+      if(typeof workspacePolicy.validateCapturePolicy!=='function'||typeof workspaceCapture.readWorkspaceExclusions!=='function')throw fault('CAPTURE_POLICY_UNAVAILABLE','Capture policy admission requires coordinator-integrated version 2 capture exports');
+      normalizedPolicy=workspacePolicy.validateCapturePolicy(suppliedPolicy);
+      if(previous&&normalizedPolicy.policyHash!==previous.capturePolicyHash||previous?.workspaceInputs&&previous.workspaceInputs.policyHash!==normalizedPolicy.policyHash)throw fault('CAPTURE_POLICY_IDENTITY','Saved capture policy identity changed');
+      if(launch)launch={...launch,capturePolicy:normalizedPolicy.policy,capturePolicyHash:normalizedPolicy.policyHash};
+    }else if(previous?.capturePolicyHash!==undefined||previous?.workspaceInputs?.version===2)throw fault('CAPTURE_POLICY_IDENTITY','Version 2 captured inputs require their saved policy');
     let restartAdmission;
     if(restart!==undefined){
       if(!resume||!Number.isInteger(expectedGeneration))throw fault('RESTART_INPUT','Restart requires explicit resume and the observed generation');
@@ -168,7 +181,8 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     state = { version: 1, sessionId, generation: (previous?.generation ?? 0) + 1, runtimeIdentity, backendIdentity: backend.identity,
       status: 'running', acceptingControls:true, meta, script, args, launch, concurrency, maxAgents, timeoutMs, workerTimeoutMs, workerCount: 0, attempts: previous?.attempts ?? 0, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString() };
     if(previous?.workspaceInputs)state.workspaceInputs=previous.workspaceInputs;
-    const workspaces=runWorkspaces({runDir,source:launch?.cwd,inputs:state.workspaceInputs,onInputs:record=>{if(retiredWrites)throw fault('RUN_RETIRED','Run no longer owns workspace admission');state.workspaceInputs=record;saveHeader();}});
+    if(normalizedPolicy){state.capturePolicy=normalizedPolicy.policy;state.capturePolicyHash=normalizedPolicy.policyHash;}
+    const workspaces=runWorkspaces({runDir,source:launch?.cwd,inputs:state.workspaceInputs,...(normalizedPolicy?{capturePolicy:normalizedPolicy.policy}:{}),onInputs:record=>{if(retiredWrites)throw fault('RUN_RETIRED','Run no longer owns workspace admission');if(normalizedPolicy&&(record.version!==2||record.policyHash!==normalizedPolicy.policyHash))throw fault('CAPTURE_POLICY_IDENTITY','Workspace inputs did not confirm the frozen policy');state.workspaceInputs=record;saveHeader();}});
     if(restartAdmission){
       state.restart={...restartAdmission,sourceGeneration:previous.generation,receiptId:randomUUID()};
       const receipt={id:state.restart.receiptId,generation:state.generation,sourceGeneration:previous.generation,action:'restart-worker',status:'applied',requestedAt:state.updatedAt,appliedAt:state.updatedAt,...restartAdmission};
@@ -248,7 +262,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       if (sequence >= maxAgents) throw fault('AGENT_LIMIT', 'Workflow agent limit reached');
       const position = sequence++;
       const dependencies=(options.dependsOn??[]).map(id=>workerIds.get(id));
-      chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs, dependencies, schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null }));
+      chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs, dependencies, schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null,...(normalizedPolicy?{capturePolicyHash:normalizedPolicy.policyHash}:{}) }));
       const prior = oldWorkers[position];
       if(restartAdmission&&position<=restartAdmission.position&&prior?.key!==chain)throw fault('RESTART_CHANGED','Saved worker invocation changed before the restart target');
       const worker = { position, key: chain, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
@@ -297,6 +311,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         if(options.permissions?.sandbox==='workspace-write'){
           const workspace=await workspaces.prepare({generation:state.generation,position});
           if(retiredWrites)throw fault('RUN_RETIRED','Late workspace admission cannot change terminal evidence');
+          if(normalizedPolicy&&(workspace.version!==2||workspace.policyHash!==normalizedPolicy.policyHash))throw fault('CAPTURE_POLICY_IDENTITY','Writer workspace did not confirm the frozen policy');
           worker.workspace=workspace;saveWorker(worker);
           if(signal.aborted||stopped)throw Object.assign(fault('RUN_STOPPED','Worker admission closed while preparing its workspace'),{notStarted:true});
         }
@@ -334,6 +349,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         worker.status = error.evidence?.cleanup?.error ? 'unknown' : !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
         worker.error = diagnostic(error);
         worker.notStarted=!dispatched||error.notStarted===true;
+        worker.noProcessStarted=!dispatched||error.noProcessStarted===true;
         if(error.evidence)worker.evidence=JSON.parse(json(error.evidence));
         if(worker.workspaceError)worker.status='unknown';
         if(error.interruption)worker.interruption={terminalObserved:error.interruption.terminalObserved===true,terminalStatus:['completed','failed','interrupted'].includes(error.interruption.terminalStatus)?error.interruption.terminalStatus:null,descendants:'notVerified'};

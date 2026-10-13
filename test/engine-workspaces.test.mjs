@@ -293,6 +293,27 @@ function writerBackend(execute){
   return{identity:'writer-fixture',resolveOptions:settings.resolve,execute,close:async()=>cleanup};
 }
 
+test('controller freezes explicit exclusions before writer dispatch and replays the same captured identity',async t=>{
+  const {root,source}=await fixture(t),runDir=join(root,'run');let calls=0;
+  await mkdir(join(source,'generated'));await sparse(join(source,'generated','dependency.bin'));
+  const input={runDir,sessionId:'s',launch:{cwd:source,capturePolicy},script:'export const meta={name:"frozen-policy",description:"proof"};return await agent("edit");'};
+  const backend=()=>writerBackend(async({workspace})=>{
+    calls++;const saved=await readRun(runDir);assert.equal(saved.capturePolicyHash,workspace.policyHash);assert.equal(saved.workspaceInputs.policyHash,workspace.policyHash);
+    await assert.rejects(stat(join(workspace.cwd,'generated')),{code:'ENOENT'});
+    await mkdir(join(workspace.cwd,'generated'));await sparse(join(workspace.cwd,'generated','output.bin'));
+    await writeFile(join(workspace.cwd,'note.txt'),'reviewable source\n');return{value:'done',terminalObserved:true,evidence:{cleanup}};
+  });
+  const first=await runWorkflow({...input,backend:backend()});assert.equal(first.status,'completed');
+  assert.equal(first.launch.capturePolicyHash,first.capturePolicyHash);assert.equal(first.workspaceInputs.version,2);
+  assert.deepEqual(first.workers[0].workspace.changedFiles,['note.txt']);
+  const omitted=await workspaces.readWorkspaceExclusions(first.workers[0].workspace,{stage:'outputs',after:0,limit:100});assert.ok(omitted.entries.some(item=>item.name==='generated/output.bin'));
+  const replay=await runWorkflow({...input,resume:true,backend:backend()});assert.equal(replay.coverage.cached,1);assert.equal(calls,1);
+  assert.equal(replay.capturePolicyHash,first.capturePolicyHash);assert.deepEqual(replay.workspaceInputs,first.workspaceInputs);
+  const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(join(runDir,'run.sqlite'));
+  try{const header=JSON.parse(db.prepare('SELECT value FROM header WHERE id=1').get().value);header.capturePolicyHash='0'.repeat(64);db.prepare('UPDATE header SET value=? WHERE id=1').run(JSON.stringify(header));}finally{db.close();}
+  await assert.rejects(runWorkflow({...input,resume:true,backend:backend()}),{code:'CAPTURE_POLICY_IDENTITY'});assert.equal(calls,1);
+});
+
 test('capture limits retain a precise durable diagnostic and leave completed worker artifacts unknown',async t=>{
   const {root,source}=await fixture(t),runDir=join(root,'run');
   const result=await runWorkflow({runDir,sessionId:'s',launch:{cwd:source},script:'export const meta={name:"capture-limit",description:"proof"};return await agent("edit");',backend:writerBackend(async({workspace})=>{

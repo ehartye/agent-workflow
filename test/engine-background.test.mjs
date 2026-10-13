@@ -16,6 +16,32 @@ import {readRun,requestControl,readControl} from '../engine/controller.mjs';
 
 const exec=promisify(execFile);
 
+test('detached admission persists immutable capture policy and resume cannot replace it',async t=>{
+  const {startBackground}=await import('../engine/background.mjs');
+  const {validateCapturePolicy}=await import('../engine/workspace-policy.mjs');
+  const base=await mkdtemp(join(tmpdir(),'workflow-background-capture-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
+  const runDir=join(base,'run'),capturePolicy={version:1,excludeDirs:['node_modules/','dist/'],protectedPaths:['src/']};
+  const settings={runnerPath:fileURLToPath(new URL('./fixtures/engine-background.mjs',import.meta.url))};
+  const receipt=await startBackground({runDir,sessionId:'original',codex:process.execPath,cwd:base,capturePolicy,script:'export const meta={name:"capture",description:"admission"};return 1;'},settings);
+  const completed=await until(()=>readRun(runDir),state=>state.status==='completed');
+  const frozen=validateCapturePolicy(capturePolicy);
+  assert.deepEqual(completed.launch.capturePolicy,frozen.policy);
+  assert.equal(completed.launch.capturePolicyHash,frozen.policyHash);
+  const request=JSON.parse(await readFile(join(runDir,(await readdir(runDir)).find(name=>name.startsWith('launch-'))),'utf8'));
+  assert.deepEqual(request.launch.capturePolicy,frozen.policy);
+  await until(()=>readFile(receipt.resultPath,'utf8'),()=>true);
+  const resumed=await startBackground({runDir,sessionId:'original',resume:true},settings);
+  const replayed=await until(()=>readRun(runDir),state=>state.generation===2&&state.status==='completed');
+  assert.deepEqual(replayed.launch.capturePolicy,frozen.policy);assert.equal(replayed.launch.capturePolicyHash,frozen.policyHash);
+  await until(()=>readFile(resumed.resultPath,'utf8'),()=>true);
+  const before=(await readdir(runDir)).filter(name=>name.startsWith('launch-')).length;
+  await assert.rejects(startBackground({runDir,sessionId:'original',resume:true,capturePolicy:{version:1,excludeDirs:[],protectedPaths:['src/']}},settings),{code:'CAPTURE_POLICY_OVERRIDE'});
+  assert.equal((await readdir(runDir)).filter(name=>name.startsWith('launch-')).length,before);
+  assert.equal((await readRun(runDir)).generation,2);
+  await assert.rejects(startBackground({runDir:join(base,'invalid'),sessionId:'original',codex:process.execPath,cwd:base,capturePolicy:{version:1,excludeDirs:['../'],protectedPaths:[]},script:'export const meta={name:"invalid",description:"admission"};return 1;'},settings),{code:'WORKSPACE_POLICY'});
+  await assert.rejects(stat(join(base,'invalid')),{code:'ENOENT'});
+});
+
 test('CLI writable opt-in persists the permission ceiling before native admission',async t=>{
   const base=await mkdtemp(join(tmpdir(),'workflow-cli-write-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
   const runDir=join(base,'run'),script=join(base,'workflow.mjs');await writeFile(script,'export const meta={name:"writer",description:"proof"};return await agent("edit");');
