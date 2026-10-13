@@ -4,6 +4,7 @@ const mode = process.argv[2];
 const commands = new Map();
 const turns = new Map();
 let approvalRequest;
+let interruptCount = 0;
 const reply = (id, result) => process.stdout.write(`${JSON.stringify({ id, result })}\n`);
 const notification = (method, params) => process.stdout.write(`${JSON.stringify({ method, params })}\n`);
 createInterface({ input: process.stdin }).on('line', line => {
@@ -12,6 +13,7 @@ createInterface({ input: process.stdin }).on('line', line => {
   if (req.method === 'initialize') return reply(req.id, { userAgent: 'codex/0.162.1' });
   if (req.method === 'initialized') return;
   if (req.method === 'echo') return setTimeout(() => reply(req.id, req.params.value), req.params.delay);
+  if (req.method === 'interrupt-count') return reply(req.id,interruptCount);
   if (req.method === 'fragment') {
     const bytes = Buffer.from(`${JSON.stringify({ method: 'progress', params: { text: 'café 🧪' } })}\n${JSON.stringify({ id: req.id, result: 'done' })}\n`);
     const cut = bytes.indexOf(Buffer.from('🧪')) + 2;
@@ -37,16 +39,25 @@ createInterface({ input: process.stdin }).on('line', line => {
     const turnId = `turn-${threadId}`;
     turns.set(threadId, turnId);
     if (req.params.approvalPolicy !== 'never' || req.params.sandboxPolicy.type !== 'readOnly' || req.params.sandboxPolicy.networkAccess !== false) throw new Error('Turn broadened permissions');
+    if (mode === 'turn-delayed-start' || mode === 'turn-late-start') {
+      notification('turn/started', {threadId,turn:{id:turnId,status:'inProgress',items:[]}});
+      return setTimeout(()=>reply(req.id,{turn:{id:turnId}}),mode==='turn-late-start'?300:50);
+    }
     if (mode === 'turn-exit') { reply(req.id, { turn: { id: turnId } }); return setTimeout(() => process.exit(8), 20); }
-    if (mode.startsWith('turn-hang')) return reply(req.id, { turn: { id: turnId } });
+    if (mode.startsWith('turn-hang')) {
+      reply(req.id, { turn: { id: turnId } });
+      notification('turn/started', {threadId,turn:{id:turnId,status:'inProgress',items:[]}});
+      return;
+    }
     notification('item/completed', { threadId, turnId: 'unrelated', item: { type: 'agentMessage', id: 'wrong', text: 'WRONG' } });
     notification('item/completed', { threadId, turnId, item: { type: 'agentMessage', id: 'answer', text: threadId } });
     notification('turn/completed', { threadId, turn: { id: turnId, status: mode === 'turn-failed' ? 'failed' : 'completed', error: mode === 'turn-failed' ? { message: 'runner pipe-in timeout REVIEW_SECRET_SENTINEL private@example.invalid' } : null, items: [] } });
     return setTimeout(() => reply(req.id, { turn: { id: turnId } }), threadId === 'one' ? 20 : 5);
   }
   if (req.method === 'turn/interrupt') {
+    interruptCount++;
     reply(req.id, {});
-    if (mode !== 'turn-hang-ignore') notification('turn/completed', { threadId: req.params.threadId, turn: { id: turns.get(req.params.threadId), status: 'interrupted', items: [] } });
+    if (mode !== 'turn-hang-ignore') notification('turn/completed', { threadId: req.params.threadId, turn: { id: turns.get(req.params.threadId), status: mode==='turn-hang-complete'?'completed':'interrupted', items: [] } });
     return;
   }
   if (req.method === 'command/exec') {

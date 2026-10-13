@@ -1,5 +1,9 @@
 # Test audit and strategy
 
+The subsequent cancellation delta adds six real-subprocess turn cases: pre-cancelled calls, running interruption, delayed start acknowledgement, missing terminal acknowledgement, acknowledgement arriving after the interruption deadline, and natural completion racing cancellation. The late-acknowledgement case reproduced and fixed a protocol action after the caller had returned. These extend the existing critical turn-test owner; no parallel test framework or new native CI dependency is added. The explicit one-turn native check requires command startup and terminal status `interrupted`, then verifies retained-server usability. No command-completion item arrived, so descendant state remains unverified.
+
+This cancellation checkpoint passes **181/181** full tests in one 48.6-second Windows run, package validation and smoke. Independent review found no remaining important/critical issue for the slice. Agent-tests still inventories 23 files with no wiring/risk gaps; the turn file is kept at critical/merge, approximately 1,165 tokens and 0/0 recorded churn. Existing shared-subject and temporary database findings retain their documented verdicts.
+
 ## Fresh engine reassessment
 
 The checked agent-tests 0.3.2 runtime inventories 23 files. The owner-approved critical runtime tier extends to `engine/**`. This delta audit inspected all three new files and their subjects. The 20 unchanged files retain their preceding verdicts; five unflagged existing files remain kept without reopening. New coverage uses real QuickJS children and temporary SQLite databases, with a deterministic backend fake. Explicit native acceptance separately owns actual Codex behavior.

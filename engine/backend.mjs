@@ -50,7 +50,7 @@ export async function createManagedBackend({ executable, cwd, backend = 'configu
           assertDisabledInventory(tools);
           if (signal?.aborted) throw fault('RUN_STOPPED', 'Workflow admission is closed');
           started = true;
-          const result = await runTurn(client, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? 120000 });
+          const result = await runTurn(client, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? 120000, signal });
           return { value: result.text, terminalObserved: true, evidence: {
             commands: result.items.filter(item => item.type === 'commandExecution').map(item => ({
               status: ['completed','failed','declined','inProgress'].includes(item.status) ? item.status : 'unknown',

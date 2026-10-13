@@ -11,4 +11,3 @@ Design: a separate bounded QuickJS child evaluates plain workflow JavaScript. A 
 - [x] Independent review, test-skill reassessment, wiki update and feature-branch checkpoint.
 
 Following slices remain: durable background controls and native interruption, structured output and writer policies, monitor integration, registry/skills and all remaining items in `docs/codex-parity.md`. A passing slice does not establish full parity.
-

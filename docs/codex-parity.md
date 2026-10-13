@@ -9,7 +9,7 @@ Behavioral reference: [Claude dynamic workflows](https://code.claude.com/docs/en
 | Plan authentication | Managed ChatGPT sign-in, effective OpenAI route, no API credential fallback or API-billed coordinator | Passed locally for two turns; provider usage attribution not independently audited |
 | Actual local worker execution | Two separately identified turns read independent unpredictable file markers, successful command items and exact answers | Passed with explicit MXC on Windows 26300.9550, Codex 0.162.1 |
 | Admission without model spending | Readiness plus real buffered, streamed, PTY command checks and terminal cancellation | Passed MXC; configured backend fails closed before inference |
-| Failure and lifecycle honesty | Bounded startup, disconnect and interrupt handling; primary errors retained; restart denied while old execution may remain | Protocol tests pass; arbitrary descendants and native model interruption still unverified |
+| Failure and lifecycle honesty | Bounded startup, disconnect and interrupt handling; primary errors retained; restart denied while old execution may remain | Protocol tests and native turn interruption pass; arbitrary descendants remain unverified |
 | Script generation and opt-in | Human request/keyword triggers; substantive-task automatic mode; disabling, provenance and permission rules | Open |
 | Plain JavaScript orchestration | Literal first `meta`, top-level await, loops, branching, variables, async functions and returned result | Fresh QuickJS engine implemented; two-worker native JS workflow passed |
 | Isolated evaluator | No filesystem, shell or imports; time/random restrictions; bounded CPU, memory and pending promises | Separate child implemented; adversarial import, clock/random, infinite/unsettled work and JSON tests pass |
@@ -21,7 +21,7 @@ Behavioral reference: [Claude dynamic workflows](https://code.claude.com/docs/en
 | Prefix cache behavior | Matching model/effort/tools/schema/cwd prefixes, bounded release after first response; expose Codex differences | Open; provider equivalence unverified |
 | Ordered-prefix replay | Agent start order; completed prefix reused; first changed or failed call invalidates all later calls; in-flight calls restart | Completed-prefix SQLite replay passed with zero extra worker dispatches; changed/failed suffix tests pass; in-flight restart remains blocked on lifecycle proof |
 | Session resume | Original session identity and saved results reused on reopening; fresh session starts new run; missing results fail visibly | Open; cloud/session-host integration unverified |
-| Pause/stop/restart | Whole-run and individual controls; admission stops; terminal execution proof precedes relaunch | Open; command-only cancellation and fixture turn interruption pass |
+| Pause/stop/restart | Whole-run and individual controls; admission stops; terminal execution proof precedes relaunch | Open; native turn interruption after command startup passes, but command-completion/descendant evidence is absent and automatic restart stays blocked |
 | Stall handling | Tool/quota waits excluded from inactivity; at most five restarts; attempt history/effects and spent usage retained | Open |
 | Quota behavior | Structured limit/reset evidence; user-enabled wait, reset within 24 hours, maximum two waits, no bought credits/fallback | Open |
 | Saved workflows | Project/personal/plugin scopes, closest-project precedence, namespacing, reload, arguments, symlink and collision rules | Open |
@@ -35,4 +35,6 @@ Local evidence is in `reports/foundation-local-acceptance.json`. The six-stage p
 
 The fresh `engine/` slice passed two managed-ChatGPT file reads and completed-prefix replay with dispatch counts `[2, 0]`; see `reports/engine-local-acceptance.json`. Independent review and regression tests cover timeout identity, inherited external tools and corrupt persistence. It is CLI-first; a custom MCP adapter is optional. This evidence does not establish full parity or replace the installed plugin.
 
-Next implementation gate: truthful native interruption and background controls, then monitor integration and the remaining parity ledger. Preserve the user's saved data; do not migrate or release it until the replacement passes its acceptance suite. No part of the old runtime is a required dependency.
+The native interruption check observed a real command startup marker, interrupted its model turn, and successfully reused the retained server for a command-only request. No command-completion item arrived. `reports/foundation-interruption-acceptance.json` therefore proves protocol interruption while retaining unverified descendant state; it does not establish safe restart.
+
+Next implementation gate: durable background controls with truthful interrupted-worker state, then monitor integration and the remaining parity ledger. Preserve the user's saved data; do not migrate or release it until the replacement passes its acceptance suite. No part of the old runtime is a required dependency.
