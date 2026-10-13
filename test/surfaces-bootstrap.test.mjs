@@ -1,3 +1,7 @@
+/** @lane merge
+ * @subject bin/launch.mjs
+ * @subject bin/setup-info-mcp.mjs
+ */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises';

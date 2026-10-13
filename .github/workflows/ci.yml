@@ -2,26 +2,57 @@ name: Verify plugin
 
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: '17 8 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   verify:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      # Always report the required job, including documentation-only PRs.
+      # Workflow-level path filters would leave their required check pending.
+      - id: scope
+        shell: pwsh
+        run: |
+          $needed = 'true'
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            $event = Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+            $paths = @(git diff --name-only $event.pull_request.base.sha $event.pull_request.head.sha)
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect PR changes' }
+            $code = @($paths | Where-Object { $_ -notmatch '^(docs/|README\.md$|CHANGELOG\.md$|AGENTS\.md$)' })
+            if ($code.Count -eq 0) { $needed = 'false' }
+          }
+          "needed=$needed" >> $env:GITHUB_OUTPUT
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.scope.outputs.needed == 'true'
         with:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
+        if: steps.scope.outputs.needed == 'true'
       - run: npm test
+        if: steps.scope.outputs.needed == 'true'
       - run: npm run check
+        if: steps.scope.outputs.needed == 'true'
       - run: npm run smoke
+        if: steps.scope.outputs.needed == 'true'
       - run: node scripts/check-install.mjs
+        if: steps.scope.outputs.needed == 'true'
       - run: npm audit --omit=dev
+        if: steps.scope.outputs.needed == 'true'

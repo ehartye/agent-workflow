@@ -1,3 +1,5 @@
+/** @lane merge
+ */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseScript, validateSchema } from "../src/runtime/script.mjs";

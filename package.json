@@ -27,5 +27,8 @@
     "ajv": "8.20.0",
     "quickjs-emscripten": "0.32.0",
     "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.13"
   }
 }

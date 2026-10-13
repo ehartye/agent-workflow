@@ -32,6 +32,7 @@ try{
  const setup=await run('setup.mjs',['--data-dir',dataDir]);assert.match(setup.stdout,/Managed runtime ready/);
  const record=JSON.parse(await readFile(path.join(dataDir,'runtime.json'),'utf8'));assert.equal(path.dirname(record.path),path.join(dataDir,'runtime'));assert((await stat(path.join(record.path,'node_modules'))).isDirectory());await assert.rejects(stat(path.join(launchRoot,'node_modules')),error=>error.code==='ENOENT');
  assert.equal(await readFile(path.join(record.path,'LICENSE'),'utf8'),await readFile(path.join(pluginRoot,'LICENSE'),'utf8'),'Managed source copies must retain the MIT copyright and permission notice');
+ await assert.rejects(stat(path.join(record.path,'node_modules','linkedom')),error=>error.code==='ENOENT','Dashboard test dependencies must be omitted from production installation');
  const doctor=JSON.parse((await run('launch.mjs',['doctor'])).stdout);assert.equal(doctor.runtime,'installed');assert.equal(doctor.pluginRoot,path.join(record.path,path.sep));
  const cliOnlyEnv={...process.env,LOCALAPPDATA:path.join(base,'unused-default-data')};delete cliOnlyEnv.AGENT_WORKFLOW_DATA_DIR;delete cliOnlyEnv.PLUGIN_DATA;delete cliOnlyEnv.CLAUDE_PLUGIN_DATA;
  const cliOnlyDoctor=JSON.parse((await execute(process.execPath,[path.join(launchRoot,'bin','launch.mjs'),'doctor','--data-dir',dataDir],{env:cliOnlyEnv,windowsHide:true,timeout:10000,maxBuffer:1048576})).stdout);assert.equal(cliOnlyDoctor.dataDir,dataDir);assert.equal(cliOnlyDoctor.runtime,'installed');assert.equal(cliOnlyDoctor.pluginRoot,path.join(record.path,path.sep));

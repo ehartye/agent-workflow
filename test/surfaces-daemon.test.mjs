@@ -1,3 +1,6 @@
+/** @lane merge
+ * @subject bin/agent-workflow.mjs
+ */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';

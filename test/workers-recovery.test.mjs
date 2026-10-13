@@ -1,7 +1,12 @@
+/** @lane merge
+ */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import * as processTools from '../src/workers/process.mjs';
 import { createCodexBackend } from '../src/workers/codex.mjs';
 
@@ -64,6 +69,8 @@ test('active worker records its recoverable process identity without command-lin
 });
 
 test('missing Windows tree-kill executable fails explicitly rather than hanging or claiming drain', { skip: process.platform !== 'win32' }, async t => {
+  const missingRoot=await mkdtemp(path.join(tmpdir(),'workflow-missing-system-root-'));
+  t.after(()=>rm(missingRoot,{recursive:true,force:true}));
   const fixture = fileURLToPath(new URL('./fixtures/orphan-process.mjs', import.meta.url));
   const handle = processTools.launch(process.execPath, [fixture]);
   await once(handle.child.stdout, 'data');
@@ -71,7 +78,7 @@ test('missing Windows tree-kill executable fails explicitly rather than hanging 
   const record = { pid: handle.child.pid, processIdentity: identity };
   const systemRoot = process.env.SystemRoot;
   t.after(async () => { process.env.SystemRoot = systemRoot; await processTools.recoverOrphan(record); });
-  process.env.SystemRoot = 'C:\\agent-workflow-fixture-nonexistent-system-root';
+  process.env.SystemRoot = missingRoot;
   const escape = setTimeout(() => { process.env.SystemRoot = systemRoot; void processTools.recoverOrphan(record); }, 750);
   try { await assert.rejects(handle.stop(), { code: 'DRAIN_FAILED', outcome: 'unknown' }); }
   finally { clearTimeout(escape); process.env.SystemRoot = systemRoot; }

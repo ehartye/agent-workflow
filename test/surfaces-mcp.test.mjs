@@ -1,3 +1,7 @@
+/** @lane merge
+ * @subject src/mcp.mjs
+ * @subject bin/agent-workflow.mjs
+ */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, stat } from 'node:fs/promises';

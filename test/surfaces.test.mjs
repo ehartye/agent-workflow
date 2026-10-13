@@ -1,8 +1,11 @@
+/** @lane merge
+ */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { request } from 'node:http';
 import { startService } from '../src/service.mjs';
 import { resolveWorkflow, saveWorkflow } from '../src/registry.mjs';
 import { setMode, promptContext } from '../src/mode.mjs';
@@ -15,12 +18,15 @@ test('loopback service authenticates and forwards every durable run action', asy
  t.after(async()=>{ await service.close(); await rm(dataDir,{recursive:true,force:true}); });
  const req = (route, init = {}) => fetch(service.url+route,{...init,headers:{authorization:`Bearer ${service.token}`,'content-type':'application/json',...init.headers}});
  assert.equal((await fetch(service.url+'/api/runs')).status,401);
+ assert.equal((await req('/api/runs',{headers:{authorization:'Bearer wrong'}})).status,401);
+ const wrongHost=await new Promise((resolve,reject)=>{const connection=request(service.url+'/api/runs',{headers:{host:'evil.test'}},response=>{response.resume();resolve(response.statusCode);});connection.on('error',reject);connection.end();});assert.equal(wrongHost,403);
  assert.equal((await req('/api/runs',{headers:{origin:'https://evil.test'}})).status,403);
+ const page=await req('/');assert.equal(page.status,200);assert.match(page.headers.get('content-security-policy'),/script-src 'self'/);assert.match(page.headers.get('content-security-policy'),/frame-ancestors 'none'/);assert.equal(page.headers.get('referrer-policy'),'no-referrer');
  assert.equal((await req('/api/runs',{method:'POST',body:JSON.stringify({script:'return 1',cwd:dataDir})})).status,202);
  assert.equal((await req('/api/runs/run-1/events?since=3')).status,200);
  for(const action of ['pause','stop','resume','cancel-worker','restart-worker','steer']) assert.equal((await req('/api/runs/run-1/control',{method:'POST',body:JSON.stringify({action,options:{workerId:'w',text:'x'}})})).status,200);
- assert.equal((await req('/api/runs/run-1/approve',{method:'POST',body:JSON.stringify({approvalId:'a',decision:'deny'})})).status,200);
- assert.equal(calls.length,8);
+ assert.equal((await req('/api/runs/run-1/approve',{method:'POST',body:JSON.stringify({approvalId:'a',decision:'decline'})})).status,200);
+ assert.deepEqual(calls,[['start',{script:'return 1',cwd:dataDir}],...['pause','stop','resume','cancel-worker','restart-worker','steer'].map(action=>['run-1',action,{workerId:'w',text:'x'}]),['run-1','a','decline']]);
  assert.equal((await req('/api/runs',{method:'POST',body:'{broken'})).status,400);
  assert.equal((await req('/api/runs',{method:'POST',body:JSON.stringify({script:'x'.repeat(1100000)})})).status,413);
 });

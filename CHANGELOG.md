@@ -12,4 +12,4 @@ Initial public release of the regular Codex plugin and local runtime.
 - Enable opt-in session/project routing through a separately trusted prompt hook.
 - Start with six bundled audit, fix, migration, review, research and discovery recipes.
 
-Verified on Windows with 118 offline tests, actual Codex worker/replay checks, native cold/warm installation and independent specification/code-quality review. Yoda audits all three skills, including matched baseline evaluations. See [verification](docs/verification.md) and [limits](docs/limitations.md).
+Verified on Windows with 123 offline tests, actual Codex worker/replay checks, native cold/warm installation and independent specification/code-quality review. Yoda audits all three skills, including matched baseline evaluations. Agent-tests audits and strategy add the approved production risk map, dashboard regressions and CI lanes. See [verification](docs/verification.md), [testing](docs/testing.md) and [limits](docs/limitations.md).

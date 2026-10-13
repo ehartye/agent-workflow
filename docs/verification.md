@@ -23,6 +23,8 @@ A separate authenticated routing check applied the actual skill to five requests
 
 ## Repeatable checks
 
+The [agent-tests audit and strategy](testing.md) records the owner-approved production risk map, per-file verdicts, dashboard mutation checks, CI lane choices and measurement limits.
+
 Run from the repository with Node 24+:
 
 ```sh
@@ -36,7 +38,7 @@ npm audit
 
 The standard suite and smoke use local processes and Git fixtures without credentials. Authenticated model runs above are separate bounded checks, not part of the offline test suite. Detailed generated evidence is retained under ignored `test-output/` in the development worktree.
 
-Final checks on Windows with Node 24.18.0 and pinned Codex 0.162.1: **118 tests passed** (49 runtime, 49 worker, 20 surface/recipe/bootstrap); plugin/schema checks, offline process smoke and native install checks passed; npm audit reported zero vulnerabilities. All three skills passed the official validator. Linux/Darwin recovery and native hook trust activation were not exercised.
+Final checks on Windows with Node 24.18.0 and pinned Codex 0.162.1: **123 tests passed** (49 runtime, 49 worker, 25 surface/recipe/bootstrap/dashboard), in about 35.8 seconds locally; plugin/schema checks and offline process smoke passed; npm audit reported zero vulnerabilities. The hosted release checks also run isolated native installation. All three skills passed the official validator. Linux/Darwin recovery and native hook trust activation were not exercised.
 
 Release checks exposed startup-sensitive test deadlines on a busy host: a fixture's first tool event arrived at 289 ms, beyond its original 100–150 ms guards. Test files now run with concurrency two, with fixture waits deliberately longer than the stall window and hard deadlines shorter than tool completion. Expected error/effect assertions are preserved; seven focused watchdog checks and the complete 118-test suite passed. Native installation additionally verifies the MIT notice is copied into managed runtimes; schema attribution and Apache 2.0 license are retained in the distribution.
 
