@@ -12,9 +12,11 @@ const moduleAt=(owner,name)=>import(pathToFileURL(join(owner.runtime.path,'engin
 // The current monitor supplies presentation and visibility metadata only. Native
 // reads and execution controls are loaded from each verified retained runtime.
 export async function createSessionServices({dataDir,sessionId,pinnedRunId}){
-  const root=await realpath(resolve(dataDir));await noLinks(root);
+  // Canonical identity may expand a Windows 8.3 alias or normalize case. Keep
+  // the admitted spelling for retained records, which validate exact paths.
+  const root=resolve(dataDir);await noLinks(root);const canonical=await realpath(root);
   const identity=await lstat(root,{bigint:true});
-  const dataInstanceId=createHash('sha256').update(JSON.stringify([process.platform==='win32'?root.toLowerCase():root,String(identity.dev),String(identity.ino),String(identity.birthtimeNs)])).digest('hex');
+  const dataInstanceId=createHash('sha256').update(JSON.stringify([process.platform==='win32'?canonical.toLowerCase():canonical,String(identity.dev),String(identity.ino),String(identity.birthtimeNs)])).digest('hex');
   const owner=await resolveRun({dataDir:root,id:pinnedRunId,sessionId});
   const binding={version:1,scope:'session',dataInstanceId,originatingSessionId:sessionId,pinnedRunId,runtimeId:owner.runtime.id};
   const ref=owner=>({dataInstanceId,runId:owner.id,runtimeId:owner.runtime.id});

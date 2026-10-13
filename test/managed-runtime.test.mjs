@@ -63,6 +63,9 @@ test('session adapters retain exact runtime controls and isolate navigation, vis
  const {createSessionServices}=await import('../engine/monitor-adapters.mjs');
  const {DatabaseSync}=await import('node:sqlite');
  const f=await fixture(t);
+ // Windows CI may supply an 8.3 TEMP alias. A differently cased spelling also
+ // reproduces realpath changing the namespace retained in runtime records.
+ if(process.platform==='win32')f.dataDir=join(f.root,'DATA');
  await writeFile(join(f.pluginRoot,'engine','monitor-data.mjs'),`import {readFile} from 'node:fs/promises';import {join} from 'node:path';export async function monitorData(runDir){return JSON.parse(await readFile(join(runDir,'snapshot.json'),'utf8'));}`);
  const control=marker=>`import {appendFile} from 'node:fs/promises';import {join,basename} from 'node:path';export async function requestControl(runDir,input){await appendFile(join(runDir,'controls-observed.jsonl'),JSON.stringify(input)+'\\n');return{marker:${JSON.stringify(marker)},runId:basename(runDir),action:input.action};}`;
  await writeFile(join(f.pluginRoot,'engine','controls.mjs'),control('first'));
@@ -75,6 +78,8 @@ test('session adapters retain exact runtime controls and isolate navigation, vis
   await writeFile(join(owner.runDir,'snapshot.json'),JSON.stringify(state));
   const db=new DatabaseSync(join(owner.runDir,'run.sqlite'));db.exec('CREATE TABLE header(id INTEGER PRIMARY KEY,value TEXT); CREATE TABLE workers(generation INTEGER,position INTEGER,value TEXT,PRIMARY KEY(generation,position)); CREATE TABLE controls(id TEXT PRIMARY KEY,generation INTEGER,value TEXT);');db.prepare('INSERT INTO header VALUES(1,?)').run(JSON.stringify(state));db.close();
  }
+ const linkedData=join(f.root,'linked-data');await symlink(f.dataDir,linkedData,process.platform==='win32'?'junction':'dir');
+ await assert.rejects(createSessionServices({dataDir:linkedData,sessionId:'origin',pinnedRunId:two.id}),/linked/i);
  const {binding,services}=await createSessionServices({dataDir:f.dataDir,sessionId:'origin',pinnedRunId:two.id});
  assert.equal(binding.pinnedRunId,two.id);assert.equal(binding.runtimeId,second.id);
   const {startMonitor}=await import('../engine/monitor-launch.mjs');const monitor=await startMonitor(two.runDir,{binding});
