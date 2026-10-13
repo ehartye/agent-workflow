@@ -8,6 +8,7 @@ import { parseScript } from './script.mjs';
 import { compileSchema } from './schema.mjs';
 import {createActivityTable,recordActivity} from './activity.mjs';
 import {assertWorkerTarget} from './controls.mjs';
+import {restartPlan} from './restart.mjs';
 import { fault, diagnostic } from '../foundation/client.mjs';
 export {requestControl,readControl} from './controls.mjs';
 
@@ -30,7 +31,7 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','controls.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  const files = ['controller.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
   return hash(process.version + files.map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
@@ -53,7 +54,7 @@ export async function readRun(runDir) {
   try { return snapshot(db); } finally { db.close(); }
 }
 
-export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, concurrency = 2, maxAgents = 1000, timeoutMs = 120000, drainTimeoutMs=20000, onReady, launch=null }) {
+export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, restart, concurrency = 2, maxAgents = 1000, timeoutMs = 120000, drainTimeoutMs=20000, onReady, launch=null }) {
   let db, lease, state, primary;
   let leaseOwned = false;
   let stopped = false;
@@ -136,19 +137,31 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=1000; CREATE TABLE IF NOT EXISTS header(id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS workers(generation INTEGER NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(generation,position)); CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS controls(id TEXT PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL);');
     createActivityTable(db);
     const previous = snapshot(db);
+    const previousHeader=db.prepare('SELECT value FROM header WHERE id=1').get()?.value;
     if(expectedGeneration!==undefined&&previous?.generation!==expectedGeneration)throw fault('REPLAY_GENERATION','Run generation changed; refresh before resuming');
     const runtimeIdentity = identity();
     if (previous && !resume) throw fault('RUN_EXISTS', 'Existing run requires explicit resume');
     if (!previous && resume) throw fault('REPLAY_MISSING', 'No saved run exists to replay');
     if (previous && (previous.version !== 1 || !Number.isInteger(previous.generation) || !Number.isInteger(previous.workerCount) || previous.workerCount !== previous.workers.length || previous.workers.some((worker, index) => worker.position !== index || !['queued','running','completed','failed','unknown'].includes(worker.status) || worker.status === 'completed' && (!Object.hasOwn(worker,'result') || hash(json(worker.result)) !== worker.resultHash)))) throw fault('REPLAY_CORRUPT', 'Saved run or worker evidence is missing or corrupt');
     if (previous?.sessionId && previous.sessionId !== sessionId) throw fault('REPLAY_SESSION', 'Saved results belong to a different session');
-    if (previous && (previous.cleanup?.serverExited!==true || ['running','pausing','stopping','finishing'].includes(previous.status) || previous.workers.some(worker => ['running','unknown'].includes(worker.status)))) throw fault('REPLAY_UNKNOWN', 'Unknown execution prevents automatic replay');
+    let restartAdmission;
+    if(restart!==undefined){
+      if(!resume||!Number.isInteger(expectedGeneration))throw fault('RESTART_INPUT','Restart requires explicit resume and the observed generation');
+      restartAdmission=restartPlan(previous,restart);
+      if(script!==previous.script||canonical(args)!==canonical(previous.args)||backend.identity!==previous.backendIdentity||maxAgents!==previous.maxAgents)throw fault('RESTART_CHANGED','Restart must use the saved script, arguments, backend and lifetime limit');
+    }
+    if (previous && !restartAdmission && (previous.cleanup?.serverExited!==true || ['running','pausing','stopping','finishing'].includes(previous.status) || previous.workers.some(worker => ['running','unknown'].includes(worker.status)))) throw fault('REPLAY_UNKNOWN', 'Unknown execution prevents automatic replay');
     if (previous && previous.runtimeIdentity !== runtimeIdentity) throw fault('REPLAY_RUNTIME', 'Saved results require their original runtime version');
     reuse = !previous || previous.backendIdentity === backend.identity;
     const oldWorkers = previous?.workers ?? [];
     state = { version: 1, sessionId, generation: (previous?.generation ?? 0) + 1, runtimeIdentity, backendIdentity: backend.identity,
       status: 'running', acceptingControls:true, meta, script, args, launch, concurrency, maxAgents, workerCount: 0, attempts: previous?.attempts ?? 0, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString() };
-    saveHeader();
+    if(restartAdmission){
+      state.restart={...restartAdmission,sourceGeneration:previous.generation,receiptId:randomUUID()};
+      const receipt={id:state.restart.receiptId,generation:state.generation,sourceGeneration:previous.generation,action:'restart-worker',status:'applied',requestedAt:state.updatedAt,appliedAt:state.updatedAt,...restartAdmission};
+      db.exec('BEGIN IMMEDIATE');
+      try{saveHeader();db.prepare('INSERT INTO controls(id,generation,value) VALUES(?,?,?)').run(receipt.id,state.generation,json(receipt));db.exec('COMMIT');}catch(error){db.exec('ROLLBACK');throw error;}
+    }else saveHeader();
     const finishSteering=(receipt,error,sent=true)=>{
       steering.delete(receipt.position);
       if(controlsRetired)return;
@@ -223,6 +236,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       const dependencies=(options.dependsOn??[]).map(id=>workerIds.get(id));
       chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs ?? 120000, dependencies, schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null }));
       const prior = oldWorkers[position];
+      if(restartAdmission&&position<=restartAdmission.position&&prior?.key!==chain)throw fault('RESTART_CHANGED','Saved worker invocation changed before the restart target');
       const worker = { position, key: chain, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
       const workerAbort=new AbortController();workerAborts.set(position,workerAbort);
       const signal=AbortSignal.any([abort.signal,workerAbort.signal]);
@@ -230,15 +244,20 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       currentWorkers.set(position,worker);
       if(options.id!==undefined)workerIds.set(options.id,position);
       let settle;settlements.set(position,new Promise(resolve=>{settle=resolve;}));
-      if (reuse && prior?.key === worker.key && prior.status === 'completed') {
+      if (reuse && (!restartAdmission||position<restartAdmission.position) && prior?.key === worker.key && prior.status === 'completed') {
         if (!Object.hasOwn(prior, 'result') || hash(json(prior.result)) !== prior.resultHash) throw fault('REPLAY_CORRUPT', 'Saved worker result is missing or corrupt');
         if(compiled&&!compiled.validate(prior.result))throw fault('REPLAY_CORRUPT','Saved worker result violates its schema');
         Object.assign(worker, { status: 'completed', cached: true, result: prior.result, resultHash: prior.resultHash });
         worker.reusedFrom=prior.reusedFrom??{generation:previous.generation,position:prior.position};
-        for(const key of ['evidence','attempts','usageByThread','usage','activity','activityCount','startedAt','completedAt'])if(Object.hasOwn(prior,key))worker[key]=structuredClone(prior[key]);
+        for(const key of ['evidence','attempts','attemptOffset','priorExecutions','usageByThread','usage','activity','activityCount','startedAt','completedAt'])if(Object.hasOwn(prior,key))worker[key]=structuredClone(prior[key]);
         saveWorker(worker);settle(); return worker.result;
       }
       reuse = false;
+      if(prior){
+        worker.priorExecutions=[...(prior.priorExecutions??[]),prior.reusedFrom??{generation:previous.generation,position}];
+        worker.attemptOffset=prior.attempts??0;worker.attempts=worker.attemptOffset;
+        for(const key of ['usageByThread','usage'])if(Object.hasOwn(prior,key))worker[key]=structuredClone(prior[key]);
+      }
       saveWorker(worker);
       let acquired = false;
       let dispatched = false;
@@ -251,7 +270,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         await acquire(signal); acquired = true;
         if(workerAbort.signal.aborted)throw Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
         if (state.attempts >= maxAgents) throw Object.assign(fault('AGENT_LIMIT', 'Lifetime agent attempt limit reached'), { notStarted: true });
-        state.attempts++; worker.attempts=1; worker.status = 'running'; worker.startedAt = new Date().toISOString();
+        state.attempts++; worker.attempts=(worker.attemptOffset??0)+1; worker.status = 'running'; worker.startedAt = new Date().toISOString();
         saveHeader(); saveWorker(worker);
         dispatched = true;
         executionOpen=true;
@@ -278,6 +297,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         if(retiredWrites)throw error;
         worker.status = error.evidence?.cleanup?.error ? 'unknown' : !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
         worker.error = diagnostic(error);
+        worker.notStarted=!dispatched||error.notStarted===true;
         if(error.evidence)worker.evidence=JSON.parse(json(error.evidence));
         if(error.interruption)worker.interruption={terminalObserved:error.interruption.terminalObserved===true,terminalStatus:['completed','failed','interrupted'].includes(error.interruption.terminalStatus)?error.interruption.terminalStatus:null,descendants:'notVerified'};
         saveWorker(worker);
@@ -287,7 +307,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     const call = (method, params) => {
       if (method === 'agent') {
         const work = dispatch(params).catch(error => {
-          if (['AGENT_INPUT','AGENT_LIMIT','WORKER_SETTINGS','SCHEMA_INVALID','SCHEMA_UNSUPPORTED','SCHEMA_LIMIT','REPLAY_CORRUPT','RUN_OWNERSHIP'].includes(error.code)) { fatal ??= error; stopped=true; evaluatorAbort.abort(); abort.abort(); for(const resolve of waiters.splice(0))resolve(); }
+          if (['AGENT_INPUT','AGENT_LIMIT','WORKER_SETTINGS','SCHEMA_INVALID','SCHEMA_UNSUPPORTED','SCHEMA_LIMIT','REPLAY_CORRUPT','RESTART_CHANGED','RUN_OWNERSHIP'].includes(error.code)) { fatal ??= error; stopped=true; evaluatorAbort.abort(); abort.abort(); for(const resolve of waiters.splice(0))resolve(); }
           throw error;
         });
         calls.add(work); work.then(() => calls.delete(work), () => calls.delete(work));
@@ -301,8 +321,23 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       own(); db.prepare('INSERT INTO events(generation,value) VALUES(?,?)').run(state.generation, json({ method, ...params }));
       return null;
     };
+    if(restartAdmission){
+      try{await onReady?.({generation:state.generation,status:state.status});}
+      catch(error){
+        clearInterval(controlTimer);controlsRetired=true;
+        db.exec('BEGIN IMMEDIATE');
+        try{
+          own();db.prepare('UPDATE header SET value=? WHERE id=1').run(previousHeader);
+          for(const row of db.prepare('SELECT value FROM controls WHERE generation=?').all(state.generation)){
+            const receipt=JSON.parse(row.value);receipt.status='rejected';receipt.error=diagnostic(error);db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
+          }
+          db.exec('COMMIT');
+        }catch(failure){db.exec('ROLLBACK');throw failure;}
+        throw error;
+      }
+    }
     try {
-      await onReady?.({generation:state.generation,status:state.status});
+      if(!restartAdmission)await onReady?.({generation:state.generation,status:state.status});
       state.result = await evaluate(script, { args, call, timeoutMs, signal: evaluatorAbort.signal });
       if (fatal) throw fatal;
       state.status = 'finishing';

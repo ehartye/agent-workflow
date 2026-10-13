@@ -6,6 +6,7 @@ import { runWorkflow, readRun, requestControl, readControl } from './controller.
 import { createManagedBackend } from './backend.mjs';
 import { startBackground } from './background.mjs';
 import { startMonitor } from './monitor-launch.mjs';
+import {monitorData} from './monitor-data.mjs';
 
 const { values } = parseArgs({ options: {
   codex: { type: 'string' }, cwd: { type: 'string' }, script: { type: 'string' },
@@ -14,9 +15,11 @@ const { values } = parseArgs({ options: {
   concurrency: { type: 'string' }, help: { type: 'boolean' },foreground:{type:'boolean'},
   action:{type:'string'},generation:{type:'string'},control:{type:'string'},dashboard:{type:'boolean'},
   position:{type:'string'},attempt:{type:'string'},turn:{type:'string'},text:{type:'string'},
+  reconcile:{type:'string'},worker:{type:'string'},'source-generation':{type:'string'},
   model:{type:'string'},effort:{type:'string'},'max-attempts':{type:'string'},
 } });
 if (values.help) {
+  console.log('Restart saved worker and its suffix: --action restart-worker --run <directory> --session <identity> --generation <observed generation> --position <worker position> --attempt <observed attempt> --reconcile <external-effect reconciliation note>\nRead worker evidence: --worker <position> --run <directory> --generation <observed generation> [--source-generation <prior execution generation>]');
   console.log('Dashboard: --dashboard --run <directory>\nWorker control: --action <steer|cancel-worker> --run <directory> --session <identity> --generation <observed generation> --position <worker position> --attempt <observed attempt> [--turn <observed active turn>] [--text <steering instruction>]');
   console.log('Start in background: node engine/cli.mjs --codex <native executable> --cwd <project> --script <workflow.js> --run <directory> --session <identity> [--backend mxc] [--args <JSON>]\nWorker defaults: [--model <catalog model>] [--effort <supported effort>] [--max-attempts <1-5>]\nInspect: --status --run <directory>\nPause/stop: --action <pause|stop> --run <directory> --session <identity> --generation <observed generation>\nControl receipt: --control <id> --run <directory>\nResume saved script: --resume --run <directory> --session <identity> [--script <edited workflow.js>]\nUse --foreground for synchronous diagnostics.');
 } else {
@@ -25,6 +28,11 @@ if (values.help) {
     let run;
     const runDir=resolve(values.run);
     if(values.dashboard){console.log(JSON.stringify(await startMonitor(runDir),null,2));}
+    else if(values.worker!==undefined){
+      if(!/^(0|[1-9][0-9]*)$/.test(values.worker)||!Number.isInteger(Number(values.generation))||Number(values.generation)<1)throw fault('CLI_INPUT','Worker reads require position and observed generation');
+      console.log(JSON.stringify(await monitorData(runDir,{kind:'worker',position:Number(values.worker),generation:Number(values.generation),...(values['source-generation']!==undefined?{sourceGeneration:Number(values['source-generation'])}:{})}),null,2));
+    }
+    else if(values.action==='restart-worker')console.log(JSON.stringify(await startBackground({runDir,sessionId:values.session,resume:true,expectedGeneration:Number(values.generation),restart:{position:Number(values.position),attempt:Number(values.attempt),reconciliation:values.reconcile}}),null,2));
     else if(values.action){console.log(JSON.stringify(await requestControl(runDir,{sessionId:values.session,generation:Number(values.generation),action:values.action,...(['steer','cancel-worker'].includes(values.action)?{position:Number(values.position),attempt:Number(values.attempt),turnId:values.turn??null,...(values.text!==undefined?{text:values.text}:{})}:{})}),null,2));}
     else if(values.control){console.log(JSON.stringify(await readControl(runDir,values.control),null,2));}
     else if (values.status) run = await readRun(runDir);

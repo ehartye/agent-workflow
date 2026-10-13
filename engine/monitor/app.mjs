@@ -39,6 +39,7 @@ let lastGood = 0, stale = true, listKey = '', detailKey = '', phaseKey = '', res
 let extendedWorker, localReceipt, actionNotice = '', mapKey = '';
 let activityHistory, activityLoading = false, activityFilter = 'tools';
 let steerDraft;
+let reconcileDraft,earlierEvidence;
 const requests = new Set();
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -94,6 +95,7 @@ function updateButtons() {
   const workerEnabled=accepts&&snapshot.status!=='stopping'&&worker&&!worker.cancelRequested&&['queued','running'].includes(worker.status);
   if($('worker-cancel'))$('worker-cancel').disabled=!workerEnabled;
   if($('worker-steer'))$('worker-steer').disabled=!workerEnabled||!worker.activeTurn?.turnId||!$('steer-text')?.value.trim();
+  if($('worker-restart'))$('worker-restart').disabled=!enabled||!snapshot.restartPreview?.eligible||snapshot.restartPreview.position!==selected||!$('reconcile-text')?.value.trim();
 }
 function renderWorkers() {
   const workers = snapshot.workers ?? [];
@@ -138,13 +140,14 @@ function renderDetail() {
   const base = snapshot.workers?.find(worker => worker.position === selected);
   const worker = extendedWorker?.generation === snapshot.generation && extendedWorker.position === selected ? extendedWorker.worker : base;
   const history = activityHistory?.generation === snapshot.generation && activityHistory.position === selected ? activityHistory : undefined;
-  const key = JSON.stringify([snapshot.generation, worker, history, activityLoading, activityFilter, worker?.dependencies?.map(position => {
+  const key = JSON.stringify([snapshot.generation, worker, history, activityLoading, activityFilter,snapshot.restartPreview,earlierEvidence, worker?.dependencies?.map(position => {
     const prerequisite = snapshot.workers.find(item => item.position === position);
     return [position, prerequisite?.status, prerequisite?.options?.label];
   })]);
   if (key === detailKey) return;
   detailKey = key;
   const focusedSteer=document.activeElement?.id==='steer-text',selectionStart=$('steer-text')?.selectionStart,selectionEnd=$('steer-text')?.selectionEnd;
+  const focusedReconcile=document.activeElement?.id==='reconcile-text',reconcileStart=$('reconcile-text')?.selectionStart,reconcileEnd=$('reconcile-text')?.selectionEnd;
   const detail = $('detail'); detail.replaceChildren();
   $('detail-status').hidden = !worker;
   $('detail-heading').textContent = worker ? worker.options?.label || `Worker ${worker.position + 1}` : 'Worker details';
@@ -164,6 +167,61 @@ function renderDetail() {
   const cancel=node('button',worker.cancelRequested?'Cancellation requested':'Cancel worker');cancel.id='worker-cancel';cancel.type='button';cancel.addEventListener('click',()=>mutateWorker('cancel-worker'));
   controls.append(label,input,steer,cancel);detail.append(controls);
   if(focusedSteer){input.focus({preventScroll:true});input.setSelectionRange?.(selectionStart,selectionEnd);}
+  const restart=snapshot.restartPreview;
+  if(restart?.position===worker.position){
+    const section=node('section',undefined,'worker-controls');section.append(node('h3','Restart after review'));
+    if(!restart.eligible)section.append(node('p',restart.reason,'muted'));
+    else{
+      section.append(node('p',`Restart worker ${worker.position+1} and all later workers in a new generation. Completed earlier results stay cached. Review external effects before rerunning this work.`));
+      const scope=node('details');scope.append(node('summary',`${restart.affected.length} affected workers`));const list=node('ul');
+      for(const item of restart.affected)list.append(node('li',`Worker ${item.position+1} · ${item.status}`));scope.append(list);section.append(scope);
+      const label=node('label','How did you reconcile the affected work?');label.htmlFor='reconcile-text';
+      const text=node('textarea');text.id='reconcile-text';text.rows=3;text.maxLength=2000;
+      text.value=reconcileDraft?.generation===snapshot.generation&&reconcileDraft.position===worker.position?reconcileDraft.text:'';
+      text.addEventListener('input',()=>{reconcileDraft={generation:snapshot.generation,position:worker.position,text:text.value};updateButtons();});
+      const button=node('button','Restart from this worker');button.id='worker-restart';button.type='button';button.addEventListener('click',restartWorker);
+      section.append(label,text,button);detail.append(section);
+      if(focusedReconcile){text.focus({preventScroll:true});text.setSelectionRange?.(reconcileStart,reconcileEnd);}
+    }
+    if(!restart.eligible)detail.append(section);
+  }
+  if(Array.isArray(worker.priorExecutions)&&worker.priorExecutions.length){
+    const section=node('section',undefined,'worker-controls');section.append(node('h3','Earlier executions'));
+    section.append(node('p',`${worker.attempts??0} total attempts at this position. Earlier evidence remains unchanged.`, 'muted'));
+    const label=node('label','Generation'),select=node('select');select.id='earlier-generation';label.htmlFor=select.id;
+    for(const source of [...worker.priorExecutions].reverse())select.append(new Option(`Generation ${source.generation}`,String(source.generation)));
+    select.value=String(worker.priorExecutions.at(-1).generation);
+    const earlier=earlierEvidence?.generation===snapshot.generation&&earlierEvidence.position===worker.position?earlierEvidence:null;
+    if(earlier)select.value=String(earlier.sourceGeneration);
+    const load=node('button','Read earlier execution');load.id='load-earlier';load.type='button';
+    load.addEventListener('click',async()=>{
+      const generation=snapshot.generation,position=worker.position,sourceGeneration=Number(select.value);load.disabled=true;
+      try{
+        const historical=await api(`/api/worker/${position}?generation=${generation}&sourceGeneration=${sourceGeneration}`);
+        if(snapshot.generation!==generation||selected!==position)return;
+        earlierEvidence={generation,position,sourceGeneration,worker:historical};renderDetail();
+      }catch(error){readError(error);}finally{load.disabled=false;}
+    });
+    section.append(label,select,load);
+    if(earlier){
+      const content=node('div');content.id='earlier-evidence';evidence(content,`Execution in generation ${earlier.sourceGeneration}`,earlier.worker);
+      if(earlier.activity){
+        content.append(node('p',`${earlier.activity.retained} retained of ${earlier.activity.observed} observed events · ${earlier.activity.dropped} discarded.`, 'muted'));
+        evidence(content,'Earlier activity page',earlier.activity.records);
+      }
+      const activity=node('button',earlier.activity?.hasMore?'Next earlier activity page':'Read earlier activity');activity.type='button';
+      activity.addEventListener('click',async()=>{
+        activity.disabled=true;const {generation,position,sourceGeneration}=earlier;
+        const after=earlier.activity?.hasMore?earlier.activity.nextCursor:0;
+        try{const page=await api(`/api/activity?generation=${generation}&position=${position}&sourceGeneration=${sourceGeneration}&after=${after}&limit=50`);
+          if(earlierEvidence!==earlier||snapshot.generation!==generation||selected!==position)return;
+          earlierEvidence={...earlier,activity:page};renderDetail();
+        }catch(error){readError(error);}finally{activity.disabled=false;}
+      });
+      content.append(activity);section.append(content);
+    }
+    detail.append(section);
+  }
   detail.append(node('h3', 'Prerequisites'));
   if (!Array.isArray(worker.dependencies)) detail.append(node('p', 'Prerequisite information was not declared or captured for this worker.', 'muted'));
   else if (!worker.dependencies.length) detail.append(node('p', 'No prerequisites declared.', 'muted'));
@@ -441,6 +499,16 @@ async function mutateWorker(action){
     if(action==='steer'){steerDraft=undefined;$('steer-text').value='';}renderReceipts();notice(actionNotice);
   }catch(error){actionNotice=`${error.message} The request was not retried. Inspect the worker and control receipts before trying again.`;notice(actionNotice);}
   finally{busy=false;stale=true;updateButtons();await poll();}
+}
+async function restartWorker(){
+  const preview=snapshot?.restartPreview;
+  if(busy||stale||!preview?.eligible||preview.position!==selected||!$('reconcile-text')?.value.trim())return;
+  const body={generation:snapshot.generation,position:preview.position,attempt:preview.attempt,reconciliation:$('reconcile-text').value.trim()};
+  if(!confirm(`Restart worker ${preview.position+1} and all later workers? This may repeat their external effects. Your reconciliation note will be saved.`))return;
+  busy=true;actionNotice='';clearTimeout(timer);updateButtons();
+  try{const result=await api('/api/restart',{method:'POST',body});reconcileDraft=undefined;actionNotice=`Restart started generation ${result.generation}. Earlier execution evidence is retained.`;}
+  catch(error){actionNotice=`${error.message} The request was not retried. Refresh and inspect the generation before trying again.`;}
+  finally{notice(actionNotice);busy=false;stale=true;updateButtons();await poll();}
 }
 for (const action of ['pause', 'stop', 'resume']) $(action).addEventListener('click', () => mutate(action));
 for (const id of ['status-filter', 'phase-filter']) $(id).addEventListener('change', () => { if (snapshot) { renderWorkers(); renderDetail(); renderMap(); } });

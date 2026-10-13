@@ -15,7 +15,7 @@ const worker = (position, status = 'completed', extra = {}) => ({ position, stat
 async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, run = {}, response, light = false } = {}) {
   const { document, window } = parseHTML(html);
   // LinkeDOM omits these browser interfaces; implement their DOM semantics.
-  for (const select of document.querySelectorAll('select')) Object.defineProperty(select, 'value', {
+  Object.defineProperty(window.HTMLSelectElement.prototype, 'value', {configurable:true,
     get() { return [...this.options].find(option => option.hasAttribute('selected'))?.value ?? this.options[0]?.value ?? ''; },
     set(value) { for (const option of this.options) option.toggleAttribute('selected', option.value === value); },
   });
@@ -67,6 +67,20 @@ test('monitor removes token fragments before requests, restores session auth and
   assert.equal(missing.calls.length, 0);
   assert.match(missing.get('notice').textContent, /Open the dashboard URL from agent-workflow dashboard to authenticate/);
   assert.equal(missing.get('pause').disabled, true);
+});
+
+test('restart shows suffix scope, retains reconciliation and exposes immutable earlier execution',async()=>{
+  const view=await monitor({run:{status:'failed',acceptingControls:false,workers:[worker(0,'unknown',{attempts:1})],restartPreview:{eligible:true,position:0,attempt:1,affected:[{position:0,status:'unknown'},{position:1,status:'completed'}]}},response:path=>path==='/api/restart'?{ok:true,json:async()=>({generation:5})}:path.includes('sourceGeneration=3')?{ok:true,json:async()=>({position:0,status:'unknown',historyGeneration:3,error:{code:'TURN_CANCELLED'},prompt:'Earlier prompt'})}:undefined});
+  assert.match(view.get('detail').textContent,/worker 1 and all later workers/i);
+  assert.equal(view.get('worker-restart').disabled,true);
+  view.get('reconcile-text').value='Reviewed the affected external effects';view.get('reconcile-text').dispatchEvent(new view.window.Event('input'));
+  await view.refresh();assert.equal(view.get('reconcile-text').value,'Reviewed the affected external effects');
+  view.context.confirm=()=>true;await view.click(view.get('worker-restart'));
+  const posted=view.calls.find(call=>call.path==='/api/restart');assert.deepEqual(JSON.parse(posted.body),{generation:4,position:0,attempt:1,reconciliation:'Reviewed the affected external effects'});
+  view.update({workers:[worker(0,'completed',{attempts:2,priorExecutions:[{generation:3,position:0}]})],restartPreview:null});await view.refresh();
+  await view.click(view.get('load-earlier'));
+  assert.match(view.get('earlier-evidence').textContent,/Earlier prompt/);assert.match(view.get('earlier-evidence').textContent,/TURN_CANCELLED/);
+  assert.equal(view.get('worker-cancel').disabled,true);
 });
 
 test('workflow graph separates declared dependencies from grouping and preserves failed or unknown phase coverage', async () => {
