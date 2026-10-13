@@ -1,4 +1,5 @@
 import { fault, remoteDiagnostic } from './client.mjs';
+import {createHash} from 'node:crypto';
 
 // One outstanding turn per thread. The caller owns the server and its shutdown.
 // A terminal turn acknowledges harness completion, not arbitrary process drain.
@@ -43,14 +44,18 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, in
   let timer;
   let start;
   let retired = false;
-  let earlyBytes = 0,observedBytes=0,observedMessages=0,retainedBytes=0,answerBytes=0;
+  let earlyBytes = 0,observedBytes=0,observedMessages=0,retainedBytes=0,answerBytes=0,answerEvidence;
   const early = [];
   const items = new Map();
-  const output=()=>({observedBytes,observedMessages,retainedBytes,retainedItems:items.size,truncatedItems:[...items.values()].filter(item=>item.truncated?.length).length});
+  const output=()=>({observedBytes,observedMessages,retainedBytes,retainedItems:items.size,truncatedItems:[...items.values()].filter(item=>item.truncated?.length).length,...(answerEvidence?{answer:answerEvidence}:{})});
   const retain=item=>{
     if(!item||typeof item.id!=='string')return;
     if(item.id.length>200)throw fault('TURN_PROTOCOL','Turn item identifier exceeded its bound');
-    const prior=items.get(item.id),preview=itemPreview(item);
+    const prior=items.get(item.id);
+    // A terminal snapshot may omit metadata already supplied by item/completed.
+    // Absence cannot turn known commentary into an unphased answer candidate.
+    if(item.type==='agentMessage'&&prior?.type==='agentMessage'&&item.phase==null&&prior.phase!=null)item={...item,phase:prior.phase};
+    const preview=itemPreview(item);
     const nextAnswerBytes=answerBytes-(prior&&finalAnswer(prior)?Buffer.byteLength(prior.text??''):0)+(finalAnswer(preview)?Buffer.byteLength(preview.text??''):0);
     const nextRetainedBytes=retainedBytes-(prior?Buffer.byteLength(JSON.stringify(prior)):0)+Buffer.byteLength(JSON.stringify(preview));
     if(nextAnswerBytes>512*1024||nextRetainedBytes>1024*1024||!prior&&items.size>=1024)throw fault('TURN_OUTPUT_LIMIT','Turn result or retained item previews exceeded their bounded limit');
@@ -112,8 +117,14 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, in
     if(failureError)throw failureError;
     if (terminal.status !== 'completed') throw fault('TURN_FAILED', `Codex turn did not complete successfully: ${remoteDiagnostic(terminal.error)}`);
     const completedItems = [...items.values()];
-    const messages = completedItems.filter(finalAnswer);
-    return { threadId, turnId, status: terminal.status, text: messages.map(item => item.text).join('\n'), items: completedItems,output:output() };
+    const explicit=completedItems.filter(item=>item.type==='agentMessage'&&item.phase==='final_answer');
+    const messages=explicit.length?explicit:completedItems.filter(finalAnswer);
+    const text=messages.map(item=>item.text).join('\n');
+    const phases={final:0,commentary:0,unphased:0,other:0};
+    for(const item of completedItems)if(item.type==='agentMessage')phases[item.phase==='final_answer'?'final':item.phase==='commentary'?'commentary':item.phase==null?'unphased':'other']++;
+    // Keep diagnostic counts and a fingerprint, never a second copy of answer text.
+    answerEvidence={selection:explicit.length?'explicit':messages.length?'legacy':'none',selectedItems:messages.length,phases,bytes:Buffer.byteLength(text),sha256:createHash('sha256').update(text).digest('hex')};
+    return { threadId, turnId, status: terminal.status, text, items: completedItems,output:output() };
   } catch (error) {
     error.output=output();
     if (!terminal) {

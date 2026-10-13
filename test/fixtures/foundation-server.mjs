@@ -57,6 +57,14 @@ createInterface({ input: process.stdin }).on('line', line => {
       return setTimeout(()=>reply(req.id,{turn:{id:turnId}}),mode==='turn-late-start'?300:50);
     }
     if (mode === 'turn-exit') { reply(req.id, { turn: { id: turnId } }); return setTimeout(() => process.exit(8), 20); }
+    if(['turn-phase-snapshot','turn-phase-explicit','turn-phase-invalid'].includes(mode)){
+      const progress={id:'progress',type:'agentMessage',text:'PRIVATE_PROGRESS',...(mode==='turn-phase-snapshot'?{phase:'commentary'}:{})};
+      const answer={id:'answer',type:'agentMessage',phase:'final_answer',text:mode==='turn-phase-invalid'?'Do not salvage {"count":2}':'{"count":2}'};
+      notification('item/completed',{threadId,turnId,item:progress});
+      notification('item/completed',{threadId,turnId,item:answer});
+      notification('turn/completed',{threadId,turn:{id:turnId,status:'completed',items:mode==='turn-phase-snapshot'?[progress,answer].map(({phase,...item})=>item):[]}});
+      return reply(req.id,{turn:{id:turnId}});
+    }
     if(mode==='turn-verbose'||mode==='turn-answer-limit'){
       reply(req.id,{turn:{id:turnId}});
       return setTimeout(()=>{

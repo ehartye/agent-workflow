@@ -1,13 +1,33 @@
 /** @lane merge
  * @subject engine/worker-session.mjs
+ * @subject foundation/turn.mjs
+ * @subject test/fixtures/foundation-server.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fault} from '../foundation/client.mjs';
+import {AppServer} from '../foundation/client.mjs';
+import {fileURLToPath} from 'node:url';
 const schema={type:'object',properties:{count:{type:'integer'}},required:['count'],additionalProperties:false};
 const settings={model:'fixture-model',effort:'low',maxAttempts:5};
 async function runner(){const module=await import('../engine/worker-session.mjs').catch(()=>null);assert.ok(module?.runWorkerSession,'Worker session must exist');return module.runWorkerSession;}
 const result=(text,id='t')=>({text,threadId:'thread',turnId:id,status:'completed',items:[{type:'commandExecution',status:'completed',exitCode:0}]});
+
+test('native structured answers exclude progress while invalid explicit output retains diagnostics without JSON salvage',async t=>{
+  const run=await runner();
+  for(const mode of ['turn-phase-explicit','turn-phase-invalid']){
+    const client=await AppServer.connect({command:process.execPath,args:[fileURLToPath(new URL('./fixtures/foundation-server.mjs',import.meta.url)),mode],shutdownMs:100});
+    t.after(()=>client.close());
+    const input={threadId:'thread',prompt:'Count',schema,settings:{...settings,maxAttempts:1}};
+    if(mode==='turn-phase-explicit'){
+      const value=await run(client,input);assert.deepEqual(value.value,{count:2});assert.equal(value.evidence.attempts[0].output.answer.selection,'explicit');
+    }else await assert.rejects(run(client,input),error=>{
+      assert.equal(error.code,'RESULT_JSON');assert.equal(error.terminalObserved,true);assert.equal(error.evidence.attempts.length,1);
+      const answer=error.evidence.attempts[0].output.answer;assert.equal(answer.selection,'explicit');assert.equal(answer.selectedItems,1);assert.match(answer.sha256,/^[a-f0-9]{64}$/);
+      assert.doesNotMatch(JSON.stringify(error.evidence),/PRIVATE_PROGRESS|Do not salvage/);return true;
+    });
+  }
+});
 test('structured correction reuses the thread, reserves each extra attempt and retains command evidence',async()=>{
   const run=await runner();const seen=[];let reservations=0;
   const execution={cwd:'owned-workspace',runtimeWorkspaceRoots:['owned-workspace'],sandboxPolicy:{type:'workspaceWrite',writableRoots:[],networkAccess:false,excludeTmpdirEnvVar:true,excludeSlashTmp:true}};

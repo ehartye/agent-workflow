@@ -1,8 +1,10 @@
 // @lane merge
 // @subject foundation/turn.mjs
 // @subject foundation/client.mjs
+// @subject test/fixtures/foundation-server.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { AppServer } from '../foundation/client.mjs';
 
@@ -39,6 +41,24 @@ test('large cumulative tool output keeps bounded previews and final command outc
 test('final answer size remains a hard bounded failure without silent truncation',async t=>{
   const {client,runTurn}=await setup(t,'turn-answer-limit');
   await assert.rejects(runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:3000}),{code:'TURN_OUTPUT_LIMIT'});
+});
+
+test('terminal snapshots cannot erase known message phases or promote progress into the answer',async t=>{
+  const {client,runTurn}=await setup(t,'turn-phase-snapshot');
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture'});
+  assert.deepEqual(JSON.parse(result.text),{count:2});
+  assert.equal(result.items.find(item=>item.id==='progress').phase,'commentary');
+  assert.equal(result.items.find(item=>item.id==='answer').phase,'final_answer');
+  assert.equal(result.output.answer.selection,'explicit');
+  assert.equal(result.output.answer.selectedItems,1);
+});
+
+test('explicit final answers take precedence over unphased messages with bounded selection diagnostics',async t=>{
+  const {client,runTurn}=await setup(t,'turn-phase-explicit');
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture'});
+  assert.deepEqual(JSON.parse(result.text),{count:2});
+  assert.deepEqual(result.output.answer,{selection:'explicit',selectedItems:1,phases:{final:1,commentary:0,unphased:1,other:0},bytes:11,sha256:createHash('sha256').update('{"count":2}').digest('hex')});
+  assert.doesNotMatch(JSON.stringify(result.output.answer),/PRIVATE_PROGRESS|count/);
 });
 
 test('shared transport failure cannot transfer pre-start annotations into an active turn',async t=>{
