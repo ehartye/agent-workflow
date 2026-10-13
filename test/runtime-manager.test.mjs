@@ -50,7 +50,6 @@ test("manager bounds concurrency and persists every repeated invocation as a dis
   const { manager } = await setup(t, async () => {
     calls++;
     peak = Math.max(peak, ++active);
-    if (calls === 2) releaseFirstPair();
     await firstPair;
     active--;
     return { value: "ok", usage: { outputTokens: 3, inputTokens: 1 } };
@@ -63,7 +62,20 @@ test("manager bounds concurrency and persists every repeated invocation as a dis
     concurrency: 2,
   });
   let final;
-  try { final = await settled(manager, run.id); }
+  try {
+    let admitted;
+    for (let i = 0; i < 400; i++) {
+      admitted = await manager.get(run.id);
+      if (admitted.workers.length === 5 && calls >= 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(admitted.workers.length, 5, "Every invocation must reach admission while the first workers are held");
+    assert.equal(calls, 2, "No third backend may dispatch while the first two workers are held");
+    assert.equal(admitted.workers.filter((worker) => worker.status === "running").length, 2);
+    assert.equal(admitted.workers.filter((worker) => worker.status === "queued").length, 3);
+    releaseFirstPair();
+    final = await settled(manager, run.id);
+  }
   finally { releaseFirstPair(); }
   assert.equal(final.status, "completed");
   assert.equal(peak, 2);
