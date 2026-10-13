@@ -85,6 +85,11 @@ test('session adapters retain exact runtime controls and isolate navigation, vis
    const page=await(await fetch(url.origin+'/api/session/runs',{headers})).json();assert.equal(page.items.length,2);
    const receipt=await fetch(url.origin+`/api/runs/${one.id}/control`,{method:'POST',headers,body:JSON.stringify({generation:1,action:'stop',target:{dataInstanceId:binding.dataInstanceId,runId:one.id,runtimeId:first.id,generation:1}})});
    assert.equal(receipt.status,202);assert.equal((await receipt.json()).marker,'first');
+   const lifecycleTarget={dataInstanceId:binding.dataInstanceId,runId:two.id,runtimeId:second.id,generation:1};
+   const hidden=await fetch(url.origin+`/api/runs/${two.id}/lifecycle`,{method:'POST',headers,body:JSON.stringify({action:'hide',runTarget:lifecycleTarget,target:{kind:'run'},generation:1,expectedRevision:0,requestId:'http-hide'})});
+   assert.equal(hidden.status,202);const saved=await hidden.json();assert.equal(saved.receipt.runId,two.id);assert.equal(saved.receipt.outcome,'applied');
+   const inspected=await fetch(url.origin+`/api/runs/${two.id}/lifecycle/receipts/http-hide`,{headers});assert.equal(inspected.status,200);assert.equal((await inspected.json()).receipt.id,'http-hide');
+   const restored=await fetch(url.origin+`/api/runs/${two.id}/lifecycle`,{method:'POST',headers,body:JSON.stringify({action:'restore',runTarget:lifecycleTarget,target:{kind:'run'},generation:1,expectedRevision:1,requestId:'http-restore'})});assert.equal(restored.status,202);
   }finally{await fetch(url.origin+'/api/close',{method:'POST',headers,body:'{}'});}
  const page=await services.listSessionRuns({limit:100,cursor:null,includeHidden:false});assert.deepEqual(new Set(page.items.map(item=>item.ref.runId)),new Set([one.id,two.id]));
  const firstSnapshot=await services.readRun({runId:one.id}),target={...firstSnapshot.experience.run,generation:1};
@@ -97,7 +102,7 @@ test('session adapters retain exact runtime controls and isolate navigation, vis
  const hidden=await services.lifecycle({action:'hide',runTarget:target,generation:1,expectedRevision:0,requestId:'hide-first',target:{kind:'run'}});assert.equal(hidden.receipt.outcome,'applied');
  const filtered=await services.listSessionRuns({limit:100,includeHidden:false});assert.equal(filtered.hiddenCount,1);assert.deepEqual(filtered.items.map(item=>item.ref.runId),[two.id]);
  assert.equal((await services.listSessionRuns({limit:100,includeHidden:true})).items.length,2);
- assert.equal((await services.readLifecycleReceipt({runId:one.id,receiptId:'hide-first'})).id,'hide-first');
+ assert.equal((await services.readLifecycleReceipt({runId:one.id,receiptId:'hide-first'})).receipt.id,'hide-first');
  await assert.rejects(services.readLifecycleReceipt({runId:two.id,receiptId:'hide-first'}),{code:'LIFECYCLE_MISSING'});
  assert.equal((await services.readRun({runId:one.id})).status,'running');
  const before=await readFile(join(one.runDir,'controls-observed.jsonl'),'utf8');

@@ -142,6 +142,22 @@ test('a reviewed zero-candidate retirement remains actionable with explicit tomb
   await view.click(view.get('review-prune'));assert.ok(view.get('apply-prune'));assert.equal(view.get('apply-prune').disabled,false);assert.match(view.get('lifecycle-preview').textContent,/tombstone.*audit/i);assert.match(view.get('lifecycle-preview').textContent,/no retained files/i);
 });
 
+for(const action of ['hide','applyPrune'])test(`lost ${action} response retains the exact durable receipt identity without resubmitting`,async()=>{
+  const ref={dataInstanceId:'data',runId:'settled',runtimeId:'runtime'},posts=[];let committed;
+  const view=await monitor({run:{status:'completed',monitor:{run:ref,pinnedRunId:ref.runId,capabilities:{lifecycle:true,lifecycleReceipt:true}},lifecycle:{available:true,revision:0,workers:[]}},response:(path,input)=>{
+    if(input.method==='POST'){
+      const body=JSON.parse(input.body);posts.push(body);
+      if(body.action==='planPrune')return{ok:true,json:async()=>({preview:{id:'exact-prune-plan',planHash:'b'.repeat(64),candidates:[],blocked:[]}})};
+      committed={id:action==='applyPrune'?body.planId:body.requestId,runId:ref.runId,outcome:'applied'};throw new Error('Response lost after commit');
+    }
+    if(path.startsWith('/api/lifecycle/receipts/'))return{ok:true,json:async()=>({receipt:committed})};
+  }});
+  if(action==='applyPrune'){await view.click(view.get('review-prune'));view.context.confirm=()=>true;await view.click(view.get('apply-prune'));}else await view.click(view.get('hide-run'));
+  const count=posts.length;assert.match(view.get('lifecycle-reason').textContent,/unknown/);await view.click(view.get('inspect-lifecycle'));
+  assert.ok(view.calls.some(call=>call.path===`/api/runs/${ref.runId}/lifecycle/receipts/${committed.id}`||call.path===`/api/lifecycle/receipts/${committed.id}`));
+  assert.equal(posts.length,count);assert.match(view.get('lifecycle-receipt').textContent,/applied/);assert.doesNotMatch(view.get('lifecycle-reason').textContent,/confirmation is unknown/);
+});
+
 test('restart shows suffix scope, retains reconciliation and exposes immutable earlier execution',async()=>{
   const view=await monitor({run:{status:'failed',acceptingControls:false,workers:[worker(0,'unknown',{attempts:1})],restartPreview:{eligible:true,position:0,attempt:1,affected:[{position:0,status:'unknown'},{position:1,status:'completed'}]}},response:path=>path==='/api/restart'?{ok:true,json:async()=>({generation:5})}:path.includes('sourceGeneration=3')?{ok:true,json:async()=>({position:0,status:'unknown',historyGeneration:3,error:{code:'TURN_CANCELLED'},prompt:'Earlier prompt'})}:undefined});
   assert.match(view.get('detail').textContent,/worker 1 and all later workers/i);

@@ -636,7 +636,7 @@ async function mutateLifecycle(action,target={kind:'run'}){
     else if(result.receipt){lifecycleUncertain=!['applied','rejected','hidden','archived','restored'].includes(result.receipt.outcome??result.receipt.status);if(action==='applyPrune'&&!lifecycleUncertain)pruneReview=null;actionNotice='Lifecycle receipt received. Refreshing authoritative disposition.';}
     else{lifecycleUncertain=true;actionNotice='Lifecycle response has no receipt or preview. Inspect authoritative storage before another request.';}
   }catch(error){
-    lifecycleUncertain=true;lifecycleReceipt={requestId:request.requestId,outcome:'unknown',diagnostic:error.message};
+    lifecycleUncertain=true;lifecycleReceipt={requestId:request.requestId,receiptId:action==='applyPrune'?request.planId:action==='planPrune'?null:request.requestId,runId:ref.runId,outcome:'unknown',diagnostic:error.message};
     actionNotice=`${error.message} The lifecycle request was not retried. Coordinator receipt inspection or reconciliation is required.`;
   }finally{busy=false;stale=true;notice(actionNotice);await poll();}
 }
@@ -733,7 +733,8 @@ $('review-prune').addEventListener('click',()=>mutateLifecycle('planPrune'));
 $('inspect-lifecycle').addEventListener('click',async()=>{
   const receiptId=lifecycleReceipt?.receiptId??lifecycleReceipt?.id;
   if(!receiptId){notice('The response was lost before a receipt ID was received. Ask the coordinator to reconcile the saved request ID; do not resubmit.');return;}
-  try{const result=await api(`/api/lifecycle/receipts/${encodeURIComponent(receiptId)}`);lifecycleReceipt=result.receipt??result;lifecycleUncertain=!['applied','rejected','restored','hidden','archived'].includes(lifecycleReceipt.outcome??lifecycleReceipt.status);if(snapshot)renderExperienceControls();updateButtons();}catch(error){readError(error);}
+  const viewed=runKey();
+  try{const result=await api(`/api/lifecycle/receipts/${encodeURIComponent(receiptId)}`);if(viewed!==runKey())return;lifecycleReceipt=result.receipt??result;lifecycleUncertain=!['applied','rejected','restored','hidden','archived'].includes(lifecycleReceipt.outcome??lifecycleReceipt.status);if(snapshot)renderExperienceControls();updateButtons();}catch(error){if(viewed===runKey())readError(error);}
 });
 $('close-monitor').addEventListener('click',async()=>{
   if(closed||busy||!authenticated||!confirm('Close this dashboard instance? The workflow runner and retained evidence remain available.'))return;

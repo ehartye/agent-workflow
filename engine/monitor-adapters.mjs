@@ -77,7 +77,7 @@ export async function createSessionServices({dataDir,sessionId,pinnedRunId}){
       const {owner}=await targetOwner(input.runTarget);
       if(input.generation!==input.runTarget.generation)throw fault('REPLAY_GENERATION','Lifecycle target generation changed');
       const request={sessionId,generation:input.generation,expectedRevision:input.expectedRevision,target:input.target,...(input.reason===undefined?{}:{reason:input.reason})};
-      if(['hide','archive','restore'].includes(input.action))return{receipt:await requestLifecycle(owner.runDir,{...request,action:input.action,requestId:input.requestId})};
+      if(['hide','archive','restore'].includes(input.action))return{receipt:{...await requestLifecycle(owner.runDir,{...request,action:input.action,requestId:input.requestId}),runId:owner.id}};
       if(input.action==='planPrune'){
         const preview=await planPrune(owner.runDir,request),bytes=Buffer.byteLength(JSON.stringify(preview));
         if(previews.size>=32||previewBytes+bytes>32*1024*1024)throw fault('MONITOR_LIMIT','Prune preview storage is full; close this dashboard and review a fresh plan');
@@ -88,11 +88,11 @@ export async function createSessionServices({dataDir,sessionId,pinnedRunId}){
         if(!saved||saved.ownerId!==owner.id||saved.preview.generation!==input.generation||saved.preview.lifecycleRevision!==input.expectedRevision||saved.preview.planHash!==input.approvedPlanHash||JSON.stringify(saved.preview.target)!==JSON.stringify(input.target))throw fault('PRUNE_APPROVAL','Review the exact current target and plan before applying');
         // A lost response never causes this process to repeat a destructive call.
         previews.delete(input.planId);previewBytes-=saved.bytes;
-        return{receipt:await applyPrune(owner.runDir,{sessionId,plan:saved.preview,approvedPlanHash:input.approvedPlanHash})};
+        return{receipt:{...await applyPrune(owner.runDir,{sessionId,plan:saved.preview,approvedPlanHash:input.approvedPlanHash}),runId:owner.id}};
       }
       throw fault('HTTP_INPUT','Unsupported lifecycle operation');
     },
-    async readLifecycleReceipt({runId,receiptId}){const owner=await resolveOwner(runId);return readLifecycleReceipt(owner.runDir,receiptId);},
+    async readLifecycleReceipt({runId,receiptId}){const owner=await resolveOwner(runId);return{receipt:{...await readLifecycleReceipt(owner.runDir,receiptId),runId:owner.id}};},
   };
   return{binding,services};
 }
