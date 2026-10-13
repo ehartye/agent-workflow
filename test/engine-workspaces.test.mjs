@@ -3,7 +3,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm,unlink,symlink,realpath,link} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm,unlink,symlink,realpath,link,open,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFile} from 'node:child_process';
@@ -106,6 +106,21 @@ function writerBackend(execute){
   const settings=createSettings({catalog:[{model:'fixture',isDefault:true,defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}]}],defaults:{permissions:{sandbox:'workspace-write'}}});
   return{identity:'writer-fixture',resolveOptions:settings.resolve,execute,close:async()=>cleanup};
 }
+
+test('capture limits retain a precise durable diagnostic and leave completed worker artifacts unknown',async t=>{
+  const {root,source}=await fixture(t),runDir=join(root,'run');
+  const result=await runWorkflow({runDir,sessionId:'s',launch:{cwd:source},script:'export const meta={name:"capture-limit",description:"proof"};return await agent("edit");',backend:writerBackend(async({workspace})=>{
+    const handle=await open(join(workspace.cwd,'large-dependency.bin'),'w');
+    try{await handle.truncate(128*1024*1024+1);}finally{await handle.close();}
+    return{value:'worker finished',terminalObserved:true,evidence:{cleanup}};
+  })});
+  const worker=result.workers[0];
+  assert.equal(worker.status,'unknown');assert.equal(worker.error.code,'WORKSPACE_ARTIFACT');
+  assert.deepEqual(worker.workspaceError.capture,{stage:'files',cause:{code:'WORKSPACE_LIMIT',message:'Workspace exceeds the byte capture limit'}});
+  assert.equal(worker.evidence.cleanup.jobEmpty,true);assert.equal(worker.workspace.patchPath,undefined);
+  assert.equal((await stat(join(worker.workspace.cwd,'large-dependency.bin'))).size,128*1024*1024+1);
+  assert.deepEqual((await readRun(runDir)).workers[0].workspaceError,worker.workspaceError);
+});
 test('a writer rejected before any process starts retains its empty diff with a known failure',async t=>{
   const {root,source}=await fixture(t);
   const result=await runWorkflow({runDir:join(root,'run'),sessionId:'s',launch:{cwd:source},script:'export const meta={name:"prestart",description:"proof"};return await agent("edit");',

@@ -285,7 +285,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
           const retained=await collectWorkspace(worker.workspace);
           if(retiredWrites)throw fault('RUN_RETIRED','Late artifacts cannot change terminal evidence');
           worker.workspace=retained;
-        }catch(error){if(!retiredWrites)worker.workspaceError=diagnostic(error);throw error;}
+        }catch(error){if(!retiredWrites)worker.workspaceError={...diagnostic(error),...(error.captureFailure?{capture:error.captureFailure}:{})};throw error;}
       };
       try {
         await waitFor(Promise.all(dependencies.map(position=>settlements.get(position))),signal);

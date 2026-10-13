@@ -3,7 +3,7 @@ import {mkdir,realpath,lstat,readFile,writeFile,copyFile,chmod,open} from 'node:
 import {createHash,randomUUID} from 'node:crypto';
 import {join,resolve,relative,dirname,basename,isAbsolute,sep} from 'node:path';
 import {tmpdir} from 'node:os';
-import {fault} from '../foundation/client.mjs';
+import {fault,diagnostic} from '../foundation/client.mjs';
 
 const maxFiles=20000,maxBytes=128*1024*1024,maxPatch=32*1024*1024;
 const noHooks=join(tmpdir(),`workflow-no-hooks-${randomUUID()}`);
@@ -146,22 +146,30 @@ export async function createWorkspace({inputs,artifactsDir}){
   }catch(error){throw Object.assign(fault('WORKSPACE_CREATE','Could not establish an isolated writer workspace'),{cause:error,...(cwd?{workspacePath:cwd}:{})});}
 }
 export async function collectWorkspace(workspace){
+  let stage='identity';
   try{
     await verifyIdentity(workspace);
     // Read against the immutable input index, independent of worker staging.
+    stage='destination';
     const capturedDir=await directory(join(workspace.artifactsDir,'result'),workspace.cwd);
-    const captured=await captureFiles(workspace.cwd,await list(workspace.cwd,workspace.inputIndex),capturedDir);
+    stage='inventory';
+    const entries=await list(workspace.cwd,workspace.inputIndex);
+    stage='files';
+    const captured=await captureFiles(workspace.cwd,entries,capturedDir);
+    stage='tree';
     const built=await tree(workspace.cwd,captured,capturedDir);
+    stage='diff';
     const diffArgs=['diff','--binary','--no-ext-diff','--no-textconv','--no-renames','--no-color','--src-prefix=a/','--dst-prefix=b/'];
     const patch=await git(workspace.cwd,[...diffArgs,workspace.inputTree,built.tree,'--']);
     const basePatch=await git(workspace.cwd,[...diffArgs,workspace.base,built.tree,'--']);
     const changedFiles=names(await git(workspace.cwd,['diff','--name-only','-z','--no-ext-diff','--no-textconv','--no-renames',workspace.inputTree,built.tree,'--']));
+    stage='persist';
     const patchPath=join(capturedDir,'changes.patch'),basePatchPath=join(capturedDir,'from-base.patch');
     await writeFile(patchPath,patch,{flag:'wx'});await writeFile(basePatchPath,basePatch,{flag:'wx'});
     const result={...workspace,resultTree:built.tree,changedFiles,patchPath,basePatchPath,patchHash:digest(patch),basePatchHash:digest(basePatch),bytes:captured.bytes,fileCount:captured.files.length};
     const manifestPath=join(capturedDir,'manifest.json'),manifest=JSON.stringify({...result,files:captured.files})+'\n';
     await writeFile(manifestPath,manifest,{flag:'wx'});return{...result,manifestPath,manifestHash:digest(manifest)};
-  }catch(error){throw Object.assign(fault('WORKSPACE_ARTIFACT','Could not retain a complete workspace diff; workspace remains on disk'),{cause:error,workspacePath:workspace.cwd});}
+  }catch(error){throw Object.assign(fault('WORKSPACE_ARTIFACT','Could not retain a complete workspace diff; workspace remains on disk'),{cause:error,captureFailure:{stage,cause:diagnostic(error)},workspacePath:workspace.cwd});}
 }
 async function verifyIdentity(workspace){
   await checkIndex(workspace);
