@@ -17,6 +17,22 @@ import {runWorkflow} from '../engine/controller.mjs';
 
 const meta='export const meta={name:"Monitor",description:"Real run"};\n';
 const backend=execute=>({identity:'monitor-fixture',execute,close:async()=>({serverExited:true,descendants:'notVerified'})});
+
+test('dashboard stays available without activity until authenticated close, with opt-in idle expiry',async t=>{
+  const {runDir,createMonitor}=await setup(t);
+  await runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',backend:backend(async()=>{})});
+  t.mock.timers.enable({apis:['Date','setInterval']});
+  const monitor=await createMonitor({runDir});t.after(()=>monitor.close());
+  const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token');
+  const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+  t.mock.timers.tick(31*60*1000);
+  assert.equal((await fetch(url.origin+'/api/run',{headers})).status,200);
+  assert.equal((await fetch(url.origin+'/api/close',{method:'POST',headers,body:'{}'})).status,200);
+  await monitor.close();await assert.rejects(fetch(url.origin+'/api/run',{headers}));
+  const expiring=await createMonitor({runDir,idleMs:100});t.after(()=>expiring.close());
+  t.mock.timers.tick(200);await new Promise(resolve=>setImmediate(resolve));
+  await assert.rejects(fetch(new URL(expiring.url).origin+'/api/run'));
+});
 test('patch reads are authenticated, generation-bound, hash-checked and bounded for the monitor',async t=>{
   const {runDir,createMonitor}=await setup(t);
   await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("edit");',backend:backend(async()=>({value:'done',terminalObserved:true}))});

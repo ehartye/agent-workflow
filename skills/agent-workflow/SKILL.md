@@ -13,4 +13,6 @@ Use `node "<plugin-root>/bin/launch.mjs" <command>`. Resolve plugin-root from th
 
 All commands accept --data-dir for explicitly selected state; keep it consistent. Otherwise use AGENT_WORKFLOW_DATA_DIR if set, then LOCALAPPDATA/agent-workflow (home .local/share/agent-workflow if LOCALAPPDATA is absent). PLUGIN_DATA does not implicitly select another instance. If installation is missing or changed, use workflow-setup.
 
+Runs normally continue until script completion or manual Stop, and the dashboard stays available until explicitly closed. Do not infer that the host session ending stops either process. Workers have a 10-minute default deadline; `run`/`resume --worker-timeout-ms` can select 1–1,800,000 ms. For a deliberate overall wall limit use `--run-timeout-ms` (1–86,400,000; 0 removes it). Resume inherits saved limits unless overridden. CPU/memory limits and a no-broker-work idle watchdog remain enforced.
+
 Workers use pinned native Codex App Server with existing managed ChatGPT login. There is no API-key fallback, custom MCP server, parent history/tool-grant inheritance, native composer switch or shared parent token budget. Observed usage is evidence, not a hard spending cap. Workflow mode grants no permissions. SSH verification remains deferred.

@@ -20,9 +20,10 @@ test('CLI writable opt-in persists the permission ceiling before native admissio
   const base=await mkdtemp(join(tmpdir(),'workflow-cli-write-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
   const runDir=join(base,'run'),script=join(base,'workflow.mjs');await writeFile(script,'export const meta={name:"writer",description:"proof"};return await agent("edit");');
   // Node deliberately fails the pinned Codex version check, so this exercises CLI launch without inference.
-  await exec(process.execPath,[fileURLToPath(new URL('../engine/cli.mjs',import.meta.url)),'--writable','--codex',process.execPath,'--cwd',base,'--script',script,'--run',runDir,'--session','s'],{timeout:15000,windowsHide:true}).catch(()=>{});
+  await exec(process.execPath,[fileURLToPath(new URL('../engine/cli.mjs',import.meta.url)),'--writable','--run-timeout-ms','0','--worker-timeout-ms','1800000','--codex',process.execPath,'--cwd',base,'--script',script,'--run',runDir,'--session','s'],{timeout:15000,windowsHide:true}).catch(()=>{});
   const files=await readdir(runDir),launch=files.find(name=>name.startsWith('launch-'));
   assert.ok(launch);assert.deepEqual(JSON.parse(await readFile(join(runDir,launch),'utf8')).launch.defaults.permissions,{sandbox:'workspace-write'});
+  const request=JSON.parse(await readFile(join(runDir,launch),'utf8'));assert.equal(request.timeoutMs,null);assert.equal(request.workerTimeoutMs,1800000);
   const finish=files.find(name=>name.startsWith('finish-'));assert.ok(finish);assert.equal(JSON.parse(await readFile(join(runDir,finish),'utf8')).status,'failed');
 });
 
@@ -54,7 +55,7 @@ test('detached controller survives launcher exit, pauses durably and resumes fro
   const runDir=join(base,'run');const input=join(base,'input.json');
   await writeFile(join(base,'hold-A'),'Hold the first worker until pause is applied.');
   const defaults={model:'fixture-model',effort:'low',maxAttempts:2};
-  await writeFile(input,JSON.stringify({runDir,sessionId:'original',codex:process.execPath,cwd:base,defaults,concurrency:1,script:'export const meta={name:"background",description:"proof"};return await parallel([()=>agent("A"),()=>agent("B")]);'}));
+  await writeFile(input,JSON.stringify({runDir,sessionId:'original',codex:process.execPath,cwd:base,defaults,timeoutMs:7200000,workerTimeoutMs:1800000,concurrency:1,script:'export const meta={name:"background",description:"proof"};return await parallel([()=>agent("A"),()=>agent("B")]);'}));
   const launch=async()=>JSON.parse((await exec(process.execPath,[fileURLToPath(new URL('./fixtures/engine-launch.mjs',import.meta.url)),input],{timeout:8000,windowsHide:true})).stdout);
   const receipt=await launch();
   assert.equal(receipt.status,'running');
@@ -65,6 +66,7 @@ test('detached controller survives launcher exit, pauses durably and resumes fro
   await unlink(join(base,'hold-A'));
   const paused=await until(()=>readRun(runDir),state=>state.status==='paused');
   assert.deepEqual(paused.launch.defaults,defaults);
+  assert.equal(paused.timeoutMs,7200000);assert.equal(paused.workerTimeoutMs,1800000);assert.equal(paused.workers[0].options.timeoutMs,1800000);
   assert.deepEqual(JSON.parse(await readFile(join(base,'backend-defaults.json'),'utf8')),defaults);
   assert.equal(paused.attempts,1);assert.equal(paused.workers[0].result,'A');
   const status=JSON.parse((await exec(process.execPath,[fileURLToPath(new URL('../engine/cli.mjs',import.meta.url)),'--run',runDir,'--status'],{timeout:3000,windowsHide:true})).stdout);
@@ -74,6 +76,7 @@ test('detached controller survives launcher exit, pauses durably and resumes fro
   const resumed=await launch();assert.equal(resumed.generation,2);
   const completed=await until(()=>readRun(runDir),state=>state.status==='completed');
   assert.deepEqual(completed.launch.defaults,defaults);
+  assert.equal(completed.timeoutMs,7200000);assert.equal(completed.workerTimeoutMs,1800000);assert.equal(completed.workers[1].options.timeoutMs,1800000);
   assert.deepEqual(JSON.parse(await readFile(join(base,'backend-defaults.json'),'utf8')),defaults);
   assert.deepEqual(completed.result,['A','B']);assert.equal(completed.coverage.cached,1);assert.equal(completed.attempts,2);
   await until(()=>readFile(resumed.resultPath,'utf8'),()=>true);

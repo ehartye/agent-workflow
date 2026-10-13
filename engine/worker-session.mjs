@@ -1,8 +1,9 @@
 import {fault,diagnostic} from '../foundation/client.mjs';
 import {runTurn} from '../foundation/turn.mjs';
 import {compileSchema} from './schema.mjs';
+import {DEFAULT_WORKER_TIMEOUT_MS} from './deadlines.mjs';
 
-export async function runWorkerSession(client,{threadId,prompt,schema,settings,execution,timeoutMs=120000,signal,reserveRetry,turn=runTurn,onActive,onEvent}){
+export async function runWorkerSession(client,{threadId,prompt,schema,settings,execution,timeoutMs=DEFAULT_WORKER_TIMEOUT_MS,signal,reserveRetry,turn=runTurn,onActive,onEvent}){
   const compiled=schema===undefined?null:compileSchema(schema);
   const maxAttempts=compiled?settings.maxAttempts:1;
   if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>5||!Number.isFinite(timeoutMs)||timeoutMs<=0)throw Object.assign(fault('WORKER_SETTINGS','Invalid worker attempt limit or deadline'),{notStarted:true});

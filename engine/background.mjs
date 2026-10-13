@@ -8,6 +8,7 @@ import {parseScript} from './script.mjs';
 import {createLaunch} from '../foundation/launch.mjs';
 import {fault,diagnostic} from '../foundation/client.mjs';
 import {restartPlan} from './restart.mjs';
+import {resolveDeadlines} from './deadlines.mjs';
 
 export async function startBackground(input,{runnerPath=fileURLToPath(new URL('./background-child.mjs',import.meta.url)),startupMs=60000}={}){
   if(!isAbsolute(input.runDir??'')||typeof input.sessionId!=='string'||!input.sessionId||!Number.isFinite(startupMs)||startupMs<=0)throw fault('BACKGROUND_INPUT','Provide an absolute run directory and originating session');
@@ -25,7 +26,7 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   launch.cwd=native.cwd;
   const request={runDir:input.runDir,sessionId:input.sessionId,script:input.script??previous?.script,
     args:Object.hasOwn(input,'args')?input.args:previous?.args??null,concurrency:input.concurrency??previous?.concurrency??2,
-    maxAgents:input.maxAgents??previous?.maxAgents??1000,resume:input.resume===true,launch,...(input.expectedGeneration===undefined?{}:{expectedGeneration:input.expectedGeneration}),...(input.restart===undefined?{}:{restart:input.restart})};
+    maxAgents:input.maxAgents??previous?.maxAgents??1000,...resolveDeadlines(input,previous??{}),resume:input.resume===true,launch,...(input.expectedGeneration===undefined?{}:{expectedGeneration:input.expectedGeneration}),...(input.restart===undefined?{}:{restart:input.restart})};
   parseScript(request.script);
   const serialized=JSON.stringify(request);
   if(Buffer.byteLength(serialized)>2*1024*1024)throw fault('BACKGROUND_INPUT','Background request exceeded its limit');

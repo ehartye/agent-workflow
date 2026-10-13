@@ -12,8 +12,14 @@ import {startBackground} from '../engine/background.mjs';
 import {createManagedBackend} from '../engine/backend.mjs';
 import {startMonitor} from '../engine/monitor-launch.mjs';
 import {monitorData} from '../engine/monitor-data.mjs';
+import {MAX_RUN_TIMEOUT_MS,MAX_WORKER_TIMEOUT_MS} from '../engine/deadlines.mjs';
 const print=value=>console.log(JSON.stringify(value,null,2));
 function integer(value,name,{min=0,max=Number.MAX_SAFE_INTEGER,required=false}={}){if(value===undefined&&!required)return undefined;if(typeof value!=='string'||!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)<min||Number(value)>max)throw Error(`--${name} requires an integer from ${min} to ${max}`);return Number(value);}
+function deadlines(options){
+ const run=integer(options['run-timeout-ms'],'run-timeout-ms',{max:MAX_RUN_TIMEOUT_MS});
+ const worker=integer(options['worker-timeout-ms'],'worker-timeout-ms',{min:1,max:MAX_WORKER_TIMEOUT_MS});
+ return{...(run===undefined?{}:{timeoutMs:run===0?null:run}),...(worker===undefined?{}:{workerTimeoutMs:worker})};
+}
 export async function main(tokens=process.argv.slice(2)){
  const p=parseCommand(tokens),o=p.values;if(p.command==='help'||o.help){process.stdout.write(help);return 0;}
  let owner;
@@ -42,10 +48,10 @@ export async function main(tokens=process.argv.slice(2)){
  if(p.command==='run'){
   if(o.script&&p.id)throw Error('Choose a saved workflow name or --script');if(!o.script&&!p.id)throw Error('Provide a saved workflow name or --script');
   const script=o.script?await readFile(resolve(o.script),'utf8'):(await resolveWorkflow(p.id,registry)).script;parseScript(script);
-  const args=o.args===undefined?null:JSON.parse(o.args),concurrency=integer(o.concurrency,'concurrency',{min:1,max:256})??2;
+  const args=o.args===undefined?null:JSON.parse(o.args),concurrency=integer(o.concurrency,'concurrency',{min:1,max:256})??2,limits=deadlines(o);
   const defaults={...(o.model?{model:o.model}:{}),...(o.effort?{effort:o.effort}:{}),...(o['max-attempts']!==undefined?{maxAttempts:integer(o['max-attempts'],'max-attempts',{min:1,max:5})}:{}),...(o.writable?{permissions:{sandbox:'workspace-write'}}:{})};
   const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir}),binding=await bindRun({dataDir:p.dataDir,runtime,sessionId:p.sessionId});
-  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults},input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...launch};
+  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults},input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
   try{if(!o.foreground){print({id:binding.id,...await startBackground(input)});return 0;}
    const backend=await createManagedBackend({executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}
@@ -61,7 +67,7 @@ export async function main(tokens=process.argv.slice(2)){
   print(await monitorData(runDir,{kind:p.command==='events'?'activity':p.command,generation,position,sourceGeneration,after:integer(o.after,'after')??0,limit:integer(o.limit,'limit',{min:1,max:100})??50,basis:o.basis??'inputs',previewBytes:32*1024*1024}));return 0;
  }
  if(p.command==='resume'||p.command==='restart-worker'){
-  print({id:p.id,...await startBackground({runDir,sessionId:p.sessionId,resume:true,...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})})});return 0;
+  print({id:p.id,...await startBackground({runDir,sessionId:p.sessionId,resume:true,...deadlines(o),...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})})});return 0;
  }
  print(await requestControl(runDir,{sessionId:p.sessionId,generation,action:p.command,...(['steer','cancel-worker'].includes(p.command)?{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),turnId:o.turn??null,...(o.text!==undefined?{text:o.text}:{})}:{})}));return 0;
 }

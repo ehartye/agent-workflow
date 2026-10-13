@@ -7,6 +7,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const meta = 'export const meta = {name:"proof",description:"local workflow"};\n';
+
+test('manual-lifetime evaluator waits for broker work beyond its guest idle budget',async()=>{
+  const evaluate=await evaluator();
+  const result=await evaluate(meta+'return await agent("long implementation");',{timeoutMs:null,idleTimeoutMs:400,call:async()=>{
+    await new Promise(resolve=>setTimeout(resolve,800));return 'completed';
+  }});
+  assert.equal(result,'completed');
+});
+
+test('manual-lifetime evaluator still terminates guest deadlock after broker work settles',async()=>{
+  const evaluate=await evaluator();
+  for(const body of ['await new Promise(()=>{});','await agent("A");await new Promise(()=>{});']){
+    await assert.rejects(evaluate(meta+body,{timeoutMs:null,idleTimeoutMs:400,call:async()=> 'ok'}),{code:'EVALUATOR_IDLE'});
+  }
+});
 async function evaluator() {
   const module = await import('../engine/evaluate.mjs').catch(() => null);
   assert.ok(module?.evaluate, 'Fresh isolated evaluator must exist');

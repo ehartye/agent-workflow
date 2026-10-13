@@ -9,6 +9,7 @@ import {buildJobHost} from '../foundation/windows-job.mjs';
 import { createLaunch, assertChatgptLogin } from '../foundation/launch.mjs';
 import { assertManagedChatgpt, probe } from '../foundation/probe.mjs';
 import { runWorkerSession } from './worker-session.mjs';
+import {DEFAULT_WORKER_TIMEOUT_MS} from './deadlines.mjs';
 import { createSettings } from './settings.mjs';
 import {steerTurn} from '../foundation/turn.mjs';
 import { restrictLaunch, assertRestricted, assertDisabledInventory, fingerprint } from './policy.mjs';
@@ -115,7 +116,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost}){
           assertDisabledInventory(tools);
           if (signal?.aborted) throw fault('RUN_STOPPED', 'Workflow admission is closed');
           started = true;
-          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? 120000, signal, schema:options.schema,settings:effective,execution:policy?.turn,reserveRetry,onEvent,onActive:identity=>{activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
+          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt, timeoutMs: options.timeoutMs ?? DEFAULT_WORKER_TIMEOUT_MS, signal, schema:options.schema,settings:effective,execution:policy?.turn,reserveRetry,onEvent,onActive:identity=>{activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
           result.evidence.settings=effective;
           return result;
         } catch (error) {primary=error;if (!started) error.notStarted = true; throw error; }

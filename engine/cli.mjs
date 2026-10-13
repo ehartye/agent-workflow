@@ -15,6 +15,7 @@ const { values } = parseArgs({ options: {
   run: { type: 'string' }, session: { type: 'string' }, args: { type: 'string' },
   backend: { type: 'string' }, resume: { type: 'boolean' }, status: { type: 'boolean' },
   concurrency: { type: 'string' }, help: { type: 'boolean' },foreground:{type:'boolean'},
+  'run-timeout-ms':{type:'string'},'worker-timeout-ms':{type:'string'},
   action:{type:'string'},generation:{type:'string'},control:{type:'string'},dashboard:{type:'boolean'},
   position:{type:'string'},attempt:{type:'string'},turn:{type:'string'},text:{type:'string'},
   reconcile:{type:'string'},worker:{type:'string'},'source-generation':{type:'string'},
@@ -24,6 +25,7 @@ const { values } = parseArgs({ options: {
   workflow:{type:'string'},'list-workflows':{type:'boolean'},'read-workflow':{type:'string'},'save-workflow':{type:'string'},validate:{type:'boolean'},command:{type:'boolean'},overwrite:{type:'boolean'},
 } });
 if (values.help) {
+  console.log('Deadlines: --worker-timeout-ms <1-1800000> defaults to 600000; --run-timeout-ms <0-86400000> defaults to 0 (completion/manual Stop). Resume inherits saved deadlines unless overridden.');
   console.log('Saved definitions: --list-workflows | --read-workflow <[scope:]name> | --save-workflow <[scope:]name> --script <file> [--command] [--overwrite]. Validate: --validate --script <file>. Start a saved definition with --workflow <[scope:]name> instead of --script. Project lookup uses --cwd.');
   console.log('Read a verified complete patch: --patch <worker position> --run <directory> --generation <observed generation> [--basis inputs|base] [--source-generation <prior generation>]. Returns JSON with patch text and SHA-256.');
   console.log('Isolated edits: --writable authorizes workspace-write workers in separate Git worktrees. Default is read-only. Writers require a Git project and a run directory outside it; changes are retained for review.');
@@ -63,6 +65,7 @@ if (values.help) {
         ...(values.codex?{codex:values.codex}:{}),...(values.cwd?{cwd:values.cwd}:{}),...(values.backend?{backend:values.backend}:{}),
         ...(values.workflow?{script:(await resolveWorkflow(values.workflow,{cwd:values.cwd??process.cwd()})).script}:values.script?{script:await readFile(resolve(values.script),'utf8')}:{}),
         ...(values.args!==undefined?{args:JSON.parse(values.args)}:{}),...(values.concurrency?{concurrency:Number(values.concurrency)}:{}),
+        ...(values['run-timeout-ms']!==undefined?{timeoutMs:values['run-timeout-ms']==='0'?null:Number(values['run-timeout-ms'])}:{}),...(values['worker-timeout-ms']!==undefined?{workerTimeoutMs:Number(values['worker-timeout-ms'])}:{}),
         ...(['model','effort','max-attempts','writable'].some(key=>values[key]!==undefined)?{defaults:{...(values.model!==undefined?{model:values.model}:{}),...(values.effort!==undefined?{effort:values.effort}:{}),...(values['max-attempts']!==undefined?{maxAttempts:Number(values['max-attempts'])}:{}),...(values.writable?{permissions:{sandbox:'workspace-write'}}:{})}}:{})};
       if(!values.foreground)console.log(JSON.stringify(await startBackground(input),null,2));
       else {

@@ -13,7 +13,7 @@ async function body(request){
   for await(const chunk of request){size+=chunk.length;if(size>40000)throw fault('HTTP_INPUT','Request body exceeded its limit');chunks.push(chunk);}
   try{const value=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(!value||typeof value!=='object'||Array.isArray(value))throw new Error();return value;}catch{throw fault('HTTP_INPUT','Provide a JSON object');}
 }
-export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1000}){
+export async function createMonitor({runDir,start=startBackground,idleMs=null}){
   await monitorData(runDir);
   const token=randomBytes(32).toString('base64url');let origin,busy=false,lastActivity=Date.now();
   const send=(response,status,value,type='application/json')=>{response.writeHead(status,{'Content-Type':`${type}; charset=utf-8`});response.end(type==='application/json'?JSON.stringify(value):value);};
@@ -70,7 +70,7 @@ export async function createMonitor({runDir,start=startBackground,idleMs=30*60*1
   server.requestTimeout=5000;server.headersTimeout=5000;server.keepAliveTimeout=1000;
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
   origin=`http://127.0.0.1:${server.address().port}`;
-  const timer=setInterval(()=>{if(!busy&&Date.now()-lastActivity>idleMs)void close();},Math.min(idleMs,30000));timer.unref();
+  const timer=idleMs===null?undefined:setInterval(()=>{if(!busy&&Date.now()-lastActivity>idleMs)void close();},Math.min(idleMs,30000));timer?.unref();
   let closing;
   function close(){clearInterval(timer);return closing??=new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});}
   return{url:`${origin}/#token=${token}`,close};
