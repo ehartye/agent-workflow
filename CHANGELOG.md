@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Display the plugin as `agent-workflow` in Codex and the local marketplace.
+
 ## 0.2.0
 
 - Replace the old supervisor/MCP runtime with a CLI and skill integration around pinned native Codex App Server workers, using managed ChatGPT subscription authentication.
