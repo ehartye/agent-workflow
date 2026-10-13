@@ -4,6 +4,11 @@
   "description": "Scripted, durable Codex workflows with parallel agents, replay and a local control desk",
   "type": "module",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ehartye/agent-workflow.git"
+  },
   "engines": {
     "node": ">=24"
   },
@@ -11,7 +16,7 @@
     "agent-workflow": "./bin/agent-workflow.mjs"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --test-concurrency=2 test/*.test.mjs",
     "check": "node scripts/check-plugin.mjs",
     "smoke": "node scripts/smoke.mjs"
   },

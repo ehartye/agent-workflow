@@ -8,6 +8,16 @@ This is a regular Codex plugin with an owned runtime. Native composer controls, 
 
 Requirements: Node **24+** with npm, and an authenticated Codex installation/account for real workers. The package pins its runtime dependencies and Codex adapter version. Setup uses `npm ci --ignore-scripts`; it does not install global packages or modify global AGENTS/config.
 
+Clone the public repository, using the release tag for a fixed package version:
+
+```sh
+git clone --branch v0.1.0 https://github.com/ehartye/agent-workflow.git
+codex plugin marketplace add ./agent-workflow
+codex plugin add agent-workflow@agent-workflow-local
+```
+
+Then run the installed plugin's `workflow-setup` skill as described below. This GitHub release supports manual/local installation; it is not a public Plugins Directory submission.
+
 The repository includes root `plugin.json`, portable `mcp.json`, compatibility manifests, and a local marketplace at `.agents/plugins/marketplace.json`. Add this repository as a local marketplace with `codex plugin marketplace add <repository-path>`, then install with `codex plugin add agent-workflow@agent-workflow-local` or the local source in the supported Codex/ChatGPT desktop Plugins Directory. Restart/refresh the host as required by its plugin UI. A cached plugin is a copy: changing this checkout does not establish that the installed copy changed.
 
 Run the plugin’s `workflow-setup` onboarding skill. It executes the equivalent of:
@@ -20,6 +30,8 @@ node "<installed-plugin-root>/bin/launch.mjs" doctor --data-dir "<plugin-data-di
 The host provides `PLUGIN_ROOT` and `PLUGIN_DATA` to plugin subprocesses. Portable MCP arguments/environment/cwd use those exact placeholders. Before setup, the MCP server connects through a dependency-free read-only bootstrap offering `workflow_setup_info`. It returns the exact host-resolved paths and structured setup/verification commands, even when native Codex uses a hashed data directory. Execute setup explicitly, then reconnect to load the normal workflow tools. The parent agent’s ordinary shell may not have these variables and should not guess another data directory.
 
 Setup copies an immutable runtime and installs dependencies under `<plugin-data-directory>/runtime/`; prompts, runs and mode settings stay in persistent data. A changed package returns setup-info again and requires explicit setup; launch never silently updates. The bootstrap never installs or launches workflows. Drain an existing supervisor before switching runtime versions for new work.
+
+For an update, follow [upgrade and drain instructions](skills/workflow-setup/references/upgrades.md) before setup. Use the retained old runtime CLI with the exact data directory to inspect/drain its supervisor; the changed-package launcher rejects commands until explicit setup. Retain old runtimes for paused runs requiring their recorded runtime identity.
 
 Outside a plugin host, state defaults to `%LOCALAPPDATA%/agent-workflow` on Windows or `~/.local/share/agent-workflow` elsewhere. `--data-dir` or `AGENT_WORKFLOW_DATA_DIR` selects another instance. Keep this directory outside the plugin package.
 
@@ -41,7 +53,7 @@ node bin/agent-workflow.mjs run plugin:item-audit --cwd C:/path/to/project --arg
 node bin/agent-workflow.mjs dashboard --open
 ```
 
-For the installed package, replace `node bin/agent-workflow.mjs` with `node "<installed-plugin-root>/bin/launch.mjs"`. Defaults are read-only workers, no network, and approvals never. Explicit authorized write work uses `--sandbox workspace-write`; network uses `--network true`; live approval waits use `--approvals on-request`. Run `help` for all controls.
+For the installed package, replace the leading `node bin/agent-workflow.mjs` with `node "<installed-plugin-root>/bin/launch.mjs"` and append `--data-dir "<exact-host-dataDir>"` to every command. Use setup-info or host diagnostics for that exact directory; the parent shell may otherwise select a different default instance. Defaults are read-only workers, no network, and approvals never. Explicit authorized write work uses `--sandbox workspace-write`; network uses `--network true`; live approval waits use `--approvals on-request`. Run `help` for all controls.
 
 The service binds only `127.0.0.1` on an ephemeral port. API calls require a local bearer token and browser requests must have the service’s exact origin. `dashboard` puts the token in the URL fragment, which the page removes from the displayed URL and stores in tab session storage. Treat dashboard URLs and the local service/run directory as private.
 
@@ -105,3 +117,7 @@ Tests use explicit offline fixture processes and test persistence, failure bound
 Credentialed live smoke is separate and read-only; it is not hidden inside ordinary tests. Skill authoring evaluation evidence must distinguish validated API behavior from measured usefulness; a correct baseline does not establish a quality gain from the skill. The bundled Python skill validator needs PyYAML in a separate developer environment; Python is not a runtime dependency.
 
 See [service/MCP API](docs/api.md), [host and runtime limits](docs/limitations.md), and the [implementation plan](docs/implementation-plan.md). As-built architecture/roadmap lives in the project’s wiki-master vault.
+
+Release evidence is in [verification](docs/verification.md) and the [Yoda skill audit](docs/skill-audit.md).
+
+Licensed under [MIT](LICENSE).

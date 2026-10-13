@@ -5,6 +5,8 @@ import path from 'node:path';
 
 const send = message => process.stdout.write(`${JSON.stringify(message)}\n`);
 const args = process.argv.slice(2);
+const toolWaitMs = Number(process.env.CODEX_FIXTURE_TOOL_WAIT_MS || 450);
+const hardToolWaitMs = Number(process.env.CODEX_FIXTURE_HARD_TOOL_WAIT_MS || 1500);
 let initialized = false;
 let acknowledged = false;
 let threadParams;
@@ -34,7 +36,7 @@ if (args.includes('exec')) {
   } else if (input === 'exec-stall') {
     setInterval(() => {}, 1000);
   } else {
-    if (input.startsWith('tool-')) await new Promise(resolve => setTimeout(resolve, input === 'tool-hard-timeout' ? 1500 : 450));
+    if (input.startsWith('tool-')) await new Promise(resolve => setTimeout(resolve, input === 'tool-hard-timeout' ? hardToolWaitMs : toolWaitMs));
     send({ type: 'item.completed', item: { id: 'tool', type: 'command_execution', command: 'echo fixture', status: 'completed' } });
     send({ type: 'item.completed', item: { id: 'final', type: 'agent_message', text: input.includes('invalid') ? '{bad' : JSON.stringify({ ok: true, args, prompt: input }) } });
     send({ type: 'turn.completed', ...(input === 'missing-usage' ? {} : { usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: input === 'bad-usage' ? 'unknown' : 7, reasoning_output_tokens: 1 } }) });
@@ -75,7 +77,7 @@ if (args.includes('exec')) {
         setTimeout(() => {
           send({ method: 'item/completed', params: { threadId: 'thread-fixture', turnId: 'turn-fixture', item: { id: 'tool', type: 'commandExecution', status: 'completed' } } });
           if (prompt !== 'tool-done-stall') finish('{"ok":true}');
-        }, prompt === 'tool-hard-timeout' ? 1500 : 450);
+        }, prompt === 'tool-hard-timeout' ? hardToolWaitMs : toolWaitMs);
         continue;
       }
       if (prompt === 'quota' || prompt === 'quota-after-tool' || await quotaOnce(prompt)) {

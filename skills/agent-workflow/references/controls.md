@@ -1,6 +1,6 @@
 # CLI and controls
 
-Installed plugin: run `node "<plugin-root>/bin/launch.mjs" <command>`. Source checkout after `npm ci`: `node bin/agent-workflow.mjs <command>`. State lives in `PLUGIN_DATA` when supplied by the host, or `%LOCALAPPDATA%/agent-workflow` on Windows and `~/.local/share/agent-workflow` elsewhere. `AGENT_WORKFLOW_DATA_DIR` or `--data-dir` selects an explicit separate instance.
+Installed plugin: run `node "<plugin-root>/bin/launch.mjs" <command> --data-dir "<exact-host-dataDir>"`. Obtain that exact directory from the installed instance's setup-info or host diagnostics; use the packaged `workflow-setup` skill if it is unknown. The parent shell may lack the plugin subprocess's `PLUGIN_DATA`, and the platform default can target a different instance. Source checkout after `npm ci`: `node bin/agent-workflow.mjs <command>`. State lives in `PLUGIN_DATA` when supplied by the host, or `%LOCALAPPDATA%/agent-workflow` on Windows and `~/.local/share/agent-workflow` elsewhere. `AGENT_WORKFLOW_DATA_DIR` or `--data-dir` selects an explicit separate instance.
 
 | Command | Purpose |
 | --- | --- |

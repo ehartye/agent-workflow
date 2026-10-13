@@ -12,6 +12,10 @@ const cwd = fileURLToPath(new URL('..', import.meta.url));
 const schema = { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] };
 const request = (prompt = 'success', extra = {}) => ({ id: `fixture-${prompt}`, runId: 'test-run', prompt, cwd, schema, permissions: { sandbox: 'read-only', networkAccess: false, approvalPolicy: 'never' }, ...extra });
 const backend = extra => module.createCodexBackend({ executable: process.execPath, config: { executableArgs: [fixture], ...extra } });
+// Process startup is outside the behavior under test. The wait still exceeds the
+// stall window, and the hard timeout still expires well before the tool ends.
+const stallWindowMs = 1000;
+const watchdogBackend = transport => module.createCodexBackend({ transport, executable: process.execPath, config: { executableArgs: [fixture], env: { CODEX_FIXTURE_TOOL_WAIT_MS: '1500', CODEX_FIXTURE_HARD_TOOL_WAIT_MS: '5000' } } });
 
 test('app-server initializes, streams complete records, validates output and counts cumulative usage once', async t => {
   assert.equal(typeof module.createCodexBackend, 'function', 'Codex backend must be implemented');
@@ -35,7 +39,7 @@ test('app-server initializes, streams complete records, validates output and cou
 });
 
 async function guarded(b, input, handlers = {}) {
-  const timer = setTimeout(() => b.shutdown(), 1500);
+  const timer = setTimeout(() => b.shutdown(), 10000);
   try { return await b.execute(input, handlers); } finally { clearTimeout(timer); }
 }
 
@@ -138,8 +142,8 @@ test('commentary does not replace a final answer', async t => {
 
 test('timeouts and stalls drain workers and preserve uncertain write outcomes', async t => {
   const b = backend(); t.after(() => b.shutdown());
-  await assert.rejects(guarded(b, request('stall', { timeoutMs: 150, permissions: { sandbox: 'workspace-write', networkAccess: false, approvalPolicy: 'never' } })), { code: 'TIMEOUT', outcome: 'unknown' });
-  await assert.rejects(guarded(b, request('stall', { stallMs: 100, timeoutMs: 1000 })), { code: 'STALLED', outcome: 'cancelled' });
+  await assert.rejects(guarded(b, request('stall', { timeoutMs: 2000, permissions: { sandbox: 'workspace-write', networkAccess: false, approvalPolicy: 'never' } })), { code: 'TIMEOUT', outcome: 'unknown' });
+  await assert.rejects(guarded(b, request('stall', { stallMs: stallWindowMs, timeoutMs: 5000 })), { code: 'STALLED', outcome: 'cancelled' });
 });
 
 test('exec can explicitly ignore user config while app-server rejects that unsupported flag', async t => {
@@ -254,15 +258,15 @@ test('simultaneous duplicate worker identities are rejected before a second disp
 
 for (const transport of ['app-server', 'exec']) {
   test(`${transport} discounts known active tool waits`, async t => {
-    const b = module.createCodexBackend({ transport, executable: process.execPath, config: { executableArgs: [fixture] } });
+    const b = watchdogBackend(transport);
     t.after(() => b.shutdown());
-    assert.equal((await guarded(b, request('tool-wait', { stallMs: 100, timeoutMs: 2000 }))).value.ok, true);
+    assert.equal((await guarded(b, request('tool-wait', { stallMs: stallWindowMs, timeoutMs: 8000 }))).value.ok, true);
   });
 
   test(`${transport} preserves independent hard timeout during tool wait`, async t => {
-    const b = module.createCodexBackend({ transport, executable: process.execPath, config: { executableArgs: [fixture] } });
+    const b = watchdogBackend(transport);
     t.after(() => b.shutdown());
-    await assert.rejects(guarded(b, request('tool-hard-timeout', { stallMs: 100, timeoutMs: 300 })), { code: 'TIMEOUT', outcome: 'unknown' });
+    await assert.rejects(guarded(b, request('tool-hard-timeout', { stallMs: stallWindowMs, timeoutMs: 2000 })), { code: 'TIMEOUT', outcome: 'unknown' });
   });
 
   test(`${transport} maps explicit pre-tool quota to a verified account reset`, async t => {
@@ -275,14 +279,14 @@ for (const transport of ['app-server', 'exec']) {
 
 test('approval waiting discounts silence', async t => {
   const b = backend(); t.after(() => b.shutdown());
-  const approved = await guarded(b, request('approval', { stallMs: 100, timeoutMs: 2000, permissions: { sandbox: 'read-only', networkAccess: false, approvalPolicy: 'on-request' } }), { onApproval: async () => { await new Promise(resolve => setTimeout(resolve, 450)); return 'accept'; } });
+  const approved = await guarded(b, request('approval', { stallMs: stallWindowMs, timeoutMs: 8000, permissions: { sandbox: 'read-only', networkAccess: false, approvalPolicy: 'on-request' } }), { onApproval: async () => { await new Promise(resolve => setTimeout(resolve, 1500)); return 'accept'; } });
   assert.equal(approved.value.decision, 'accept');
 });
 
 test('post-tool silence remains guarded after the tool has completed', async t => {
-  const b = backend(); t.after(() => b.shutdown());
+  const b = watchdogBackend('app-server'); t.after(() => b.shutdown());
   let completed = false;
-  await assert.rejects(guarded(b, request('tool-done-stall', { stallMs: 100, timeoutMs: 2000 }), { onEvent: event => { if (event.type === 'item/completed' && event.params?.item?.id === 'tool') completed = true; } }), { code: 'STALLED', outcome: 'unknown' });
+  await assert.rejects(guarded(b, request('tool-done-stall', { stallMs: stallWindowMs, timeoutMs: 8000 }), { onEvent: event => { if (event.type === 'item/completed' && event.params?.item?.id === 'tool') completed = true; } }), { code: 'STALLED', outcome: 'unknown' });
   assert.equal(completed, true);
 });
 
