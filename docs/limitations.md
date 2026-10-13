@@ -9,19 +9,19 @@ The 0.2.0 candidate implements the fresh engine through CLI and dashboard. Full 
 | Background execution | Detached local runner and SQLite persistence require the machine, account and runtime to remain available. No hosted execution or cloud restoration promise. |
 | Usage/budget | Observed per-thread usage and retained cumulative attempts are evidence. No hard shared parent budget, dollar cap or provider-cache equivalence. Run-level quota waiting and stall retry policy remain open; legacy quota/budget flags do not apply. |
 | Concurrency | Default 2, explicit 1–256; at most 4,096 collection entries and 1,000 lifetime attempts. These bounds are not large-scale throughput acceptance. |
-| Evaluator | Separate QuickJS child, JSON-only broker, bounded memory/CPU/wall time; no filesystem, shell, imports, host tools or clock/random access. General native process isolation under the same OS account is a separate boundary. |
+| Evaluator | Separate QuickJS child, JSON-only broker, bounded memory/CPU and a no-pending-work idle watchdog; overall wall deadline is optional. No filesystem, shell, imports, host tools or clock/random access. General native process isolation under the same OS account is a separate boundary. |
 | Worker permissions | Read-only/no-network/never-approve by default. Explicit authorized writers use Windows MXC worktrees. Broader network access and interactive approvals are unavailable. |
 | External tools | Child configuration disables inherited MCP, plugins/apps/hooks, notification commands, browser/computer tools, web search and nested agents. Research recipes only inspect accessible evidence. |
 | Writer integration | Each writer begins from captured source inputs in its own worktree. Dependencies schedule workers but do not transfer edits. Patches remain for reviewed integration; no automatic merge/publication. |
 | Replay | Matching completed prefix only, with original runtime/session identity. Cached output does not establish current file freshness or exactly-once effects. |
 | Unknown effects | Stop cannot roll back effects. Unknown work blocks ordinary resume. Explicit restart repeats the selected eligible worker and every later worker after suffix review and verified cleanup. No uncertain-dispatch retry/fallback. |
-
-Worker prerequisite guidance now covers Windows executable selection, explicit offline package caches and Playwright cache discovery. Follow-up work is a coordinator-visible prerequisite report before dispatch, reusable authorized installation instructions, and explicit toolchain-path capture for later dashboard resume. These are roadmap items; the runtime does not automatically install dependencies or repair worker environments. A prerequisite failure pauses dependent execution while independent authorized authoring/review can continue.
 | Schemas | Bounded supported JSON Schema subset with independent validation. Unsupported keywords reject; contradiction checks are not a general satisfiability solver. Known invalid answers may be corrected within attempts/deadline; transport loss and unknown outcomes are not schema-retried. |
 | Workflow nesting | Evaluator APIs are agent, parallel, pipeline, phase, log and args. Legacy child workflow(), agentType, stallMs and budget APIs are unavailable. |
 | Installation | Explicit setup selects fingerprinted immutable runtimes outside cache. Exact run IDs retain old runtime ownership. Fresh SQLite and legacy JSON data remain separate; no automatic migration. |
 | Mode/trust | Session/project routing is opt-in and grants no permissions. Host acceptance/trust of the prompt hook is separate from runtime setup and CLI correctness. |
 | Platform | Local Windows MXC is the verified writer platform. SSH verification is deferred. Other platform guarantees require their own acceptance evidence. |
+
+Worker prerequisite guidance now covers Windows executable selection, explicit offline package caches and Playwright cache discovery. Follow-up work is a coordinator-visible prerequisite report before dispatch, reusable authorized installation instructions, and explicit toolchain-path capture for later dashboard resume. These are roadmap items; the runtime does not automatically install dependencies or repair worker environments. A prerequisite failure pauses dependent execution while independent authorized authoring/review can continue.
 
 ## Windows boundary evidence
 
