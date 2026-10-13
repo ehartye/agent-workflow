@@ -7,7 +7,7 @@ consumers:
   - Codex plugin installations
   - Saved workflows and commands
   - Persisted runs
-  - MCP callers
+  - Retained prior runtime directories and saved data
 weights:
   wait: 1
   agent: 1
@@ -31,63 +31,42 @@ lanes:
     os:
       - windows
 areas:
+  - path: engine/monitor/style.css
+    tier: low
+    why: Styling and theme presentation.
+  - path: engine/mode.mjs
+    tier: standard
+    why: Explicit routing preference stays scoped and grants no worker permissions.
   - path: engine/**
     tier: critical
-    why: Fresh workflow isolation, dispatch and persisted replay protect execution and user data.
+    why: Workflow isolation, dispatch, persisted replay and authenticated monitor protect execution and user data.
   - path: foundation/**
     tier: critical
-    why: Fresh Codex admission, authentication and execution boundary must fail closed.
-  - path: src/runtime/**
-    tier: critical
-    why: Replay, uncertain effects, persistence and admission must fail closed.
-  - path: src/workers/**
-    tier: critical
-    why: Permissions, isolation and verified process drain protect user data.
-  - path: src/service.mjs
-    tier: critical
-    why: Authenticated API and dashboard control contracts.
-  - path: src/mcp.mjs
-    tier: critical
-    why: Published MCP callers depend on the control and onboarding contracts.
-  - path: src/presentation.mjs
-    tier: critical
-    why: Bounded evidence and approval previews must preserve public observation semantics.
-  - path: src/paths.mjs
-    tier: critical
-    why: Data directories must remain isolated and reject unsafe paths.
-  - path: src/registry.mjs
-    tier: critical
-    why: Saved workflows must resolve correctly and refuse unsafe writes.
+    why: Native admission, authentication and retained process ownership must fail closed.
   - path: bin/**
     tier: critical
-    why: Setup, upgrade and CLI entrypoints select durable data and runtime versions.
-  - path: ui/app.js
-    tier: critical
-    why: Dashboard authentication, permission input and control dispatch.
-  - path: src/mode.mjs
-    tier: standard
-    why: Explicit opt-in routing must stay scoped and avoid recursion.
+    why: Setup, upgrades and CLI select verified runtimes and preserve session/data ownership.
   - path: hooks/**
     tier: standard
-    why: Hook routing and trust are distinct from installation.
+    why: Hook routing and host trust are distinct from installation.
   - path: skills/**
     tier: standard
     why: Authoring and control instructions guide saved workflow consumers.
   - path: workflows/**
     tier: standard
-    why: Bundled recipes must preserve failures and missing coverage.
+    why: Bundled recipes preserve failed slots and unsupported evidence.
   - path: scripts/**
     tier: standard
-    why: Packaging, smoke and installation helpers provide release evidence.
-  - path: src/**
-    tier: standard
-    why: Remaining source has ordinary behavior obligations.
-  - path: ui/**
-    tier: low
-    why: Presentation and styles; dashboard logic is matched above.
+    why: Packaging, smoke and installation helpers supply release evidence.
   - path: docs/**
     tier: low
     why: Documentation needs accurate release review.
   - path: '*.md'
     tier: low
     why: Repository documentation.
+  - path: LICENSES/**
+    tier: low
+    why: Third-party attribution documents.
+  - path: reports/**
+    tier: low
+    why: Reviewed verification evidence, not executable runtime inputs.

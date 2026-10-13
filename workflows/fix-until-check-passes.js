@@ -4,9 +4,8 @@ if(!args.task||!args.check)throw new Error('args.task and args.check are require
 const schema={type:'object',properties:{passed:{type:'boolean'},changed:{type:'boolean'},fingerprint:{type:'string'},checkOutput:{type:'string'},patch:{type:'string'},summary:{type:'string'}},required:['passed','changed','fingerprint','checkOutput','patch','summary'],additionalProperties:false};
 let patch='';let priorFingerprint=null;let noProgressRounds=0;const rounds=[];let stopReason='round-limit';
 for(let round=0;round<maxRounds;round++){
- if(budget.remaining()<=0){stopReason='budget-exhausted';break;}
  let result;
- try{result=await agent('In your isolated worktree, apply the supplied cumulative patch first, implement only the requested fix, and run the exact check. Return the complete cumulative git diff as patch, a stable failure fingerprint, and actual check output. Do not publish or merge.\nTask: '+args.task+'\nCheck: '+args.check+'\nCumulative patch:\n'+patch,{label:'Round '+(round+1),phase:'Fix and check',isolation:'worktree',schema});}catch(error){rounds.push({round:round+1,result:null,error:String(error)});stopReason='worker-failed';break;}
+ try{result=await agent('In your isolated worktree, apply the supplied cumulative patch first, implement only the requested fix, and run the exact check. Return the complete cumulative git diff as patch, a stable failure fingerprint, and actual check output. Do not publish or merge.\nTask: '+args.task+'\nCheck: '+args.check+'\nCumulative patch:\n'+patch,{permissions:{sandbox:'workspace-write'},label:'Round '+(round+1),phase:'Fix and check',schema});}catch(error){rounds.push({round:round+1,result:null,error:String(error)});stopReason='worker-failed';break;}
  rounds.push({round:round+1,result});patch=result.patch;
  if(result.passed){stopReason='check-passed';break;}
  noProgressRounds=(!result.changed||result.fingerprint===priorFingerprint)?noProgressRounds+1:0;

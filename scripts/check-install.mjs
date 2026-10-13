@@ -1,49 +1,39 @@
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile, realpath } from 'node:fs/promises';
-import os from 'node:os';
+import {cp,mkdir,mkdtemp,readFile,rm,stat,writeFile,realpath} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import assert from 'node:assert/strict';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { pluginRoot } from '../src/paths.mjs';
-import { runtimeEntries } from '../bin/runtime-install.mjs';
-import { request, readService } from '../src/client.mjs';
-import { codexExecutable } from '../src/workers/process.mjs';
-import { openAppServer } from '../src/workers/app-server.mjs';
-import { nativeParentMcp } from './native-parent-mcp.mjs';
-const execute=promisify(execFile);const base=await realpath(await mkdtemp(path.join(os.tmpdir(),'workflow-fresh-install-')));const cache=path.join(base,'marketplace-source');let launchRoot=cache;const dataDir=path.join(base,'persistent-data');await mkdir(cache);
-const run=async(script,args=[])=>execute(process.execPath,[path.join(launchRoot,'bin',script),...args],{windowsHide:true,timeout:180000,maxBuffer:1048576,env:{...process.env,PLUGIN_ROOT:launchRoot,PLUGIN_DATA:dataDir,AGENT_WORKFLOW_DATA_DIR:dataDir}});
+import {pluginRoot,runtimeEntries,nativeCodex} from '../bin/managed-runtime.mjs';
+import {AppServer} from '../foundation/client.mjs';
+import {createLaunch} from '../foundation/launch.mjs';
+const execute=promisify(execFile),base=await realpath(await mkdtemp(path.join(tmpdir(),'workflow-clean-install-'))),cache=path.join(base,'marketplace'),dataDir=path.join(base,'data'),codexHome=path.join(base,'codex-home'),project=path.join(base,'project');
+let launchRoot=cache;await Promise.all([mkdir(cache),mkdir(codexHome),mkdir(project)]);
+const env={...process.env,CODEX_HOME:codexHome,AGENT_WORKFLOW_DATA_DIR:dataDir,PLUGIN_DATA:path.join(base,'unused-host-data')};
+const run=(script,args=[])=>execute(process.execPath,[path.join(launchRoot,'bin',script),...args],{windowsHide:true,timeout:180000,maxBuffer:2*1024*1024,env});
 try{
- for(const item of [...runtimeEntries,'skills','plugin.json','mcp.json','.mcp.json','.codex-plugin','.agents'])await cp(path.join(pluginRoot,item),path.join(cache,item),{recursive:true});
- const codexTestHome=path.join(base,'isolated-codex-home');await mkdir(codexTestHome);
- const native=async args=>JSON.parse((await execute(codexExecutable(),args,{cwd:cache,env:{...process.env,CODEX_HOME:codexTestHome},windowsHide:true,timeout:60000,maxBuffer:1048576})).stdout);
- await native(['plugin','marketplace','add',cache,'--json']);const installed=await native(['plugin','add','agent-workflow@agent-workflow-local','--json']);const listed=await native(['plugin','list','--marketplace','agent-workflow-local','--json']);assert(listed.installed.some(plugin=>plugin.installed&&plugin.enabled&&plugin.name==='agent-workflow'));
- const installedRoot=path.resolve(installed.installedPath);assert(installedRoot.startsWith(path.resolve(codexTestHome)+path.sep));assert.equal(JSON.parse(await readFile(path.join(installedRoot,'plugin.json'),'utf8')).extensions['com.openai'].onboardingSkill,'./skills/workflow-setup/SKILL.md');
- launchRoot=installedRoot;
- const connection=await openAppServer({executable:codexExecutable(),cwd:cache,env:{CODEX_HOME:codexTestHome},emit:()=>{},signal:AbortSignal.timeout(15000)});
- try{const response=await connection.rpc('plugin/read',{marketplacePath:path.join(cache,'.agents','plugins','marketplace.json'),pluginName:'agent-workflow'});const plugin=response.plugin;assert(plugin.summary.installed&&plugin.summary.enabled);assert(plugin.skills.some(skill=>skill.name==='agent-workflow:agent-workflow'),JSON.stringify(plugin.skills.map(skill=>({name:skill.name,enabled:skill.enabled}))));assert(plugin.onboardingSkill?.name==='agent-workflow:workflow-setup',JSON.stringify(plugin.onboardingSkill));}finally{await connection.processHandle.stop();}
- const coldParent=await nativeParentMcp({cwd:cache,codexHome:codexTestHome});let hostSetupInfo;
- try{const status=await coldParent.rpc('mcpServerStatus/list',{limit:50,detail:'full'});const server=status.data.find(server=>server.name==='workflow'&&server.pluginId==='agent-workflow@agent-workflow-local');assert(server,'Installed native MCP server must be visible');assert(Object.keys(server.tools).some(name=>name.endsWith('workflow_setup_info')),JSON.stringify({tools:Object.keys(server.tools),error:server.toolsError}));const thread=await coldParent.rpc('thread/start',{cwd:cache,sandbox:'read-only',approvalPolicy:'never'});const response=await coldParent.rpc('mcpServer/tool/call',{server:server.name,threadId:thread.thread.id,tool:'workflow_setup_info',arguments:{}});assert(!response.isError);hostSetupInfo=response.structuredContent||JSON.parse(response.content[0].text);assert(hostSetupInfo.dataDir.startsWith(path.join(codexTestHome,'plugins','data')+path.sep));assert.equal(hostSetupInfo.pluginRoot,installedRoot);}finally{await coldParent.close();}
- await execute(hostSetupInfo.setupCommand.executable,hostSetupInfo.setupCommand.arguments,{windowsHide:true,timeout:180000,maxBuffer:1048576});
- const warmParent=await nativeParentMcp({cwd:cache,codexHome:codexTestHome});try{const status=await warmParent.rpc('mcpServerStatus/list',{limit:50,detail:'full'});const server=status.data.find(server=>server.name==='workflow'&&server.pluginId==='agent-workflow@agent-workflow-local');assert(Object.keys(server.tools).some(name=>name.endsWith('workflow_start')),JSON.stringify({tools:Object.keys(server.tools),error:server.toolsError}));assert(!Object.keys(server.tools).some(name=>name.endsWith('workflow_setup_info')));}finally{await warmParent.close();}
- await assert.rejects(stat(path.join(launchRoot,'node_modules')),error=>error.code==='ENOENT');
- await assert.rejects(run('launch.mjs',['doctor']),error=>/Managed runtime is not installed/.test(error.stderr));
- const setup=await run('setup.mjs',['--data-dir',dataDir]);assert.match(setup.stdout,/Managed runtime ready/);
- const record=JSON.parse(await readFile(path.join(dataDir,'runtime.json'),'utf8'));assert.equal(path.dirname(record.path),path.join(dataDir,'runtime'));assert((await stat(path.join(record.path,'node_modules'))).isDirectory());await assert.rejects(stat(path.join(launchRoot,'node_modules')),error=>error.code==='ENOENT');
- assert.equal(await readFile(path.join(record.path,'LICENSE'),'utf8'),await readFile(path.join(pluginRoot,'LICENSE'),'utf8'),'Managed source copies must retain the MIT copyright and permission notice');
- await assert.rejects(stat(path.join(record.path,'node_modules','linkedom')),error=>error.code==='ENOENT','Dashboard test dependencies must be omitted from production installation');
- const doctor=JSON.parse((await run('launch.mjs',['doctor'])).stdout);assert.equal(doctor.runtime,'installed');assert.equal(doctor.pluginRoot,path.join(record.path,path.sep));
- const cliOnlyEnv={...process.env,LOCALAPPDATA:path.join(base,'unused-default-data')};delete cliOnlyEnv.AGENT_WORKFLOW_DATA_DIR;delete cliOnlyEnv.PLUGIN_DATA;delete cliOnlyEnv.CLAUDE_PLUGIN_DATA;
- const cliOnlyDoctor=JSON.parse((await execute(process.execPath,[path.join(launchRoot,'bin','launch.mjs'),'doctor','--data-dir',dataDir],{env:cliOnlyEnv,windowsHide:true,timeout:10000,maxBuffer:1048576})).stdout);assert.equal(cliOnlyDoctor.dataDir,dataDir);assert.equal(cliOnlyDoctor.runtime,'installed');assert.equal(cliOnlyDoctor.pluginRoot,path.join(record.path,path.sep));
- await run('launch.mjs',['start','--backend-fixture',path.join(pluginRoot,'test','fixtures','surface-backend.mjs')]);
- const config=JSON.parse(await readFile(path.join(launchRoot,'mcp.json'),'utf8')).mcpServers.workflow;
- const expand=value=>value.replaceAll('${PLUGIN_ROOT}',launchRoot).replaceAll('${PLUGIN_DATA}',dataDir);
- const transport=new StdioClientTransport({command:config.command,args:config.args.map(expand),cwd:expand(config.cwd),env:Object.fromEntries(Object.entries(config.env).map(([key,value])=>[key,expand(value)])),stderr:'pipe'});
- const client=new Client({name:'installed-plugin-check',version:'1'},{capabilities:{}});
- try{await client.connect(transport);const tools=await client.listTools();assert(tools.tools.some(tool=>tool.name==='workflow_start'));const runs=await client.callTool({name:'workflow_list',arguments:{}});assert.equal(runs.isError,undefined);}finally{await client.close();}
- const result=JSON.parse((await run('launch.mjs',['run','--cwd',base,'--script',"export const meta={name:'installed',description:'Fresh cache launch'}; return await agent('fresh');",'--wait'])).stdout);assert.equal(result.result,'fixture:fresh');
- await run('launch.mjs',['shutdown']);for(let i=0;i<100&&await readService(dataDir);i++)await new Promise(resolve=>setTimeout(resolve,30));
- await writeFile(path.join(launchRoot,'ui','style.css'),'\n/* explicit package update */\n',{flag:'a'});await assert.rejects(run('launch.mjs',['doctor']),error=>/Plugin changed/.test(error.stderr));
- process.stdout.write('Isolated native install/onboarding, native cold setup-info call with exact host data, explicit setup and connected production tools, custom-data launch without host env, portable stdio MCP and update boundary verified.\n');
-}finally{try{await request('/api/shutdown',{dataDir,method:'POST',body:{}});}catch{}for(let i=0;i<100&&await readService(dataDir);i++)await new Promise(resolve=>setTimeout(resolve,30));const resolved=path.resolve(base);assert.equal(path.dirname(resolved),await realpath(os.tmpdir()));await rm(resolved,{recursive:true,force:true});}
+ for(const item of [...runtimeEntries,'plugin.json','.codex-plugin','.agents'])await cp(path.join(pluginRoot,item),path.join(cache,item),{recursive:true});
+ const codex=await nativeCodex(pluginRoot),native=async args=>JSON.parse((await execute(codex,args,{cwd:cache,env,windowsHide:true,timeout:60000,maxBuffer:2*1024*1024})).stdout);
+ await native(['plugin','marketplace','add',cache,'--json']);const installed=await native(['plugin','add','agent-workflow@agent-workflow-local','--json']);const listed=await native(['plugin','list','--marketplace','agent-workflow-local','--json']);assert(listed.installed.some(item=>item.installed&&item.enabled&&item.name==='agent-workflow'));
+ launchRoot=path.resolve(installed.installedPath);assert(launchRoot.startsWith(path.resolve(codexHome)+path.sep));
+ const launch=createLaunch({executable:codex,cwd:cache});launch.env={...launch.env,CODEX_HOME:codexHome};const client=await AppServer.connect(launch);
+ try{const response=await client.request('plugin/read',{marketplacePath:path.join(cache,'.agents','plugins','marketplace.json'),pluginName:'agent-workflow'});assert(response.plugin.summary.installed&&response.plugin.summary.enabled);assert(response.plugin.skills.some(skill=>skill.name==='agent-workflow:agent-workflow'));assert.equal(response.plugin.onboardingSkill.name,'agent-workflow:workflow-setup');}finally{const cleanup=await client.close();assert(cleanup.serverExited);}
+ await assert.rejects(stat(path.join(launchRoot,'node_modules')),e=>e.code==='ENOENT');
+ await assert.rejects(run('launch.mjs',['workflows']),e=>/runtime is missing/.test(e.stderr));
+ const record=JSON.parse((await run('setup.mjs',['--data-dir',dataDir])).stdout);assert.equal(path.dirname(record.path),path.join(dataDir,'runtime-v2'));assert.equal(record.version,JSON.parse(await readFile(path.join(pluginRoot,'package.json'),'utf8')).version);
+ assert.equal(await readFile(path.join(record.path,'LICENSE'),'utf8'),await readFile(path.join(pluginRoot,'LICENSE'),'utf8'));
+ for(const item of['node_modules/linkedom','node_modules/@modelcontextprotocol/sdk','src','ui','.mcp.json'])await assert.rejects(stat(path.join(record.path,item)),e=>e.code==='ENOENT');
+ await assert.rejects(stat(path.join(launchRoot,'node_modules')),e=>e.code==='ENOENT');
+ const definitions=JSON.parse((await run('launch.mjs',['workflows','--cwd',project])).stdout);assert.equal(definitions.length,6);
+ const script=path.join(base,'definition.mjs');await writeFile(script,'export const meta={name:"installed",description:"Clean installed definition"}; return args;');
+ const saved=JSON.parse((await run('launch.mjs',['save','installed','--cwd',project,'--script',script,'--command'])).stdout);assert.match(await readFile(saved.skillPath,'utf8'),/agent-workflow:agent-workflow/);
+ assert.equal(JSON.parse((await run('launch.mjs',['read','project:installed','--cwd',project])).stdout).meta.name,'installed');
+ assert.equal(JSON.parse((await run('launch.mjs',['validate',script])).stdout).valid,true);
+ assert.equal(JSON.parse((await run('launch.mjs',['mode','on','--scope','session','--session','install-proof','--cwd',project])).stdout).enabled,true);
+ const hook=await new Promise((resolve,reject)=>{import('node:child_process').then(({spawn})=>{const child=spawn(process.execPath,[path.join(launchRoot,'hooks','prompt-submit.mjs')],{env,windowsHide:true,stdio:['pipe','pipe','pipe']});let out='',err='';child.stdout.on('data',v=>out+=v);child.stderr.on('data',v=>err+=v);child.on('error',reject);child.on('exit',code=>code===0?resolve(JSON.parse(out)):reject(Error(err)));child.stdin.end(JSON.stringify({prompt:'Audit the project',cwd:project,session_id:'install-proof'}));},reject);});assert.match(hook.hookSpecificOutput.additionalContext,/packaged CLI/);
+ await assert.rejects(run('launch.mjs',['doctor','--cwd',project]),e=>/not logged in|existing managed ChatGPT/i.test(e.stderr));
+ await writeFile(path.join(launchRoot,'engine','monitor','style.css'),'\n/* verified update boundary */\n',{flag:'a'});await assert.rejects(run('launch.mjs',['workflows']),e=>/Plugin changed/.test(e.stderr));
+ const upgraded=JSON.parse((await run('setup.mjs',['--data-dir',dataDir])).stdout);assert.notEqual(upgraded.id,record.id);assert((await stat(record.path)).isDirectory());
+ assert.equal(JSON.parse((await run('launch.mjs',['workflows','--cwd',project])).stdout).length,7);
+ console.log('Clean native plugin discovery/onboarding, production-only installation, CLI definitions/commands, shared hook mode, missing-auth refusal and preserved-runtime upgrade verified; zero model turns.');
+}finally{const resolved=path.resolve(base);assert.equal(path.dirname(resolved),await realpath(tmpdir()));await rm(resolved,{recursive:true,force:true});}

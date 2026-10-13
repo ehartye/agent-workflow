@@ -1,62 +1,56 @@
 # Verification record
 
-This is verification of the local plugin implementation against the approved regular-plugin boundary. It does not establish native Codex UI integration, inherited parent-session grants, or a shared hard token pool.
+This page describes evidence for the **fresh 0.2.0 candidate** as of 2026-10-13. It is not a release announcement, full Ultracode-parity certification or a reliability-rate claim. Local release checks passed: 166/166 tests, package check, process smoke, clean native plugin installation and a production audit with zero vulnerabilities. Required CI, publication and exact published-version installation remain pending.
 
-## Execution evidence
+## Fresh native evidence
 
-- Authenticated Codex 0.162.1 `exec` worker: strict JSON `{ok:true,note:"verified"}`, read-only filesystem, no network, approvals never, low effort; completed in about 4.5 seconds. Observed usage: 18,394 input and 19 output tokens.
-- Authenticated default `app-server` worker: the same strict result and permissions; completed in about 5.8 seconds. Observed usage: 26,192 input and 19 output tokens.
-- Authenticated detached-supervisor workflow: two strict app-server workers completed in parallel, then an edited post-processing return reused both calls with zero new attempts. The final integration completed in about 8 seconds; cumulative observed usage remained 52,538 input / 38 output tokens across replay, with both worker usage records observed.
-- All six bundled task shapes ran through the actual separate-process QuickJS evaluator and manager with a deterministic failure backend. Audit, changed-file review and research retained failed slots. Fixing stopped after two consecutive no-progress rounds. Discovery stopped after two consecutive dry rounds and retained an ID of `__proto__` without collision. Migration requested separate worker worktrees; real Git/process tests verify the isolation mechanism independently.
-- The fresh package-copy check starts without `node_modules`. The pinned native Codex CLI installs the local marketplace plugin in an isolated home; its parent app-server calls the dependency-free cold `workflow_setup_info` tool and supplies exact hashed host data paths. Explicit setup installs pinned dependencies outside the plugin cache. Reconnecting exposes production workflow tools. Portable SDK MCP, CLI fixture execution, custom `--data-dir` without host environment variables, and refusal of a changed package also pass. This check starts no model turn and does not trust hooks.
-- Browser checks use actual persisted child-process fixture runs. Worker detail, script composer, pending approval and denial controls were exercised. Fixture runs are identified as fixtures, not model effectiveness measurements.
+| Evidence | What was observed |
+| --- | --- |
+| [Engine](../reports/engine-local-acceptance.json) | Two managed-ChatGPT file reads and completed-prefix replay with dispatch counts [2,0] |
+| [Background lifecycle](../reports/background-local-acceptance.json) | Pause, saved-script resume and completed replay; attempts [1,2,2], cached [0,1,2] |
+| [Structured output](../reports/structured-local-acceptance.json) | Successful command, exact JSON result, retained settings and replay [1,0] |
+| [Activity](../reports/activity-local-acceptance.json) | Native command activity persisted during execution, 59 observed events, usage and cached evidence |
+| [Individual controls](../reports/individual-controls-local-acceptance.json) | Exact-attempt steering/cancellation while sibling work continued; job-scoped cleanup |
+| [Reconciled restart](../reports/reconciled-restart-native.json) | Replacement generation after cancellation, stale duplicate rejection, retained prior error/activity/usage and explicit reconciliation |
+| [Writable workflow](../reports/native-writer-workflow.json) | Two separate worktrees with native patch edits and checks, unchanged source/index/config, retained patches and replay without more turns |
+| [Final 0.2.0 candidate](../reports/managed-release-workflow.json) | Actual installed native command completed with expected marker; owned Windows job empty; saved workflow replay used no additional model turn; dashboard 401/200 |
+| [Managed installed workflow](../reports/managed-install-workflow.json) | Saved generated command/named workflow, real marker read, original-session replay, dashboard unauthenticated 401/authenticated 200 |
 
-## Authoring evaluation
+The installed-workflow report is a **fresh-engine candidate checkpoint before the final package manifest/version cutover**. Its runtimeId starts with 0.1.1 because that was the package label at capture; the report explicitly says release:false. It proves the recorded installed engine path, not publication or verification of a final 0.2.0 artifact.
 
-The same request for a file audit with independent finding verification was sent to Codex with and without the actual authoring skill and API reference. Both generated scripts ran through the actual evaluator. A missing audit and a failed verifier remained missing in each report. The skill-assisted script was shorter (about 6.3 KB versus about 11 KB); this pair does not establish a general quality advantage. An earlier default-configuration attempt stalled and was terminated; it is inconclusive, not a quality failure.
+The current clean native plugin installation check passed without model inference. It exercised isolated plugin discovery/onboarding, production-only managed dependencies, CLI definitions/generated commands, mode/hook routing, unauthenticated account refusal and runtime upgrade boundaries. It does not prove trusted prompt-hook activation in every host or a completed model workflow. The final 0.2.0 candidate native report additionally verifies a completed model workflow from the installed package. Publication remains a separate gate.
 
-All three skills passed the official `skill-creator` validator. Its PyYAML prerequisite was installed into an isolated ignored development virtual environment; Python is not a plugin runtime dependency.
+## Boundaries and browser evidence
 
-The pre-release [Yoda audit](skill-audit.md) covers all three skills, cross-skill triggers and directly linked references. Its corrections and matched actual-Codex dry-run control/setup/mode comparisons are recorded separately from the executed authoring and installation checks.
+The [preexisting hardlink probe](../reports/workspace-preexisting-hardlink-limitation.json) **failed** its desired outside-write boundary with zero inference requests. A host-precreated hardlink permitted an outside target write. Preserve this failed evidence. Independent input copying and pre-dispatch link refusal mitigate it; [limitations](limitations.md) states the remaining boundary.
 
-A separate authenticated routing check applied the actual skill to five requests. A programming explanation and one-label spelling fix stayed in normal conversation; saved-run inspection, reusable audit creation and pause/reconciliation routed to the workflow skill. All five matched the intended boundaries (18,923 input / 102 output tokens). This checks one model response, not a guaranteed classifier for every future prompt.
+Separate [command](../reports/workspace-command-boundary.json) and [native patch](../reports/workspace-patch-boundary.json) checks record denied external writes. Cleanup establishes owned Windows job termination, not arbitrary descendants or external effects. Native terminal cleanup remains an independent requirement.
 
-## Repeatable checks
+The [monitor browser check](../reports/monitor-browser-check.json) used explicit simulated workers to inspect light/dark themes, persisted preference, graph selection/dependencies, authentication fragment removal and a narrow viewport. The [activity browser check](../reports/activity-browser-check.json) inspected retained real native activity and cached source provenance, including command input/output/exit evidence. Its then-pending individual controls were added later; that earlier browser report does not verify those later controls.
 
-The [agent-tests audit and strategy](testing.md) records the owner-approved production risk map, per-file verdicts, dashboard mutation checks, CI lane choices and measurement limits.
+## Skill evidence
 
-Run from the repository with Node 24+:
+The [fresh Yoda report](../reports/yoda-fresh-skills.md) records simultaneous with/without-skill agents across three realistic tasks and three near misses. The candidate supplied an executable workflow and correctly explained repeated suffix effects; both variants respected routing permission boundaries. Independent checks parsed command forms and executed the candidate script in separate QuickJS with a deliberately failed fixture verifier, retaining its null/unverified slot. No native model calls or configuration mutations were made by these probes. One pair per prompt cannot establish general superiority.
 
-```sh
+## Repeatable release checks
+
+Run with Node 24+ on Windows:
+
+```powershell
 npm ci --ignore-scripts
 npm test
 npm run check
 npm run smoke
 node scripts/check-install.mjs
-npm audit
+npm audit --omit=dev
 ```
 
-The standard suite and smoke use local processes and Git fixtures without credentials. Authenticated model runs above are separate bounded checks, not part of the offline test suite. Detailed generated evidence is retained under ignored `test-output/` in the development worktree.
+The suite and smoke use deterministic offline fixtures and actual process/persistence boundaries. Native installation starts no inference and needs npm network access or cache. Managed-ChatGPT acceptance is separate, explicit and consumes subscription usage. Required Windows PR/tag verification gates publication. Do not replace current results with historical test counts.
 
-Final checks on Windows with Node 24.18.0 and pinned Codex 0.162.1: **123 tests passed** (49 runtime, 49 worker, 25 surface/recipe/bootstrap/dashboard), in about 35.8 seconds locally; plugin/schema checks and offline process smoke passed; npm audit reported zero vulnerabilities. The hosted release checks also run isolated native installation. All three skills passed the official validator. Linux/Darwin recovery and native hook trust activation were not exercised.
+Before claiming release complete, record the final full suite/check/smoke, clean package installation, production audit, required CI, published tag/version and installation of that exact version. The local native reports above remain useful but do not substitute for those gates. SSH is deferred.
 
-Release checks exposed startup-sensitive test deadlines on a busy host: a fixture's first tool event arrived at 289 ms, beyond its original 100–150 ms guards. Test files now run with concurrency two, with fixture waits deliberately longer than the stall window and hard deadlines shorter than tool completion. Expected error/effect assertions are preserved; seven focused watchdog checks and the complete 118-test suite passed. Native installation additionally verifies the MIT notice is copied into managed runtimes; schema attribution and Apache 2.0 license are retained in the distribution.
+## Historical 0.1.x evidence
 
-The first hosted Windows CI run exposed two fixture assumptions: a 30 ms fake-worker delay did not guarantee overlap while journal writes ran, and the runner's temporary directory used an 8.3 short spelling while Git returned its long spelling. The concurrency fixture now holds the first pair until both have entered, and the worktree assertion compares real paths. Production concurrency, isolation and timeout behavior are unchanged.
+Earlier releases used RuntimeManager, a supervisor JSON journal and MCP surfaces. Their authenticated exec/app-server tests, MCP bootstrap/onboarding, 123/139-test counts, old dashboard observations and prior skill audit established behavior of that implementation at those checkpoints. They are **not fresh-engine verification**. Historical documentation remains available through repository history and [the earlier skill audit](skill-audit.md).
 
-The native installation harness likewise canonicalizes its temporary root so native Codex's long paths compare against the same filesystem locations as Node. Cleanup verifies that canonical root remains under the canonical OS temporary directory.
-
-## Review boundary
-
-Independent specification review and subsequent code-quality review both passed after corrections. The quality reviewer independently reran six recovery, seven runtime and six service/daemon tests, including shutdown during an actual pending native steering request in about 497 ms. No material findings remained. The final full suite, install check and authenticated parallel/replay run passed after the lifecycle changes.
-
-Review corrections include serialized resume/cache admission, stale-controller takeover, conservative abandoned-worker effects, authoritative atomic journal commits, semantic-runtime identity, native quota/reset integration, tool-aware stall clocks, finite drain failures, invalid usage, exact onboarding paths, partial-source coverage and installed CLI data-directory selection. The bounded schema subset excludes `uniqueItems`: an observed 248,901-byte / 20,000-object check blocked host validation for about 3.2 seconds, and repeated primitive `__proto__` values were incorrectly accepted by the installed validator. These cases now reject before worker dispatch.
-
-Final lifecycle regressions establish that an absent parent PID cannot prove descendant drain; cancellation preempts a pending control request; shutdown closes admission and drains admitted operations; terminal status follows worker drain; and recovery inspects unfinished worker slots even in completed/failed snapshots. Recovery still cannot establish that detached processes or external effects have ended. Native lifetime handles and cross-platform verification remain documented follow-up work.
-## Monitor release verification
-
-Version 0.1.1 was developed against the real PlanetForge roadmap run `fb5811f9-97da-46c5-bbfc-0234f2998b70`. Its original full status was 1,533,069 bytes; stopped compact status was 5,629 bytes. A resumed live monitor read was 9,024 bytes with eight retained/current worker slots and explicit tool failures. Full local evidence remains available through authenticated detail routes and artifacts. These are measured observations, not bounds on arbitrary full records.
-
-All 139 offline tests pass, including 14 actual HTML/app dashboard cases and seven authenticated observation/CLI cases. Package checks, detached-process smoke, isolated native cold/warm onboarding and update boundaries pass; production dependency audit reports no vulnerabilities. Independent review reproduced oversized accepted metadata and missing journal ranges, then verified their fixes and transport-shaped diagnostics. A test cleanup race was repaired with an asserted verified-drain receipt; production orphan safety was preserved.
-
-The browser launcher opened a development monitor backed by the actual installed controller. No attached CUA browser was available for screenshots or rendered accessibility inspection; those remain unverified. The roadmap workflow itself hit its ten-minute evaluator limit. Two inspections completed, but verification and other slices did not; this release does not claim PlanetForge feature completion. Its retained progress/persistence drain delay is separate follow-up work.
+Existing 0.1.1 user data and matching runtime directories are preserved on disk; the new source package removes the custom MCP surface and does not migrate old runs automatically. Do not interpret preservation as a successful fresh-engine resume of a legacy run.

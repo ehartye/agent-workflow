@@ -1,17 +1,37 @@
 # Workflow monitor
 
-The monitor helps the owner follow a real workflow, see which worker needs attention, and inspect the evidence behind each outcome. It borrows Agent Marketing's calm instrument-desk hierarchy: dark blue surfaces, restrained amber actions, useful labels and disclosures. It keeps its own identity through a dispatch rail that follows actual phase and worker order.
+The fresh monitor presents one persisted run: phase/worker graph, accepted-result counts, ordered worker list, selected evidence and control receipts. It uses local assets and fonts; records are rendered as text. A gear button opens System, Light and Dark theme choices, with saved preference and keyboard focus returning to the button on Escape.
 
-The palette uses blue-black canvas (`#090f17`), navy surfaces (`#101b29`), slate rules (`#2a3c50`), pale ink (`#e2edf7`), muted blue text (`#98adc1`) and amber action (`#ffc17a`). Cyan, sage and rose identify running, completed and uncertain/failed evidence, alongside written status labels. Bahnschrift supplies the display type, Segoe UI the text, and Cascadia the records. These are local Windows faces with local fallbacks; the monitor needs no external font or asset requests.
+## Graph and progress
 
-The layout keeps workflow history on the left, selected-run controls and coverage above the work, the dispatch rail beside selected evidence, and output and journal below. Unknown outcomes, missing usage and undispatched slots remain visible. Large records belong behind deliberate disclosures; routine refresh must use bounded summaries instead of downloading the full journal. The narrow layout stacks the evidence panes and lets workflow history scroll horizontally.
+The map groups workers by phase and displays declared id/dependsOn edges. Grouping lines do not imply execution order, and JavaScript data dependencies are not inferred. The map shows at most 60 workers; the complete ordered list remains below it with state/phase filters.
 
-The first design pass made the evidence pane compete with the dispatch rail through broad cyan accents. The implemented direction reserves amber for selection/actions and lets the rail carry the identity; most records remain quiet. Labels explain the user's work rather than runtime internals. Motion is limited to short control transitions and a single empty-state entrance, with reduced motion respected. Keyboard focus, a skip link, native dialogs and native disclosure controls remain available.
+Progress means accepted results divided by discovered workers. A running script may discover more, changing the denominator. No per-worker percentage is invented. Queued, running, completed, failed and unknown states stay explicit; a model's prose cannot overwrite recorded coverage.
 
-Security and evidence behavior are functional requirements: fragment credentials are captured before requests and removed from history; untrusted records render as text; permission choices and approval decisions stay explicit. Full worker records, full results, individual events and truncated approval requests require deliberate inspection. A preview must say when text is omitted rather than looking complete. A fetched full record is a retained observation, not a replacement for the live status summary.
+The layout pairs an ordered worker list with its inspector and stacks on narrow screens. A skip link, visible focus, text status labels, accessible settings controls and reduced-motion styling support navigation. [Browser evidence](../reports/monitor-browser-check.json) records tested desktop/narrow layouts; it is not a claim about all devices.
 
-Routine refresh uses the summary list and selected monitor view. Opening the journal loads compact pages of 50 events; opening a truncated event loads its individual full record. Full worker, run and result observations carry a loading timestamp and explicit refresh control. Opening a preserved run disclosure does not download it again at every poll. A failed journal read stays visible even when status polling succeeds. The resume editor shows the run's actual limits and permissions, disables settings that the resume operation cannot change, and sends only the edited script; a new run restores editable, read-only permission defaults.
+## Evidence and activity
 
-Recorded tool failures stay visible as a quiet amber annotation on the dispatch row and in the selected worker's live facts, including the latest recorded failure excerpt. A worker may recover from a failed tool and later complete; its actual worker status stays separate from the failure count. The full event record remains available through the journal when an excerpt omits detail. Journal paging tracks the fetched cursor ranges, so a large burst of new events cannot make an intervening range inaccessible. Every request remains limited to 50 events; deliberate earlier-page requests fill the uncovered ranges.
+Routine polling reads coherent bounded SQLite snapshots. Full worker, script, result, patch and activity reads are deliberate and tied to the observed generation. Cached workers disclose their source generation; prior execution evidence remains inspectable after restart.
 
-Verification uses the real HTML and owned dashboard script in the existing LinkeDOM suite, plus the actual authenticated HTTP surface. Browser screenshot and viewport inspection require an attached browser surface; neither a DOM test nor a successful URL launch proves the rendered layout. This session initially had no attached CUA browser, so visual verification remains an explicit limitation until a browser can be inspected.
+The inspector exposes prompts, results, errors, effective settings, usage, workspace evidence and observed tool activity. Tool filters and paged events show command input/output/status; raw reasoning is excluded. History retains at most 256 records per worker, 4,096 per generation and 16 KiB per record. Discarded history and shortened fields are disclosed. Missing data remains missing; a preview is not presented as full evidence.
+
+Tool failure and worker outcome are distinct: a failed command can precede a completed worker. Native patch evidence may differ from ordinary file-change events; show what was actually observed. Read errors remain visible even when later status polls succeed.
+
+## Controls
+
+Pause closes admission while active workers finish; stop requests interruption. Receipts distinguish pending, applied and rejected actions from final cleanup. Steering/cancellation targets an exact observed generation, worker position, attempt and active turn.
+
+Resume uses the saved script and original runtime/session. The browser displays the saved script; edited-script resume uses the CLI. Restart shows the eligible suffix and collects an effects-reconciliation note. It repeats the selected worker and all later work, including completed writes. Unknown execution, stale identities or missing cleanup evidence cannot be hidden by retries. No control merges patches or rolls back external effects.
+
+Authenticated mutation conflicts stay visible and require a fresh read. The browser must not automatically resend uncertain mutations. Run status and cleanup proof remain separate until terminal settlement.
+
+## Authentication and lifecycle
+
+The CLI requires originating-session ownership before creating the monitor. The returned loopback URL contains a bearer token in its fragment; the page captures it before API access, removes it from browser history and stores it in tab session storage. Return that complete URL to the owner and keep it out of shared reports.
+
+The server binds only 127.0.0.1 on an ephemeral port, validates Host/Origin and uses a restrictive content security policy. APIs require authentication; static assets expose no run data. Each dashboard invocation creates an independent view, not another model run. Monitors expire after 30 minutes of inactivity; closing one does not stop the runner.
+
+## Verification scope
+
+Tests exercise the owned HTML/application and authenticated HTTP boundaries. Browser reports inspect actual rendered graph/theme behavior with simulated workers and retained native activity separately. Neither DOM tests nor a URL launch alone prove rendered layout. Native activity persistence during execution is covered by its own acceptance report; retained-history browser inspection proves only what was inspected. See [verification](verification.md) for current and historical evidence boundaries.

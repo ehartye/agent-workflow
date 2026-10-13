@@ -1,87 +1,62 @@
-# Runtime API
+# Workflow script contract
 
-Scripts execute in a separate bounded QuickJS process. They are JS bodies in an async context, with a top-level return. They cannot import modules or use Node, filesystem, shell, host timers, network, process, or native host tools. Workers perform authorized external work through Codex. CPU/memory/schema/isolation failures fail closed.
+The first statement is `export const meta = {name: '...', description: '...'};` using bounded JSON literals. Both strings must be nonempty; name is at most 200 characters. Scripts are at most 1 MiB. Additional imports/exports are refused. The remaining async body supports top-level return in a separate QuickJS process.
 
-The first statement is `export const meta = { name: '...', description: '...' };`. `meta` is a pure literal AST object: no functions, computed expressions, spreads, getters, calls, or references. Optional `whenToUse` is text. Optional `phases` is an array of literal `{title, detail?, model?}` entries; phase titles must match your calls. `args` is supplied JSON directly (undefined when omitted). Pass clock values or a deterministic seed in args: `Date.now`, `Math.random`, and argumentless `new Date` are unavailable.
+Use only agent, parallel, pipeline, phase, log, JSON args and deterministic JavaScript. Omitted args are null. The evaluator has no Node, filesystem, shell, network or host tools; workers perform authorized external work. Clock/random calls are refused; supply timestamps/seeds in args. Results must be JSON. A 32 MiB heap, 512 KiB stack, CPU interrupts and wall deadline bound evaluation.
 
-```js
-export const meta = {
-  name: 'Inspect modules', description: 'Read each module, then verify its findings',
-  phases: [{title:'Inspect'}, {title:'Verify'}]
-};
-const items = args.items;
-const rows = await pipeline(items,
-  (item, original, index) => agent('Inspect only this module: ' + JSON.stringify(original), {
-    label: original.id, phase: 'Inspect', schema: {
-      type:'object', properties:{findings:{type:'array',items:{type:'string'}}},
-      required:['findings'], additionalProperties:false
-    }
-  }),
-  (audit, original, index) => agent('Independently verify this module and the audit. Module: ' +
-    JSON.stringify(original) + '\nAudit: ' + JSON.stringify(audit), {
-    label: original.id, phase:'Verify', schema: {
-      type:'object', properties:{verdict:{type:'string',enum:['confirmed','refuted','unverified']}},
-      required:['verdict'], additionalProperties:false
-    }
-  })
-);
-return {expected:items.length, rows:items.map((item,index)=>({id:item.id,
-  verification:rows[index]??null, status:rows[index]?'completed':'unverified'}))};
-```
+## Agent calls
 
-## `agent(prompt, options = {})`
+`await agent(prompt, options = {})` returns text, or a validated object with schema.
 
-Returns final text, or an independently schema-validated JSON object when `schema` is supplied. Supported options:
-
-| Option | Meaning |
+| Option | Contract |
 | --- | --- |
-| `label` | Display label; does not change replay identity |
-| `phase` | Explicit phase group; prefer this inside concurrent callbacks |
-| `schema` | Shared bounded JSON Schema subset, object root/properties/required; regex/dynamic/reference/async features and `uniqueItems` are unavailable; supported contradictions reject before dispatch |
-| `model` | Explicit Codex model identifier, capability validated by worker |
-| `effort` | Supported Codex reasoning effort; Claude effort names are not automatic mappings |
-| `agentType` | Configured worker profile; unknown profiles reject before dispatch |
-| `isolation` | Requested worktree isolation; failure never falls back to a shared writer directory |
-| `timeoutMs` | Worker timeout |
-| `stallMs` | Progress-aware stall threshold |
+| label, phase | Display strings up to 500 characters; cosmetic for replay |
+| id, dependsOn | Unique ID and IDs of earlier requested workers; wait for completed prerequisites |
+| timeoutMs | Integer 1–120,000, default 120,000 |
+| schema | Bounded JSON Schema subset with object root |
+| model, effort | Codex catalog settings; account entitlement is still required |
+| maxAttempts | Total structured-answer attempts, 1–5, default 5 |
+| permissions | Narrow the run ceiling: sandbox read-only/workspace-write, networkAccess false, approvalPolicy never |
 
-The runtime assigns stable worker identity and tracks full prompts, options, attempts, usage, results, errors, backend thread/turn identifiers and artifacts. Worker permission defaults are read-only, no network, approvals never. Start permissions are an explicit authorized ceiling and can be further narrowed by backend configuration.
+Legacy agentType, isolation, stallMs, budget and child workflow() APIs are unsupported. CLI --writable permits isolated Windows MXC writers; worker settings cannot raise a read-only run's ceiling. Model/effort/attempt settings resolve worker first, then run defaults, then effective Codex configuration as applicable.
 
-## `parallel(thunks)`
+Dependency IDs use letters, digits, underscore or hyphen, at most 100 characters. Up to 256 prerequisites may reference earlier requested IDs. A failed prerequisite prevents dispatch. The graph draws declared edges; ordinary JavaScript data dependencies are not inferred.
 
-Accepts an array of zero-argument task thunks. Starts work under the shared concurrency guard and returns results in input order. Per-thunk failure becomes null. A barrier completes after all thunks have settled. An intentional duplicate prompt occupies a separate replay position.
+Schemas support properties/items, required, additionalProperties, JSON types including nullable unions, enum/const, bounded numeric/string/collection constraints and anyOf/oneOf/allOf. References, regex, formats, coercion, defaults and unsupported keywords fail admission. Limits: 32 KiB, 512 nodes, depth 16. Invalid answers may be corrected in the same thread within the original deadline and attempt limit; transport loss, cancellation and unknown outcomes are never schema-retried.
 
-```js
-const outputs = await parallel(args.targets.map(target => () =>
-  agent('Read: '+JSON.stringify(target), {label:target.id,phase:'Read'})));
-return args.targets.map((target,index)=>({id:target.id,result:outputs[index],
-  status:outputs[index]===null?'unverified':'completed'}));
+## Collections and coverage
+
+parallel(thunks) runs zero-argument functions under shared concurrency and returns input-order results; thrown tasks become null. pipeline(items, ...stages) passes (previousResult, originalItem, index), initially the original item. Items advance independently. A thrown stage or null result stops that item's later stages and leaves null. Both accept at most 4,096 entries.
+
+Preserve IDs and label null slots unverified:
+
+```javascript
+export const meta = {name: 'Inspect files', description: 'Inspect each requested file'};
+await phase('Inspect');
+const rows = await parallel(args.items.map(item => () =>
+  agent('Read this file and report findings: ' + JSON.stringify(item.path), {
+    label: item.id, phase: 'Inspect',
+    schema: {
+      type: 'object',
+      properties: {findings: {type: 'array', items: {type: 'string'}}},
+      required: ['findings'], additionalProperties: false
+    }
+  })));
+return {
+  expected: args.items.length,
+  rows: args.items.map((item, index) => ({
+    id: item.id, result: rows[index],
+    status: rows[index] === null ? 'unverified' : 'completed'
+  }))
+};
 ```
 
-## `pipeline(items, ...stages)`
+Await phase(title) and log(message) for broker ordering. Use explicit per-agent phases in concurrent callbacks to avoid a shared phase race. Default concurrency is 2; CLI accepts 1–256. Lifetime attempts are capped at 1,000.
 
-Each stage receives `(previousResult, originalItem, index)`. At the first stage `previousResult` is the original item. An item advances without waiting for every other item to finish the prior stage. Results preserve item order. A thrown stage leaves null for that item and skips later stages; do not interpret null as a confirmed negative. Keep original IDs in a final mapping.
+## Definitions and replay
 
-## `phase(title)`, `log(message)`
+Discovery searches .agents/workflows from cwd toward its nearest Git root, then home .agents/workflows, then bundled workflows. A non-Git project searches only cwd. project:, personal: and plugin: qualify names; nearest definitions shadow farther ones. Case/extension collisions and linked paths fail. Project saves target supplied cwd, personal saves target home, and bundled definitions are read-only.
 
-`phase` changes the current display group for subsequent calls; explicit `options.phase` avoids a concurrent shared-state race. `log` records narrator progress. Await them so the durable broker message is acknowledged before relying on ordering.
+save --command generates a scoped .agents/skills/workflow-name/SKILL.md that delegates to the installed main skill. Unrelated skills cannot be overwritten. Generated names require portable hyphenated names within the 64-character skill limit.
 
-## `workflow(nameOrRef, childArgs)`
-
-Invokes a saved child workflow inline and returns its result. Name lookup is closest project `.agents/workflows` within the nearest git root, then personal `~/.agents/workflows`, then plugin `workflows`. A non-git project uses cwd only. Prefix `project:`, `personal:` or `plugin:` to select the namespace. Only one nesting level is allowed: a child cannot invoke another child. Children share the run scheduler, concurrency, lifetime attempts, cancellation, observed budget and ordered replay prefix.
-
-## `budget`
-
-`budget.total` is the configured observed output-token scheduling guard, or null when absent. `budget.spent()` returns cumulative observed output usage; `budget.remaining()` is total minus spent, or Infinity without a target. Exhaustion prevents new dispatch and may cancel active work. Already-running workers can overshoot. This is not a shared native parent-turn token pool or total input/output dollar-cost cap.
-
-## Flow, replay and results
-
-Ordinary JS branches, loops, arrays, objects, strings, JSON, math and async functions are available. Bound rounds, fan-out, and discovery loops explicitly. Use unchanged stable prompts/options for reusable calls. Call identity chains the previous call key plus prompt and stable options; label/phase/stall timeout display changes do not create a new semantic result. Changed calls, failed calls and missing result artifacts invalidate the suffix, including later successful siblings. Changing only deterministic post-processing can reuse every completed worker.
-
-Source/workspace freshness is not inferred from a matching prompt. Start a new run when underlying evidence changed. Stop/pause drains processes; it does not undo mutations. Errors, unknown outcomes and usage survive control/recovery. Never retry an uncertain mutating effect by switching transport or starting another worker.
-
-After controller death every abandoned dispatched worker remains unknown, including read-only and drained workers: drain cannot prove prior external effects. Reconciliation requires explicit effects review plus verified drain. `run.json` is authoritative; missing/stale derived events rebuild from it, while ahead/conflicting event files block recovery and stay preserved for manual review.
-
-Resume first checks recorded `runtimeIdentity` against exact runtime source hashes and installed QuickJS/core, Acorn and Ajv versions. Missing/mismatched identity rejects with `RUNTIME_MISMATCH` before edit, reconciliation, cache/generation mutation or dispatch. Use a matching immutable runtime or a new run. Backend/profile execution fingerprint changes independently invalidate the reusable prefix; they do not make external workspace evidence fresh.
-
-Return JSON. For partial work include expected, attempted, completed, failed, unverified and skipped coverage where your task defines them. Use null for missing results, and distinguish confirmed/refuted/unverified verdicts. Keep individual findings and evidence attached to IDs rather than flattening them into a reassuring synthesis.
+Runs capture script, args and launch settings; later registry edits do not change them. Replay follows invocation order; the first changed or failed call invalidates its suffix. Timeout, dependencies, schema, settings and backend identity participate; labels/phases are cosmetic. Cached results do not prove file freshness or exactly-once effects. Start a new run for fresh inspection unless replay is requested. Missing/corrupt records, unknown work, failed cleanup and incompatible session/runtime cannot be treated as successful replay.

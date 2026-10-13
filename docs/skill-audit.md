@@ -1,4 +1,6 @@
-# Yoda skill audit
+# Historical 0.1.0 Yoda skill audit
+
+The current 0.2.0 candidate audit is [the paired fresh-skills report](../reports/yoda-fresh-skills.md). The material below records the retired release contracts.
 
 All three packaged skills were audited together before the 0.1.0 public release. Inspection covered descriptions, trigger overlap, instruction placement, direct references, CLI/MCP consistency, argument substitution and invisible Unicode. The official skill validator passed each skill; the separate reviewer found no remaining material inspection blocker after corrections.
 

@@ -21,11 +21,15 @@ Rewrite all workflow skills and recipes around the fresh CLI/API. Run Yoda paire
 Fetch/rebase latest main, update the reviewable PR, wait for required Windows checks, squash-merge, publish a verified tag/version, update the shared marketplace, verify installation of that exact version and sync the main checkout. Existing user authorization covers this sequence. Mark the thread goal complete only after these release artifacts and all four parts are verified.
 
 - [x] Fresh registry, named CLI starts and generated commands.
-- [ ] Fresh managed setup/doctor/public entrypoint and version-pinned data boundaries.
-- [ ] Updated manifest, hooks/mode, recipes, skills and Yoda evidence.
-- [ ] Test audit, source review, full checks, clean installation and native saved-workflow proof.
+- [x] Fresh managed setup/doctor/public entrypoint and version-pinned data boundaries.
+- [x] Updated manifest, hooks/mode, recipes, skills and Yoda evidence.
+- [x] Test audit, source review, full checks, clean installation and native saved-workflow proof.
 - [ ] Required CI, squash merge, release, marketplace and installed-version verification.
 
 Follow-up parity ledger requirements remain explicit in `docs/codex-parity.md`; this plan does not redefine those entries as complete. Early native patch errors are absent from ordinary file-change events; selective native tool-call/output observation is a recorded monitor enhancement, with raw reasoning excluded.
 
 Registry checkpoint: `engine/cli.mjs` exposes `--list-workflows`, `--read-workflow`, `--save-workflow --script`, `--validate --script`, and `--workflow` for named starts. Project saves target the invocation cwd; personal saves target its home directory. `.js`/`.mjs` suffixes are accepted once; ambiguous repeated extensions are rejected so returned identifiers resolve consistently. Definitions support portable simple names; generated command skills additionally require lowercase-compatible hyphenated names within Codex's 64-character limit. Command generation delegates the installed workflow skill and does not embed an obsolete runtime path. Five tests cover real directory precedence/reload, collisions, preserved definitions/skills, links and actual CLI processes. The installed skill and public launcher still need replacement below; clean-install/native saved-workflow proof remains part of the release gate.
+
+Cutover checkpoint: candidate 0.2.0 has managed public CLI entrypoints, source and installed-dependency integrity, separate runtime/run/mode namespaces and original-session dashboard/control checks. Existing runtime/data paths are untouched. Native clean installation discovers all skills/onboarding and has no custom MCP or obsolete runtime dependencies. Six recipe behaviors run through the new evaluator; evidence-free verification is retained as unverified. All skills have paired Yoda evidence. Source/recipe review, final checks, exact candidate native release proof and distribution remain gates below; prior staged native install proof is not a published-version certificate.
+
+Final local gates passed: 166/166 tests, package check, smoke, clean native installation, audit zero vulnerabilities and reports/managed-release-workflow.json. Required CI and publication remain pending.

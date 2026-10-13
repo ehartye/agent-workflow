@@ -1,79 +1,69 @@
-# Service and tool API
+# Fresh CLI and monitor API
 
-The stable JS broker reference lives in [runtime-api.md](../skills/agent-workflow/references/runtime-api.md). It covers every evaluator API: `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `budget`, and one-level `workflow`.
+This describes the 0.2.0 candidate. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not the fresh runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
 
-## Runtime manager
+## CLI
 
-`RuntimeManager({dataDir, backend, workflowsDir?, resolveWorkflow?})` has async `start(input)`, `get(id)`, `list()`, `events(id,since=0)`, `control(id,action,options={})`, `approve(id,approvalId,decision)`, and `shutdown()`. Its `ready` promise establishes the exclusive journal/controller lock before the service advertises readiness. `start` returns after durable admission and executes the script in the background.
+All commands accept --data-dir. Otherwise state selection uses AGENT_WORKFLOW_DATA_DIR, then LOCALAPPDATA/agent-workflow or home .local/share/agent-workflow. PLUGIN_DATA is ignored for implicit selection.
 
-Start input: `{script?,scriptPath?,name?,args?,cwd,concurrency?,maxAgents?,budget?,permissions?,timeoutMs?,quotaWaitMs?,stallRestarts?}`. Path takes precedence over inline script/name. Permissions are `{sandbox:'read-only'|'workspace-write',networkAccess:boolean,approvalPolicy:'never'|'on-request'}`. Defaults are read-only/false/never. Unsupported values reject.
-
-`quotaWaitMs` is 0–3,600,000 milliseconds, default 0: opt into a bounded quota-reset wait only when the backend supplies supported reset metadata and a retry is safe. It does not guess a reset or authorize retrying uncertain effects. `stallRestarts` is 0–5, default 5: the bounded cap for safe stall restarts, with cumulative usage/attempts retained. Set 0 to disable restarts. CLI flags are `--quota-wait` and `--stall-restarts`; MCP `workflow_start` exposes the same typed fields.
-
-Snapshots contain identity/status/meta/cwd, explicit permissions, workers, cumulative usage and usage coverage, result/error, approvals, replay/generation, timestamps, coverage and artifact paths. `scriptPath` is the real editable script; `scriptArtifactPath` is immutable generation evidence. `snapshotPath`, `resultPath`, `eventsPath`, `artifactsPath`, and `paths` identify durable JSON evidence. Failed and unknown worker slots remain in snapshots. Full HTTP records intentionally include complete prompts/events/results for local inspection.
-
-`runtimeIdentity` records exact runtime source hashes and installed QuickJS/core, Acorn and Ajv versions. Resume recomputes disk/controller identity and fails with `RUNTIME_MISMATCH` when stored identity is absent or differs, before any reconciliation/edit/generation/cache mutation or dispatch. The backend/profile execution fingerprint is separate: its change invalidates the ordered reusable prefix. Workspace evidence freshness remains an explicit task decision.
-
-`run.json` is the sole authoritative atomic run commit. Derived `events.json` is rebuilt when missing/stale; an ahead/conflicting copy blocks recovery and remains intact for manual evidence review. Every abandoned dispatched worker is classified unknown, even if read-only or already drained, until explicit effects review and verified drain permit reconciliation.
-
-Worker schemas use the shared bounded subset validated before dispatch and independently against results. Regex features, dynamic schema features, references/async validation and `uniqueItems` are unavailable. Required/property limits and supported type/`allOf` contradictions reject during preflight; unsupported schemas are not approximated or accepted as best-effort output.
-
-Control actions: `pause`, `stop`, `resume`, `cancel-worker`, `restart-worker`, `steer`. Options include `workerId`, `text`, edited `script` for resume, `force` for pause/stop interruption, and `reconcileUnknown` for explicitly reviewed unknown effects on resume. Reconciliation cannot bypass unverified process drain. Approvals use `accept`, `decline`, or `cancel`; aliases accepted by the manager are a compatibility convenience.
-
-## Authenticated HTTP
-
-Service metadata is `service.json` in selected persistent data. It has URL, local token, PID, version and start metadata. Bind address is fixed at `127.0.0.1`; there is no public-bind option. Send `Authorization: Bearer <token>`. Host must exactly match the service endpoint and a browser Origin, when present, must match it. JSON bodies are capped at 1 MiB; malformed JSON rejects. Unknown routes/methods reject.
-
-| Route | Method | Result |
-| --- | --- | --- |
-| `/api/health` | GET | Ready supervisor identity/version |
-| `/api/runs` | GET / POST | Full snapshots / durable admission |
-| `/api/runs/:id` | GET | Full snapshot |
-| `/api/runs/:id/events?since=N` | GET | Full events after sequence cursor |
-| `/api/runs?view=summary` | GET | Bounded run summaries, no raw histories/prompts |
-| `/api/runs/:id?view=summary` | GET | Status/counts/coverage, first 30 workers and 10 approvals |
-| `/api/runs/:id?view=monitor` | GET | Live monitor fields, up to 1,000 worker summaries, bounded result and arguments |
-| `/api/runs/:id/workers/:workerId` | GET | Deliberate full worker record and evidence paths |
-| `/api/runs/:id/events?view=compact&since=N&limit=L` | GET | Bounded event previews, nextCursor/hasMore/total; L 1–100, default 50 |
-| `/api/runs/:id/events/:sequence` | GET | Deliberate full individual event |
-| `/api/runs/:id/result` | GET | Status/result/error/workers/usage |
-| `/api/runs/:id/script` | GET | Recorded editable script and path; bounded/no symlinks |
-| `/api/runs/:id/control` | POST | `{action,options}` forwarded to manager |
-| `/api/runs/:id/approve` | POST | `{approvalId,decision}` explicit decision |
-| `/api/workflows?cwd=...` | GET | Namespaces/paths/precedence |
-| `/api/workflows` | POST | `{name,script,cwd,overwrite?,command?}` save |
-| `/api/mode` | GET / POST | Scoped settings / `{value,scope,sessionId?,cwd?}` |
-| `/api/shutdown` | POST | Drain and close supervisor |
-
-Dashboard assets use a restrictive same-origin CSP, no external scripts/fonts, no framing, no-referrer, and no-store. Dynamic evidence is inserted as text rather than HTML.
-
-Summary labels and phase details bound every accepted JSON value, including structured metadata. Previews expose omission and original character count; the full routes preserve original values. The monitor reports retained completed tool-call failures as `toolFailures` and `lastToolFailure` (type, sequence and bounded message), separately from the worker's actual status. A tool error followed by recovery does not imply the worker failed. Routine dashboard polling never requests raw journal or full worker bodies. Deliberate full observations carry timestamps and explicit refresh controls. Journal paging tracks fetched ranges so a large live jump cannot hide intervening evidence. These views add to the full API rather than replacing it.
-
-## MCP stdio
-
-The production server uses the pinned official SDK for initialization, tool discovery, schemas, cancellation/transport lifecycle and JSON-RPC framing. Before managed dependencies exist, or after a package change, a dependency-free bootstrap provides only the read-only `workflow_setup_info` tool over bounded JSON-RPC stdio. It returns exact host-resolved paths and structured commands for explicit setup/verification, without installing, starting a service or evaluating workflows. Reconnect after setup to load production tools. Bootstrap request lines are capped at 64 KiB.
-
-Tool calls return JSON in text content; errors have `isError:true`. Start/control calls do not hold the MCP connection until workflow completion. The detached service survives MCP/CLI exit.
-
-| Tool | Use |
+| Command | Accepted task options |
 | --- | --- |
-| `workflow_setup_info` | Cold/changed runtime only: exact host data/plugin paths and explicit setup commands; read-only |
-| `workflow_start` | Durable admission, compact snapshot/ID |
-| `workflow_status` | Status, coverage, counts, bounded worker/error/approval summaries, evidence paths |
-| `workflow_list` | Paginated compact runs (`offset`, `limit` ≤50) |
-| `workflow_events` | Cursor page (`since`, `limit` ≤50), bounded event previews |
-| `workflow_result` | Bounded final value, partial/failed slots and full evidence paths |
-| `workflow_worker` | Deliberate single-worker prompt/result/error/attempt previews |
-| `workflow_control`, `workflow_approve` | Explicit durable controls and approval decisions |
-| `workflow_workflows`, `workflow_read` | Registry discovery and deliberate script read |
-| `workflow_save`, `workflow_validate` | Parse/validate and save safely; optional scoped command wrapper |
-| `workflow_mode` | Explicit session/project opt-in setting/status |
-| `workflow_dashboard` | Private authenticated loopback URL |
+| setup | Install/select pinned managed runtime |
+| doctor | --cwd, --backend |
+| workflows / read [scope:]name | --cwd |
+| save [scope:]name | --script, --cwd, --command, --overwrite |
+| validate file | Alternatively --script file |
+| run [scope:]name | Alternatively --script file; --cwd, --session, --args JSON, --concurrency, --model, --effort, --max-attempts, --writable, --foreground, --backend |
+| list / status ID / result ID | Inspect persisted runs |
+| worker ID | --position, --generation, optional --source-generation |
+| events ID | --position, --generation, --source-generation, --after, --limit |
+| patch ID | --position, --generation, --source-generation, --basis inputs or base |
+| dashboard [ID] | --session; omitted ID selects newest recorded run in that session |
+| resume ID | --session, optional --generation and edited --script |
+| pause ID / stop ID | --session, --generation |
+| steer ID | --session, --generation, --position, --attempt, --turn, --text |
+| cancel-worker ID | --session, --generation, --position, --attempt, optional --turn |
+| restart-worker ID | --session, --generation, --position, --attempt, --reconcile |
+| control ID | --receipt |
+| mode on/off/status | --scope session or project, --session, --cwd |
 
-Routine MCP responses omit full worker prompts/tool outputs. Previews expose `truncated`, original character count and evidence paths; paging exposes cursors/hasMore. Status shows at most 30 worker summaries and 10 pending approvals; complete records remain local. Result previews are at most 12,000 characters and individual worker/event previews are bounded. Neither truncation nor pagination invents successful coverage.
+Use exact returned IDs rather than relying on dashboard's convenience selection when inspecting a specific run. Starts, resume, pause, stop, steer, cancel, restart and dashboard require --session or CODEX_THREAD_ID; existing-run mutations must match its original identity. Worker positions are zero-based; generation is positive. Read status immediately before controls and use its observed attempt/turn. Events use after=0, limit=50 by default; limit is 1–100.
 
-Worker-marked MCP/CLI processes refuse mutating workflow/start/mode/save/setup operations before daemon startup. Read-only tools may inspect an already-running service and do not create one. This prevents automatic recursive plugin dispatch outside the shared scheduler; it is not a general operating-system sandbox against a malicious process under the same user identity.
+Run defaults: concurrency 2 (range 1–256), read-only/no-network/never-approve. --writable raises the ceiling to isolated workspace writes on Windows MXC. Model/effort follow validated native catalog/configuration; --max-attempts is 1–5. Backend names are mxc and configured; Windows defaults mxc. A configured backend must independently pass admission. There is no automatic transport/backend fallback after dispatch.
 
-## Worker profiles
+Normal run returns a detached startup receipt. --foreground waits and returns a nonzero exit code unless the run completed with complete worker coverage. Read-only status exit zero means the read succeeded, not the run. result returns retained result/error; inspect status for coverage and cleanup.
 
-Project `.agents/agent-workflow.json` is a strict data-only roster: `{agentProfiles:{name:{model?,effort?,developerInstructions?,permissions?}}}`. A configured `agentType` resolves that named profile; unknown names reject before dispatch. Profile permissions can narrow the authorized run ceiling. Explicit backend configuration can supply/override profiles. There is no automatic native parent persona or grant inheritance.
+## Scripts, persistence and replay
+
+The [script reference](../skills/agent-workflow/references/runtime-api.md) defines agent, parallel, pipeline, phase, log and JSON args. Literal first meta is required. Extra exports/imports and unsupported options reject. Scripts execute only in separate bounded QuickJS children; broker messages are JSON.
+
+Registry lookup is closest project to Git root, then personal, then plugin. Saved definitions reload on read. Collision, traversal and link checks fail closed. A run captures its script, arguments and launch settings independently from later definition edits.
+
+Managed state contains runtime-v2.json, fingerprinted runtime-v2 versions and runs-v2/<UUID>. Each run records original runtime/session ownership beside its SQLite database and launch/completion evidence. SQLite persists worker results before returning them to the evaluator. Do not edit records or clear locks to force recovery.
+
+Replay retains only the matching completed invocation prefix. Stable execution settings, dependencies, schema and timeout participate; labels/phases are cosmetic. Unknown outcomes, missing evidence, failed cleanup and incompatible runtime/session block ordinary resume. Explicit restart requires settlement, eligible failed/unknown position, exact attempt and reconciliation of the entire repeated suffix. See [controls](../skills/agent-workflow/references/controls.md).
+
+Worker evidence includes status, prompt/options, attempts, result/error, activity, observed usage, native thread/turn details and workspace artifacts when applicable. Coverage reports requested/completed/cached/failed/unknown; complete requires terminal completed state and all discovered workers completed. Script-level assertions of task coverage can still be incomplete.
+
+## Authenticated per-run HTTP monitor
+
+dashboard starts a separate loopback server bound to 127.0.0.1 on port 0. Its full URL includes a fragment token. API requests require Authorization: Bearer <token>, an exact Host, and an exact Origin when present. The browser removes the fragment and uses tab session storage. Static assets expose no run data. Inactivity expires the monitor after 30 minutes; closing it does not stop the workflow.
+
+| Route | Method and contract |
+| --- | --- |
+| /api/run | GET coherent bounded current snapshot, coverage and recent control receipts |
+| /api/worker/N | GET; generation required, optional sourceGeneration |
+| /api/activity | GET; generation and position required, optional sourceGeneration/after/limit |
+| /api/patch/N | GET; generation required, optional sourceGeneration and basis=inputs or base |
+| /api/script | GET saved script text; generation required |
+| /api/result | GET retained result/error; generation required |
+| /api/control | POST generation/action and applicable position/attempt/turnId/text |
+| /api/resume | POST generation; resume saved script |
+| /api/restart | POST generation/position/attempt/reconciliation |
+| /api/close | POST JSON object; close this monitor |
+
+POST bodies require application/json and are capped at 40,000 bytes. Unknown fields on control/resume/restart reject. Generation conflicts return 409; malformed inputs return 400. Controls return receipts; resume/restart return startup acknowledgement. The authenticated monitor uses the run's recorded session after launcher ownership validation. Edited-script resume is a CLI operation.
+
+Activity retains at most 256 records per worker and 4,096 per generation, each at most 16 KiB. Pages disclose discarded records and shortened fields; raw reasoning is excluded. Cached activity identifies its original source generation. Prior worker/patch/activity reads require a linked prior execution. Runtime inspection makes no model call.
+
+The HTTP surface is a per-run monitor, not a global workflow-start or configuration service. No approval endpoint exists: current worker policy is approvals never.

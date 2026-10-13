@@ -1,8 +1,8 @@
 # Agent Workflow
 
-The current requirement is full Ultracode/dynamic-workflow parity with no API-key billing. The owner authorized discarding the existing architecture. `foundation/` is the fresh App Server prototype; `docs/codex-parity.md` records open acceptance work. The installed 0.1.1 runtime remains separate. Initial host UI/budget exceptions do not waive rebuild requirements. SSH verification is deferred; first prove execution locally.
+The owner authorized replacing the old architecture. The 0.2.0 candidate uses the native Codex App Server through `foundation/`, the isolated SQLite-backed `engine/`, and public CLI/skills. Existing 0.1.1 installations/data remain separate. Managed ChatGPT subscription authentication is required; no API-key billing fallback. `docs/codex-parity.md` records acceptance evidence and remaining host/parity boundaries. SSH verification is deferred.
 
-The owner selected no custom MCP server for the rebuild. Use the CLI and dashboard as workflow surfaces; Codex's native App Server remains the worker interface. Legacy MCP contracts below describe the installed release only.
+The owner selected no custom MCP server. Use the CLI and authenticated dashboard as workflow surfaces. Do not reintroduce the removed `src/` runtime or MCP server. Prior runtime files remain in existing installations, not this package.
 
 - Node 24+, ESM, pinned dependencies, `node --test` meaningful behavior tests.
 - Write the failing test before feature code. Test real processes, persistence and failure boundaries where relevant.
@@ -23,14 +23,11 @@ The owner selected no custom MCP server for the rebuild. Use the CLI and dashboa
 - Keep full merge coverage: scripts, subprocesses, HTML and recipe files are inputs that import-only selection misses. Lane tags document ownership; they do not select tests automatically.
 - CI verifies Windows on PRs, nightly and release tags. This is the verified deployment platform; Linux/macOS coverage is follow-up work. Required PR checks and tag verification gate publication. Avoid duplicate branch-push jobs.
 
-## Released 0.1.1 integration contracts
+## Runtime and integration ownership
 
-These describe the existing release, not constraints on the fresh implementation.
-
-`src/runtime/manager.mjs` exports `RuntimeManager`. Construct with `{ dataDir, backend, workflowsDir? }`. Methods: `start(input) -> Promise<runSnapshot>`, `get(id)`, `list()`, `events(id, since = 0)`, `control(id, action, options = {})`, `approve(id, approvalId, decision)`, `shutdown()`.
-
-Start input: `{ script?, scriptPath?, name?, args?, cwd, concurrency?, maxAgents?, budget?, permissions?, timeoutMs? }`. Default permissions: `{ sandbox: 'read-only', networkAccess: false, approvalPolicy: 'never' }`. Budget is an observed output-token scheduling guard, not the parent turn's native pool. Snapshots include `id`, `status`, `meta`, `cwd`, `workers`, `usage`, `result`, `error`, `approvals`, `createdAt`, `updatedAt` and script/artifact paths. Controls: pause, stop, resume, cancel-worker, restart-worker, steer; options carry `workerId`, `text`, and optional edited `script` for resume.
-
-`src/workers/codex.mjs` exports `createCodexBackend({ transport = 'app-server', executable?, config? })`. Backend: `execute(request, { signal, onEvent, onApproval }) -> Promise<{ value, usage, threadId?, turnId?, artifacts? }>`, `steer(workerId, text)`, `readRateLimits()`, `shutdown()`. Request: `{ id, runId, prompt, cwd, schema?, model?, effort?, agentType?, isolation?, permissions, timeoutMs?, stallMs? }`. Event callback receives JSON records including `type`, worker identity, tool/progress events, PID/thread/turn identifiers and usage. Approval callback returns an explicit backend decision. No automatic app-server-to-exec fallback after dispatch.
-
-File storage and returned data are JSON. Surface-specific display adapters must not invent successful runs or hide failed worker slots.
+- `bin/launch.mjs` and `bin/agent-workflow.mjs` select a managed runtime; `bin/command.mjs` runs inside it. Explicit setup installs outside the plugin cache. Never silently install during a read or start.
+- New state uses `runtime-v2`, `runs-v2` and `modes-v2`. Each run retains its runtime/dependency identity, Node version and originating session. Upgrade preserves earlier runtime directories and does not reinterpret old JSON runs.
+- CLI and hooks share `AGENT_WORKFLOW_DATA_DIR` or the platform default; `PLUGIN_DATA` is not an implicit override. An explicit `--data-dir` must stay consistent across commands.
+- Starts, controls and control-capable dashboard URLs require the originating session. Inspection of a saved run uses its recorded runtime; new runs use the explicitly installed current package.
+- Run scripts execute only in the separate QuickJS evaluator. See `skills/agent-workflow/references/runtime-api.md` for supported APIs and schema limits.
+- Windows MXC writers have independent worktrees from captured inputs; dependencies do not transfer predecessor edits. Diff capture/replay requires verified drain and artifact integrity. No automatic merge or uncertain-effect retry.
