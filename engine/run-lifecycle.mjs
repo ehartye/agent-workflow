@@ -98,7 +98,7 @@ function admitted(context,meta,request){
   if(meta.revision!==request.expectedRevision)throw fault('LIFECYCLE_REVISION','Lifecycle metadata changed; inspect a fresh snapshot');
   if(request.target.kind==='worker'){
     const row=context.workers.find(r=>r.generation===request.target.generation&&r.position===request.target.position);
-    if(!row||row.worker.attempts!==request.target.attempt)throw fault('LIFECYCLE_ATTEMPT','Lifecycle target uses an outdated or absent worker attempt');
+    if(!row||(row.worker.attempts??0)!==request.target.attempt)throw fault('LIFECYCLE_ATTEMPT','Lifecycle target uses an outdated or absent worker attempt');
   }
 }
 function view(meta,target,generation,status){
@@ -145,7 +145,10 @@ export function assertLifecycleReplay(db){
   const meta=metadata(db);
   if(meta.tombstones.length||meta.receipts.some(r=>r.action==='prune'&&['applying','unknown'].includes(r.outcome)))throw fault('REPLAY_PRUNED','Retired or uncertain lifecycle evidence prevents execution reuse; inspect its tombstone/receipt');
 }
-const drained=c=>c?.serverExited===true&&c.jobEmpty===true&&c.ownershipScope==='windows-job-members'&&!c.error&&!c.nativeTerminals?.error&&c.nativeTerminals?.inventoryEmpty===true;
+// backend.close aggregates process/job ownership; terminal inventory belongs to
+// individual worker cleanup records and must be positively proven there.
+const runDrained=c=>c?.serverExited===true&&c.jobEmpty===true&&c.ownershipScope==='windows-job-members'&&!c.error&&!c.nativeTerminals?.error&&c.nativeTerminals?.inventoryEmpty!==false;
+const drained=c=>runDrained(c)&&c.nativeTerminals?.inventoryEmpty===true;
 const noProcess=w=>w.status==='failed'&&w.notStarted===true&&w.noProcessStarted===true&&!w.evidence?.cleanup?.error&&!w.evidence?.cleanup?.nativeTerminals?.error&&w.evidence?.cleanup?.serverExited!==false&&w.evidence?.cleanup?.jobEmpty!==false&&w.evidence?.cleanup?.nativeTerminals?.inventoryEmpty!==false;
 function flag(value,keys){if(!value||typeof value!=='object')return false;return Object.entries(value).some(([k,v])=>keys.includes(k)&&v===true||flag(v,keys));}
 function unresolved(value){if(!value||typeof value!=='object')return false;return Object.entries(value).some(([k,v])=>['unreconciled','reconciliationRequired','recoveryRequired'].includes(k)&&v===true||k==='reconciled'&&v===false||k==='recovery'&&v!=null||unresolved(v));}
@@ -241,7 +244,7 @@ async function buildPlan(runDir,context,meta,own,request,{id=randomUUID(),create
   if(!['completed','failed','blocked','paused','stopped'].includes(state.status)||state.acceptingControls||workers.some(r=>['running','queued'].includes(r.worker.status)))add('PRUNE_ACTIVE','Execution must be settled before destructive retirement');
   if(workers.some(r=>r.worker.status==='unknown')||state.status==='unknown'||controls.some(r=>r.receipt.status==='unknown'))add('PRUNE_UNKNOWN','Unknown historical effects must remain available for reconciliation');
   if(meta.receipts.some(r=>r.action==='prune'&&['unknown','applying'].includes(r.outcome)))add('PRUNE_UNCERTAIN','A prior destructive effect requires coordinator reconciliation; retry is forbidden');
-  if(!drained(state.cleanup)||controls.some(r=>['pending','applying'].includes(r.receipt.status)))add('PRUNE_DRAIN','Exclusive settled ownership and complete owned-job drain evidence are required');
+  if(!runDrained(state.cleanup)||controls.some(r=>['pending','applying'].includes(r.receipt.status)))add('PRUNE_DRAIN','Exclusive settled ownership and complete owned-job drain evidence are required');
   if(unresolved(state)||workers.some(r=>unresolved(r.worker)))add('PRUNE_UNRECONCILED','Recovery or unreconciled effects are protected');
   if(flag(state,['pinned','retain','retentionRequired'])||chosen.some(r=>flag(r.worker,['pinned','retain','retentionRequired'])))add('PRUNE_PINNED','Pinned retention/runtime/recovery data is protected');
   if(meta.tombstones.some(t=>t.target.kind==='run'||request.target.kind==='worker'&&key(t.target,t.generation)===key(request.target,request.generation)))add('PRUNE_RETIRED','Target already has a retirement tombstone');

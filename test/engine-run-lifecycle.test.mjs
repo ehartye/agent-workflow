@@ -71,6 +71,14 @@ test('active and unknown executions can be hidden without taking execution owner
   assert.equal(view.run.visibility,'hidden');assert.equal(view.workers[0].visibility,'archived');assert.equal(view.counts.unknownWorkers,1);assert.equal(view.counts.hiddenWorkers,1);
   assert.equal(await readFile(join(f.runDir,'owner.lock'),'utf8'),'controller-owner');assert.deepEqual(raw(f.runDir),before);
 });
+
+test('the published zero-attempt target can hide a queued worker before dispatch',async t=>{
+  const f=await fixture(t,{status:'running',workerStatus:'queued'});const queued={...f.worker};delete queued.attempts;
+  edit(f.runDir,db=>db.prepare('UPDATE workers SET value=?').run(JSON.stringify(queued)));
+  const before=raw(f.runDir),view=await f.api.readLifecycle(f.runDir),target=view.workers[0].target;assert.equal(target.attempt,0);
+  const receipt=await f.api.requestLifecycle(f.runDir,{...f.request,target,action:'hide',requestId:'queued-zero'});assert.equal(receipt.outcome,'applied');
+  assert.equal((await f.api.readLifecycle(f.runDir)).workers[0].visibility,'hidden');assert.deepEqual(raw(f.runDir),before);
+});
 test('overlays persist, receipts remain inspectable, restoration and a replacement generation retain identity',async t=>{
   const f=await fixture(t),target={kind:'worker',generation:1,position:0,attempt:1};
   const receipt=await f.api.requestLifecycle(f.runDir,{...f.request,target,requestId:'hide',action:'hide',reason:'review later'});
@@ -114,9 +122,17 @@ test('prune plans disclose active, unknown, historical unknown, unreconciled and
   edit(f.runDir,db=>{db.prepare('UPDATE header SET value=?').run(JSON.stringify({...f.header,generation:2}));db.prepare('UPDATE workers SET value=?').run(JSON.stringify({...f.worker,status:'unknown'}));db.prepare('INSERT INTO workers VALUES(2,0,?)').run(JSON.stringify({...f.worker,attempts:2}));});
   assert.ok((await f.api.planPrune(f.runDir,{...f.request,generation:2,reason:'review'})).blocked.some(b=>b.code==='PRUNE_UNKNOWN'));
 });
-test('prune requires explicit empty native-terminal inventory at run and executed-worker boundaries',async t=>{
+test('prune accepts aggregate job drain only when every executed worker has positive native cleanup',async t=>{
+  const f=await fixture(t),aggregate={serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members',descendants:'notVerified'};
+  edit(f.runDir,db=>db.prepare('UPDATE header SET value=?').run(JSON.stringify({...f.header,cleanup:aggregate})));
+  const plan=await f.api.planPrune(f.runDir,{...f.request,reason:'actual backend close aggregate'});assert.deepEqual(plan.blocked,[]);
+  edit(f.runDir,db=>db.prepare('UPDATE workers SET value=?').run(JSON.stringify({...f.worker,evidence:{cleanup:aggregate}})));
+  assert.ok((await f.api.planPrune(f.runDir,{...f.request,reason:'worker terminal inventory absent'})).blocked.some(b=>b.code==='PRUNE_DRAIN'));
+});
+
+test('prune requires positive worker native inventory and rejects contradictory aggregate cleanup',async t=>{
   const f=await fixture(t),missing={serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members'};
-  for(const scope of ['run','worker'])for(const observed of [missing,{...missing,nativeTerminals:{}},{...missing,nativeTerminals:{inventoryEmpty:false}}]){
+  for(const scope of ['run','worker'])for(const observed of scope==='run'?[{...missing,nativeTerminals:{inventoryEmpty:false}},{...missing,nativeTerminals:{error:{code:'UNCONFIRMED'}}}]:[missing,{...missing,nativeTerminals:{}},{...missing,nativeTerminals:{inventoryEmpty:false}}]){
     edit(f.runDir,db=>{db.prepare('UPDATE header SET value=?').run(JSON.stringify({...f.header,cleanup:scope==='run'?observed:cleanup}));db.prepare('UPDATE workers SET value=?').run(JSON.stringify({...f.worker,evidence:{cleanup:scope==='worker'?observed:cleanup}}));});
     const plan=await f.api.planPrune(f.runDir,{...f.request,reason:'require positive cleanup evidence'});assert.ok(plan.blocked.some(b=>b.code==='PRUNE_DRAIN'),`${scope}: ${JSON.stringify(observed)}`);
   }
