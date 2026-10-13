@@ -1,6 +1,6 @@
 {
   "name": "agent-workflow",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scripted, durable Codex workflows with parallel agents, replay and a local control desk",
   "type": "module",
   "private": true,

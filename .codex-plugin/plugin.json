@@ -1,1 +1,19 @@
-{"name":"agent-workflow","version":"0.1.0","description":"Durable scripted Codex workflows and a local control desk.","skills":"./skills/","mcpServers":"./.mcp.json","hooks":"./hooks/hooks.json","extensions":{"com.openai":{"onboardingSkill":"./skills/workflow-setup/SKILL.md"}},"interface":{"displayName":"Agent Workflow","shortDescription":"Durable workflows, bounded workers and ordered replay.","developerName":"ehartye","category":"Productivity"}}
+{
+  "name": "agent-workflow",
+  "version": "0.1.1",
+  "description": "Durable scripted Codex workflows and a local control desk.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/workflow-setup/SKILL.md"
+    }
+  },
+  "interface": {
+    "displayName": "Agent Workflow",
+    "shortDescription": "Durable workflows, bounded workers and ordered replay.",
+    "developerName": "ehartye",
+    "category": "Productivity"
+  }
+}

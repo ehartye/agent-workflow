@@ -11,7 +11,7 @@ Requirements: Node **24+** with npm, and an authenticated Codex installation/acc
 Clone the public repository, using the release tag for a fixed package version:
 
 ```sh
-git clone --branch v0.1.0 https://github.com/ehartye/agent-workflow.git
+git clone --branch v0.1.1 https://github.com/ehartye/agent-workflow.git
 codex plugin marketplace add ./agent-workflow
 codex plugin add agent-workflow@agent-workflow-local
 ```
@@ -49,11 +49,15 @@ For a source checkout:
 npm ci --ignore-scripts
 node bin/agent-workflow.mjs start
 node bin/agent-workflow.mjs workflows --cwd C:/path/to/project
-node bin/agent-workflow.mjs run plugin:item-audit --cwd C:/path/to/project --args '{"items":[{"id":"src","scope":"src/"}]}' --wait
+node bin/agent-workflow.mjs run plugin:item-audit --cwd C:/path/to/project --args '{"items":[{"id":"src","scope":"src/"}]}' --compact --wait
 node bin/agent-workflow.mjs dashboard --open
 ```
 
 For the installed package, replace the leading `node bin/agent-workflow.mjs` with `node "<installed-plugin-root>/bin/launch.mjs"` and append `--data-dir "<exact-host-dataDir>"` to every command. Use setup-info or host diagnostics for that exact directory; the parent shell may otherwise select a different default instance. Defaults are read-only workers, no network, and approvals never. Explicit authorized write work uses `--sandbox workspace-write`; network uses `--network true`; live approval waits use `--approvals on-request`. Run `help` for all controls.
+
+Use `status ID --compact` and `list --compact` for routine CLI observation, and `events ID --compact --since N --limit 50` for cursor pages. `run --compact --wait` polls the summary view; run/control/approval compact output retains status, coverage and evidence paths. Default CLI reads still return full records. A newer source client can compact an older supervisor’s full reply locally; that compatibility path still transfers its full record, and event pages report `legacyFullRead:true`.
+
+The monitor polls summary/monitor views, follows actual dispatch order and keeps tool failures visible beside the worker’s current status. Full worker/run/result/event records load deliberately, with retained observations timestamped. Truncated approval requests must be inspected before acceptance.
 
 The service binds only `127.0.0.1` on an ephemeral port. API calls require a local bearer token and browser requests must have the service’s exact origin. `dashboard` puts the token in the URL fragment, which the page removes from the displayed URL and stores in tab session storage. Treat dashboard URLs and the local service/run directory as private.
 

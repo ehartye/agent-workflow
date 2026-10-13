@@ -8,6 +8,8 @@ Installed plugin: run `node "<plugin-root>/bin/launch.mjs" <command> --data-dir 
 | `run [name] --script-path path --cwd path --args '{...}'` | Durable admission; path takes precedence over name/script |
 | `run ... --wait` | Poll until stopped/paused/terminal; deadline does not cancel the run |
 | `status ID`, `list`, `events ID --since N`, `result ID` | Inspect full JSON records and outcomes |
+| `status ID --compact`, `list --compact` | Routine bounded status/counts/coverage and evidence paths |
+| `events ID --compact --since N --limit 50` | Bounded event preview page with cursor/hasMore; limit 1–100 |
 | `pause ID`, `stop ID` | Block dispatch and drain according to runtime control semantics |
 | `resume ID --script-path path` | Replay with edited script or resume unchanged |
 | `steer ID --worker ID --text text` | Send direction to active worker |
@@ -25,6 +27,8 @@ Installed plugin: run `node "<plugin-root>/bin/launch.mjs" <command> --data-dir 
 | `mcp` | MCP stdio protocol; no informational stdout |
 
 Start flags: `--concurrency`, `--max-agents`, `--budget`, `--timeout`, `--quota-wait` (milliseconds, 0–3,600,000, default 0), `--stall-restarts` (0–5, default 5), `--sandbox read-only/workspace-write`, `--network true`, `--approvals never/on-request`. Quota waiting requires known backend reset metadata and a safe retry; uncertain effects never authorize it. Stall retries retain spend/attempts and do not retry an uncertain writer. Broader access requires user authorization. Defaults are read-only, no network and never approve.
+
+Use `--compact` on run, list, status, approval or control responses to avoid printing full prompts/journals. `run --compact --wait` polls the summary view. It does not change admission, effects or permissions. Default reads remain full evidence. Against an older supervisor, the source client projects its full response locally; that still transfers the full record, and event pages label this `legacyFullRead:true`. Keep the matching old runtime for resumable runs; observation through a newer client does not authorize a runtime replacement.
 
 The loopback HTTP API requires a local bearer token. Dashboard authentication uses a URL fragment; it is removed from the displayed URL and retained in tab session storage. Do not paste the token into shared reports. Service records/logs and run artifacts contain private prompts/results and remain in the selected local data directory.
 

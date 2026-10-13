@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1
+
+- Rework the workflow monitor with an Agent Marketing inspired navy/amber layout, dispatch rail and responsive evidence panes.
+- Keep routine status and journal reads bounded; expose full retained evidence through deliberate inspection.
+- Add CLI `--compact`, bounded waiting and compatibility with an existing 0.1.0 supervisor.
+- Show recovered tool failures, timestamp full observations and gate truncated approval requests.
+- Preserve access to every journal range when more than one page arrives between polls.
+- Show actual immutable permissions and limits when editing a resumed run.
+
+Developed against a real PlanetForge roadmap audit. Full authenticated evidence and default CLI/API response contracts remain available; old runs retain their matching runtime for resume. Rendered visual inspection is pending an attached browser.
+
 ## 0.1.0
 
 Initial public release of the regular Codex plugin and local runtime.
