@@ -24,6 +24,7 @@ async function fixture(t,{status='completed',workerStatus='completed'}={}){
   const runtime={schema:2,id:runtimeId,version:'0.2.1',digest:'a'.repeat(64),node:process.version,path:join(root,'runtime-v2',runtimeId),codex:join(root,'runtime-v2',runtimeId,'codex.exe'),codexDigest:'b'.repeat(64),dependenciesDigest:'c'.repeat(64)};
   await mkdir(runDir,{recursive:true});await mkdir(runtime.path,{recursive:true});
   await writeFile(join(runtime.path,'.runtime.json'),JSON.stringify(runtime));
+  await writeFile(join(runtime.path,'package.json'),JSON.stringify({agentWorkflowCapabilities:['lifecycle-retirement-v1']}));
   const owner={schema:2,id,sessionId:'session',runtime,createdAt:'2026-10-13T00:00:00.000Z'};
   await writeFile(join(runDir,'runtime.json'),JSON.stringify(owner));
   const header={version:1,sessionId:'session',generation:1,runtimeIdentity:'d'.repeat(64),status,acceptingControls:status==='running',cleanup,workerCount:1,attempts:1,maxAgents:10};
@@ -128,6 +129,15 @@ test('prune accepts aggregate job drain only when every executed worker has posi
   const plan=await f.api.planPrune(f.runDir,{...f.request,reason:'actual backend close aggregate'});assert.deepEqual(plan.blocked,[]);
   edit(f.runDir,db=>db.prepare('UPDATE workers SET value=?').run(JSON.stringify({...f.worker,evidence:{cleanup:aggregate}})));
   assert.ok((await f.api.planPrune(f.runDir,{...f.request,reason:'worker terminal inventory absent'})).blocked.some(b=>b.code==='PRUNE_DRAIN'));
+});
+
+test('older runtimes without a replay retirement guard remain visible but cannot be destructively retired',async t=>{
+  const f=await fixture(t);await writeFile(join(f.owner.runtime.path,'package.json'),JSON.stringify({version:'0.2.1'}));
+  const receipt=await f.api.requestLifecycle(f.runDir,{...f.request,action:'hide',requestId:'old-visible'});assert.equal(receipt.outcome,'applied');
+  const plan=await f.api.planPrune(f.runDir,{...f.request,expectedRevision:1,reason:'review older runtime'});
+  assert.ok(plan.blocked.some(b=>b.code==='PRUNE_RUNTIME_UNSUPPORTED'));assert.deepEqual(plan.candidates,[]);
+  await assert.rejects(f.api.applyPrune(f.runDir,{sessionId:'session',plan,approvedPlanHash:plan.planHash}),{code:'PRUNE_INELIGIBLE'});
+  assert.equal((await f.api.readLifecycle(f.runDir)).run.pruned,false);
 });
 
 test('prune requires positive worker native inventory and rejects contradictory aggregate cleanup',async t=>{

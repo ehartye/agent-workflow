@@ -239,6 +239,11 @@ function blocker(code,detail,target){return{code,detail,...(target?{target}:{})}
 async function buildPlan(runDir,context,meta,own,request,{id=randomUUID(),createdAt=new Date().toISOString(),lease=null}={}){
   const {state,workers,controls}=context,chosen=selected(context,request.target),blocked=[];
   const add=(code,detail)=>blocked.push(blocker(code,detail));
+  // A prior installed controller may ignore retirement metadata. Do not retire
+  // its run and leave a still-valid replay path in that immutable runtime.
+  let replayGuard=false;
+  try{const pkg=await jsonFile(join(own.owner.runtime.path,'package.json'));replayGuard=Array.isArray(pkg.agentWorkflowCapabilities)&&pkg.agentWorkflowCapabilities.includes('lifecycle-retirement-v1');}catch{}
+  if(!replayGuard)add('PRUNE_RUNTIME_UNSUPPORTED','The retained runtime does not declare retirement-aware replay; its evidence must remain available');
   if(lease)await stillOwned(lease);
   else try{await fs.lstat(join(runDir,'owner.lock'));add('PRUNE_LOCKED','Execution ownership is held; a stale lock requires coordinator inspection');}catch(e){if(e.code!=='ENOENT')add('PRUNE_INTEGRITY','Execution ownership could not be inspected');}
   if(!['completed','failed','blocked','paused','stopped'].includes(state.status)||state.acceptingControls||workers.some(r=>['running','queued'].includes(r.worker.status)))add('PRUNE_ACTIVE','Execution must be settled before destructive retirement');
