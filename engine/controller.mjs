@@ -6,6 +6,7 @@ import { join, isAbsolute } from 'node:path';
 import { evaluate } from './evaluate.mjs';
 import { parseScript } from './script.mjs';
 import { fault, diagnostic } from '../foundation/client.mjs';
+export {requestControl,readControl} from './controls.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 function json(value) {
@@ -26,7 +27,7 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  const files = ['controller.mjs','controls.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
   return hash(process.version + files.map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
@@ -49,7 +50,7 @@ export async function readRun(runDir) {
   try { return snapshot(db); } finally { db.close(); }
 }
 
-export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, concurrency = 2, maxAgents = 1000, timeoutMs = 120000 }) {
+export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, concurrency = 2, maxAgents = 1000, timeoutMs = 120000, drainTimeoutMs=20000, onReady, launch=null }) {
   let db, lease, state, primary;
   let leaseOwned = false;
   let stopped = false;
@@ -59,9 +60,17 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
   let chain = '';
   let reuse = true;
   let currentPhase = '';
+  let controlAction;
+  let controlTimer;
+  let drainTimer,expireDrain;
+  let drainBy=Infinity;
+  const armDrain=ms=>{drainBy=Math.min(drainBy,performance.now()+ms);clearTimeout(drainTimer);drainTimer=setTimeout(()=>expireDrain(false),Math.max(0,drainBy-performance.now()));};
+  let retiredWrites=false;
+  const currentWorkers=new Map();
   const waiters = [];
   const calls = new Set();
   const abort = new AbortController();
+  const evaluatorAbort = new AbortController();
   const token = randomUUID();
   const lock = typeof runDir === 'string' ? join(runDir, 'owner.lock') : '';
   let closed;
@@ -86,6 +95,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
   const release = () => { active--; waiters.shift()?.(); };
   try {
     const { meta } = parseScript(script);
+    if(!Number.isFinite(drainTimeoutMs)||drainTimeoutMs<=0)throw fault('RUN_INPUT','A positive drain deadline is required');
     if (!isAbsolute(runDir ?? '') || typeof sessionId !== 'string' || !sessionId || sessionId.length > 200 || !backend || typeof backend.execute !== 'function' || typeof backend.close !== 'function' || typeof backend.identity !== 'string' || !backend.identity || !Number.isInteger(concurrency) || concurrency < 1 || concurrency > 256 || !Number.isInteger(maxAgents) || maxAgents < 1 || maxAgents > 1000) throw fault('RUN_INPUT', 'Invalid workflow identity, backend or limits');
     json(args);
     await mkdir(runDir, { recursive: true });
@@ -95,27 +105,50 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     const path = join(runDir, 'run.sqlite');
     await regular(path, true);
     db = new DatabaseSync(path);
-    db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS header(id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS workers(generation INTEGER NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(generation,position)); CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL);');
+    db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=1000; CREATE TABLE IF NOT EXISTS header(id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS workers(generation INTEGER NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(generation,position)); CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS controls(id TEXT PRIMARY KEY,generation INTEGER NOT NULL,value TEXT NOT NULL);');
     const previous = snapshot(db);
     const runtimeIdentity = identity();
     if (previous && !resume) throw fault('RUN_EXISTS', 'Existing run requires explicit resume');
     if (!previous && resume) throw fault('REPLAY_MISSING', 'No saved run exists to replay');
     if (previous && (previous.version !== 1 || !Number.isInteger(previous.generation) || !Number.isInteger(previous.workerCount) || previous.workerCount !== previous.workers.length || previous.workers.some((worker, index) => worker.position !== index || !['queued','running','completed','failed','unknown'].includes(worker.status) || worker.status === 'completed' && (!Object.hasOwn(worker,'result') || hash(json(worker.result)) !== worker.resultHash)))) throw fault('REPLAY_CORRUPT', 'Saved run or worker evidence is missing or corrupt');
     if (previous?.sessionId && previous.sessionId !== sessionId) throw fault('REPLAY_SESSION', 'Saved results belong to a different session');
-    if (previous && (previous.status === 'running' || previous.workers.some(worker => ['running','unknown'].includes(worker.status)))) throw fault('REPLAY_UNKNOWN', 'Unknown execution prevents automatic replay');
+    if (previous && (previous.cleanup?.serverExited!==true || ['running','pausing','stopping','finishing'].includes(previous.status) || previous.workers.some(worker => ['running','unknown'].includes(worker.status)))) throw fault('REPLAY_UNKNOWN', 'Unknown execution prevents automatic replay');
     if (previous && previous.runtimeIdentity !== runtimeIdentity) throw fault('REPLAY_RUNTIME', 'Saved results require their original runtime version');
     reuse = !previous || previous.backendIdentity === backend.identity;
     const oldWorkers = previous?.workers ?? [];
     state = { version: 1, sessionId, generation: (previous?.generation ?? 0) + 1, runtimeIdentity, backendIdentity: backend.identity,
-      status: 'running', meta, script, args, concurrency, maxAgents, workerCount: 0, attempts: previous?.attempts ?? 0, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString() };
+      status: 'running', acceptingControls:true, meta, script, args, launch, concurrency, maxAgents, workerCount: 0, attempts: previous?.attempts ?? 0, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString() };
     saveHeader();
+    const applyControls = (closing=false) => {
+      own();
+      let applied=false;
+      db.exec('BEGIN IMMEDIATE');
+      try{
+        const rows=db.prepare("SELECT value FROM controls WHERE generation=? AND json_extract(value,'$.status')='pending' ORDER BY rowid").all(state.generation);
+        for(const row of rows){
+          const receipt=JSON.parse(row.value);
+          if(!['pause','stop'].includes(receipt.action))throw fault('CONTROL_CORRUPT','Stored control action is invalid');
+          const denied=Boolean(primary)||controlAction==='stop'&&receipt.action==='pause';
+          receipt.status=denied?'rejected':'applied';receipt.appliedAt=new Date().toISOString();
+          if(!denied){applied=true;controlAction=receipt.action;state.status=controlAction==='pause'?'pausing':'stopping';state.updatedAt=receipt.appliedAt;}
+          db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
+        }
+        if(closing)state.acceptingControls=false;
+        if(rows.length||closing)saveHeader();
+        db.exec('COMMIT');
+      }catch(error){db.exec('ROLLBACK');throw error;}
+      if(applied){stopped=true;evaluatorAbort.abort();if(controlAction==='stop'){abort.abort();if(expireDrain)armDrain(drainTimeoutMs);}for(const resolve of waiters.splice(0))resolve();}
+    };
+    controlTimer=setInterval(()=>{try{applyControls();}catch(error){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();for(const resolve of waiters.splice(0))resolve();}},25);
     const dispatch = async ({ prompt, options = {} }) => {
       if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['label','phase','timeoutMs'].includes(key)) || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 120000)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
-      if (sequence >= maxAgents || stopped) throw fault('AGENT_LIMIT', 'Workflow agent limit or admission boundary reached');
+      if (stopped) throw fault('RUN_STOPPED', 'Workflow admission is closed');
+      if (sequence >= maxAgents) throw fault('AGENT_LIMIT', 'Workflow agent limit reached');
       const position = sequence++;
       chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs ?? 120000 }));
       const prior = oldWorkers[position];
       const worker = { position, key: chain, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
+      currentWorkers.set(position,worker);
       if (reuse && prior?.key === worker.key && prior.status === 'completed') {
         if (!Object.hasOwn(prior, 'result') || hash(json(prior.result)) !== prior.resultHash) throw fault('REPLAY_CORRUPT', 'Saved worker result is missing or corrupt');
         Object.assign(worker, { status: 'completed', cached: true, result: prior.result, resultHash: prior.resultHash });
@@ -132,14 +165,17 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         saveHeader(); saveWorker(worker);
         dispatched = true;
         const result = await backend.execute({ prompt, options, position, signal: abort.signal });
+        if(retiredWrites)throw fault('RUN_RETIRED','Late worker result cannot change terminal evidence');
         if (!result?.terminalObserved) throw fault('AGENT_UNKNOWN', 'Worker terminal state was not observed');
         const value = JSON.parse(json(result.value));
         Object.assign(worker, { status: 'completed', result: value, resultHash: hash(json(value)), completedAt: new Date().toISOString() });
         if (result.evidence) worker.evidence = JSON.parse(json(result.evidence));
         saveWorker(worker); return value;
       } catch (error) {
-        worker.status = !dispatched || error.notStarted ? 'failed' : 'unknown';
+        if(retiredWrites)throw error;
+        worker.status = !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted ? 'failed' : 'unknown';
         worker.error = diagnostic(error);
+        if(error.interruption)worker.interruption={terminalObserved:error.interruption.terminalObserved===true,terminalStatus:['completed','failed','interrupted'].includes(error.interruption.terminalStatus)?error.interruption.terminalStatus:null,descendants:'notVerified'};
         saveWorker(worker);
         throw error;
       } finally { if (acquired) release(); }
@@ -147,7 +183,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     const call = (method, params) => {
       if (method === 'agent') {
         const work = dispatch(params).catch(error => {
-          if (['AGENT_INPUT','AGENT_LIMIT','REPLAY_CORRUPT','RUN_OWNERSHIP'].includes(error.code)) { fatal ??= error; abort.abort(); }
+          if (['AGENT_INPUT','AGENT_LIMIT','REPLAY_CORRUPT','RUN_OWNERSHIP'].includes(error.code)) { fatal ??= error; stopped=true; evaluatorAbort.abort(); abort.abort(); for(const resolve of waiters.splice(0))resolve(); }
           throw error;
         });
         calls.add(work); work.then(() => calls.delete(work), () => calls.delete(work));
@@ -162,23 +198,41 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       return null;
     };
     try {
-      state.result = await evaluate(script, { args, call, timeoutMs, signal: abort.signal });
+      await onReady?.({generation:state.generation,status:state.status});
+      state.result = await evaluate(script, { args, call, timeoutMs, signal: evaluatorAbort.signal });
       if (fatal) throw fatal;
-      state.status = 'completed';
-    } catch (error) { primary = fatal ?? error; state.status = 'failed'; state.error = diagnostic(primary); }
-    stopped = true; abort.abort();
+      state.status = 'finishing';
+    } catch (error) { if(!controlAction||fatal){primary=fatal??error;state.status = 'finishing'; state.error = diagnostic(primary);} }
+    stopped = true; if(controlAction!=='pause')abort.abort();
     for (const resolve of waiters.splice(0)) resolve();
+    // Give workers their bounded native interruption/completion window before
+    // closing the retained connection that carries terminal evidence.
+    const drained=await Promise.race([Promise.allSettled([...calls]).then(()=>true),new Promise(resolve=>{expireDrain=resolve;armDrain(controlAction==='pause'?Math.max(timeoutMs+5000,drainTimeoutMs):drainTimeoutMs);})]);
+    clearTimeout(drainTimer);
+    expireDrain=undefined;
+    if(!drained){
+      abort.abort();retiredWrites=true;
+      for(const worker of currentWorkers.values())if(worker.status==='running'){
+        worker.status='unknown';worker.error=diagnostic(fault('DRAIN_TIMEOUT','Worker did not settle within the drain deadline'));saveWorker(worker);
+      }
+    }
+    clearInterval(controlTimer);
+    state.status=controlAction==='pause'?'pausing':controlAction==='stop'?'stopping':'finishing';
+    applyControls(true);
     try { state.cleanup = await closeBackend(); }
     catch (error) { state.cleanup = { serverExited: false, error: diagnostic(error), descendants: 'notVerified' }; }
-    await Promise.allSettled([...calls]);
-    if (!state.cleanup.serverExited || snapshot(db).workers.some(worker => worker.status === 'unknown')) state.status = 'failed';
+    if(drained)await Promise.allSettled([...calls]);
+    if(primary||fatal)state.status='failed';else state.status=controlAction==='pause'?'paused':controlAction==='stop'?'stopped':'completed';
+    if (!state.cleanup.serverExited || snapshot(db).workers.some(worker => worker.status === 'unknown')) state.status = controlAction?'blocked':'failed';
     state.updatedAt = new Date().toISOString(); saveHeader();
     return snapshot(db);
   } finally {
+    clearInterval(controlTimer);
+    clearTimeout(drainTimer);
     stopped = true; abort.abort();
     for (const resolve of waiters.splice(0)) resolve();
     if (backend?.close) { try { await closeBackend(); } catch { /* Reported above when a run was admitted. */ } }
-    await Promise.allSettled([...calls]);
+    retiredWrites=true;
     db?.close();
     await lease?.close();
     if (leaseOwned && await readFile(lock, 'utf8').catch(() => '') === token) await unlink(lock);

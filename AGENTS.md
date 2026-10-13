@@ -2,6 +2,8 @@
 
 The current requirement is full Ultracode/dynamic-workflow parity with no API-key billing. The owner authorized discarding the existing architecture. `foundation/` is the fresh App Server prototype; `docs/codex-parity.md` records open acceptance work. The installed 0.1.1 runtime remains separate. Initial host UI/budget exceptions do not waive rebuild requirements. SSH verification is deferred; first prove execution locally.
 
+The owner selected no custom MCP server for the rebuild. Use the CLI and dashboard as workflow surfaces; Codex's native App Server remains the worker interface. Legacy MCP contracts below describe the installed release only.
+
 - Node 24+, ESM, pinned dependencies, `node --test` meaningful behavior tests.
 - Write the failing test before feature code. Test real processes, persistence and failure boundaries where relevant.
 - Never evaluate workflow scripts in the host process. Use a separate QuickJS evaluator with JSON-only broker messages and bounded CPU/memory.

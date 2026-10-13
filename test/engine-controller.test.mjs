@@ -14,7 +14,7 @@ async function setup(t) {
   t.after(() => rm(runDir, { recursive: true, force: true }));
   const module = await import('../engine/controller.mjs').catch(() => null);
   assert.ok(module?.runWorkflow, 'Fresh workflow controller must exist');
-  return { runDir, runWorkflow: module.runWorkflow, readRun: module.readRun };
+  return { runDir, runWorkflow: module.runWorkflow, readRun: module.readRun, requestControl: module.requestControl, readControl:module.readControl };
 }
 const backend = execute => ({ identity: 'fixture-v1', execute, close: async () => ({ serverExited: true, descendants: 'notVerified' }) });
 
@@ -71,6 +71,50 @@ test('unknown execution and different session refuse automatic replay', async t 
   await assert.rejects(runWorkflow({...input,sessionId:'other',resume:true}),{code:'REPLAY_SESSION'});
 });
 
+test('failed server shutdown blocks replay even when worker results completed',async t=>{
+  const {runDir,runWorkflow}=await setup(t);
+  const input={runDir,sessionId:'s',script:meta+'return await agent("A");'};
+  const execute=async()=>({value:'A',terminalObserved:true});
+  const failed=await runWorkflow({...input,backend:{...backend(execute),close:async()=>({serverExited:false,descendants:'notVerified'})}});
+  assert.equal(failed.status,'failed');assert.equal(failed.workers[0].status,'completed');
+  await assert.rejects(runWorkflow({...input,resume:true,backend:backend(execute)}),{code:'REPLAY_UNKNOWN'});
+});
+
+test('terminal status is published only after backend shutdown evidence is stored',async t=>{
+  const {runDir,runWorkflow,readRun}=await setup(t);
+  let closing,finish;const entered=new Promise(resolve=>{closing=resolve;});const gate=new Promise(resolve=>{finish=resolve;});
+  const work=runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',backend:{...backend(async()=>{}),close:async()=>{closing();await gate;return{serverExited:true,descendants:'notVerified'};}}});
+  await entered;const during=await readRun(runDir);finish();const done=await work;
+  assert.equal(during.status,'finishing');assert.equal(during.acceptingControls,false);
+  assert.equal(done.status,'completed');assert.equal(done.cleanup.serverExited,true);
+});
+
+test('failure remains nonterminal while settled workers persist during drain',async t=>{
+  const {runDir,runWorkflow,readRun}=await setup(t);
+  let admitted=0,allStarted,finish;
+  const started=new Promise(resolve=>{allStarted=resolve;});
+  const gate=new Promise(resolve=>{finish=resolve;});
+  const work=runWorkflow({runDir,sessionId:'s',concurrency:3,
+    script:meta+'const a=agent("A");const c=agent("C");return await agent("B");',
+    backend:backend(async({prompt,signal})=>{
+      if(++admitted===3)allStarted();await started;
+      if(prompt==='B')throw Object.assign(new Error('fixture failure'),{notStarted:true});
+      if(prompt==='A')await new Promise(resolve=>{if(signal.aborted)resolve();else signal.addEventListener('abort',resolve,{once:true});});
+      else await gate;
+      return{value:prompt,terminalObserved:true};
+    })});
+  let during;
+  try{
+    const deadline=Date.now()+3000;
+    do{await new Promise(resolve=>setTimeout(resolve,10));during=await readRun(runDir).catch(()=>null);}
+    while(during?.workers[0]?.status!=='completed'&&Date.now()<deadline);
+  }finally{finish();}
+  const done=await work;
+  assert.equal(during?.workers[0]?.status,'completed');
+  assert.equal(during.status,'finishing');assert.equal(during.cleanup,undefined);
+  assert.equal(done.status,'failed');assert.equal(done.cleanup.serverExited,true);
+});
+
 test('exclusive run ownership refuses a second controller without dispatching', async t => {
   const { runDir, runWorkflow } = await setup(t);
   await writeFile(join(runDir,'owner.lock'),'another-controller',{flag:'wx'});
@@ -89,4 +133,81 @@ test('missing or corrupt saved worker rows reject before any replay dispatch', a
     await assert.rejects(runWorkflow({...input,resume:true,backend:backend(async()=>{called=true;return {value:'A',terminalObserved:true};})}),{code:'REPLAY_CORRUPT'});
     assert.equal(called,false);
   }
+});
+
+test('pause persists completed work and prevents queued admission until explicit replay', async t=>{
+  const {runDir,runWorkflow,requestControl,readControl}=await setup(t);
+  assert.equal(typeof requestControl,'function');
+  let started,finish;
+  const running=new Promise(resolve=>{started=resolve;});
+  const gate=new Promise(resolve=>{finish=resolve;});
+  const calls=[];
+  const input={runDir,sessionId:'s',concurrency:1,script:meta+'return await parallel([()=>agent("A"),()=>agent("B")]);'};
+  const work=runWorkflow({...input,backend:backend(async({prompt})=>{calls.push(prompt);started();await gate;return{value:prompt,terminalObserved:true};})});
+  await running;
+  const receipt=await requestControl(runDir,{sessionId:'s',generation:1,action:'pause'});
+  await new Promise((resolve,reject)=>{const deadline=setTimeout(()=>{clearInterval(timer);reject(new Error('Control was not applied'));},2000);const timer=setInterval(async()=>{if((await readControl(runDir,receipt.id)).status==='applied'){clearInterval(timer);clearTimeout(deadline);resolve();}},10);});
+  finish();const paused=await work;
+  assert.equal(paused.status,'paused');assert.deepEqual(calls,['A']);assert.equal(paused.workers[0].result,'A');
+  const resumed=await runWorkflow({...input,resume:true,backend:backend(async({prompt})=>{calls.push(prompt);return{value:prompt,terminalObserved:true};})});
+  assert.equal(resumed.status,'completed');assert.equal(resumed.coverage.cached,1);assert.deepEqual(calls,['A','B']);
+});
+
+test('stop retains interruption evidence and refuses replay of unknown dispatched work',async t=>{
+  const {runDir,runWorkflow,requestControl}=await setup(t);
+  assert.equal(typeof requestControl,'function');
+  let started;const running=new Promise(resolve=>{started=resolve;});let closed=false;
+  const input={runDir,sessionId:'s',concurrency:1,script:meta+'return await parallel([()=>agent("A"),()=>agent("B")]);'};
+  const worker={...backend(async({signal})=>{started();return await new Promise((resolve,reject)=>signal.addEventListener('abort',()=>{
+    setTimeout(()=>{assert.equal(closed,false,'Give native interruption its terminal observation window');reject(Object.assign(new Error('cancel'),{interruption:{terminalObserved:true,terminalStatus:'interrupted',descendants:'notVerified'}}));},30);
+  },{once:true}));}),close:async()=>{closed=true;return{serverExited:true,descendants:'notVerified'};}};
+  const work=runWorkflow({...input,backend:worker});await running;
+  await assert.rejects(requestControl(runDir,{sessionId:'other',generation:1,action:'stop'}),{code:'CONTROL_SESSION'});
+  await assert.rejects(requestControl(runDir,{sessionId:'s',generation:2,action:'stop'}),{code:'CONTROL_GENERATION'});
+  await requestControl(runDir,{sessionId:'s',generation:1,action:'stop'});
+  const stopped=await work;
+  assert.equal(stopped.status,'blocked');assert.equal(stopped.workers[0].status,'unknown');
+  assert.equal(stopped.workers[0].interruption.terminalStatus,'interrupted');
+  assert.equal(stopped.attempts,1);assert.equal(closed,true);
+  await assert.rejects(runWorkflow({...input,resume:true,backend:backend(async()=>{})}),{code:'REPLAY_UNKNOWN'});
+});
+
+test('unresponsive backend cannot hold stop forever or rewrite terminal evidence later',async t=>{
+  const {runDir,runWorkflow,requestControl,readRun}=await setup(t);
+  let started,finish;const running=new Promise(resolve=>{started=resolve;});
+  const gate=new Promise(resolve=>{finish=resolve;});
+  const work=runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',drainTimeoutMs:60,
+    backend:backend(async()=>{started();await gate;return{value:'late',terminalObserved:true};})});
+  await running;await requestControl(runDir,{sessionId:'s',generation:1,action:'stop'});
+  let timer;const result=await Promise.race([work,new Promise(resolve=>{timer=setTimeout(()=>resolve('late'),350);})]);
+  clearTimeout(timer);finish();if(result==='late')await work;
+  assert.notEqual(result,'late');assert.equal(result.status,'blocked');assert.equal(result.workers[0].status,'unknown');
+  const saved=await readRun(runDir);assert.equal(saved.workers[0].status,'unknown');assert.equal(saved.workers[0].result,undefined);
+  await assert.rejects(requestControl(runDir,{sessionId:'s',generation:1,action:'pause'}),{code:'CONTROL_TERMINAL'});
+});
+
+test('stop supersedes an existing pause drain deadline',async t=>{
+  const {runDir,runWorkflow,requestControl,readControl}=await setup(t);
+  let started,finish;const running=new Promise(resolve=>{started=resolve;});const gate=new Promise(resolve=>{finish=resolve;});
+  const work=runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',timeoutMs:1000,drainTimeoutMs:50,
+    backend:backend(async()=>{started();await gate;return{value:'A',terminalObserved:true};})});
+  await running;const pause=await requestControl(runDir,{sessionId:'s',generation:1,action:'pause'});
+  while((await readControl(runDir,pause.id)).status==='pending')await new Promise(resolve=>setTimeout(resolve,10));
+  await requestControl(runDir,{sessionId:'s',generation:1,action:'stop'});
+  let timer;const result=await Promise.race([work,new Promise(resolve=>{timer=setTimeout(()=>resolve('late'),300);})]);
+  clearTimeout(timer);finish();if(result==='late')await work;
+  assert.notEqual(result,'late');assert.equal(result.status,'blocked');
+});
+
+test('mailbox closure settles every accepted control even if admission fails immediately',async t=>{
+  const {runDir,runWorkflow,readControl}=await setup(t);
+  // An atomic fixture queue represents controls already accepted by another CLI.
+  // The admission hook fails before a timer poll can consume the first batch.
+  const ids=Array.from({length:201},(_,i)=>`accepted-${i}`);
+  await runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',backend:backend(async()=>{}),onReady:()=>{
+    const db=new DatabaseSync(join(runDir,'run.sqlite'));db.exec('BEGIN IMMEDIATE');
+    for(const id of ids)db.prepare('INSERT INTO controls(id,generation,value) VALUES(?,?,?)').run(id,1,JSON.stringify({id,generation:1,action:'pause',status:'pending'}));
+    db.exec('COMMIT');db.close();throw new Error('admission failed');
+  }});
+  for(const id of ids)assert.notEqual((await readControl(runDir,id)).status,'pending');
 });

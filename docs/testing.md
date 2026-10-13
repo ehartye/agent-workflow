@@ -1,5 +1,20 @@
 # Test audit and strategy
 
+## Background controls reassessment
+
+Agent-tests 0.3.2 inventories 24 files with no wiring or risk-map gaps. The critical/merge controller owner now has 14 cases; the new background file has two static declarations expanded by Node into three cases. All 17 focused cases pass. They exercise real QuickJS, SQLite and detached processes with deterministic workers; native acceptance separately proves managed-ChatGPT execution. Independent review found and regression tests fixed pause-to-stop deadline escalation, incomplete mailbox settlement, and premature terminal publication on both success and failure.
+
+| File | Tier | Verdict | Evidence | Estimated agent tokens | Churn/edits |
+|---|---|---|---|---:|---|
+| engine-controller.test.mjs | critical | keep | Durable controls, replay refusal after unknown execution or failed cleanup, bounded drain, late-write refusal and final publication. Both fixed-database findings are unique temporary directories, not shared paths. | 3,722 | 0/0 |
+| engine-background.test.mjs | critical | keep | Real launcher exit, independent CLI pause/status, saved-script resume, precommit timeout and redacted startup failure without dispatch. | 1,093 | 0/0 |
+
+The 22 unchanged files retain their preceding verdicts; this scoped reassessment does not recertify legacy code. No tests are removed, merged, demoted or quarantined: estimated tokens removed 0, edit-lane demotions 0. The Windows PR exception and previously reported agent-tests temporary-database false positive remain unchanged. Statistical flakiness, CI cost and other operating systems remain unmeasured.
+
+The full suite passes **192/192** in one 43.2-second Windows run; package check and smoke pass. Native background acceptance records pause/resume/replay attempt counts `[1,2,2]`, cached counts `[0,1,2]` and normal owned-server exit in each generation. An earlier observation failed despite a retained paused run; its original cause remains unknown. Native checks remain explicit and outside CI.
+
+Keep the controller/background files together for control edits. Time: one observed 2.4-second focused run, with full checks before pushing. Risk: fixtures cannot certify native interruption or descendant containment, which remain separately qualified. Complexity: no additional test runner or selection cache. Best practice: actual process and durable state boundaries own these regressions. Maintainability: these tests import no released runtime and survive its replacement.
+
 The subsequent cancellation delta adds six real-subprocess turn cases: pre-cancelled calls, running interruption, delayed start acknowledgement, missing terminal acknowledgement, acknowledgement arriving after the interruption deadline, and natural completion racing cancellation. The late-acknowledgement case reproduced and fixed a protocol action after the caller had returned. These extend the existing critical turn-test owner; no parallel test framework or new native CI dependency is added. The explicit one-turn native check requires command startup and terminal status `interrupted`, then verifies retained-server usability. No command-completion item arrived, so descendant state remains unverified.
 
 This cancellation checkpoint passes **181/181** full tests in one 48.6-second Windows run, package validation and smoke. Independent review found no remaining important/critical issue for the slice. Agent-tests still inventories 23 files with no wiring/risk gaps; the turn file is kept at critical/merge, approximately 1,165 tokens and 0/0 recorded churn. Existing shared-subject and temporary database findings retain their documented verdicts.
