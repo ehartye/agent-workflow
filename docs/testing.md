@@ -1,5 +1,73 @@
 # Test audit and strategy
 
+## Graphical monitor reassessment
+
+Agent-tests 0.3.2 inventories 26 files with no wiring or tier gaps. This delta reviews the changed controller and two new monitor owners. The 23 other files retain their preceding verdicts; this is not a new certification of released code. Shared controller imports cover different seams: direct scheduling invariants versus authenticated HTTP behavior. Fixed-database findings remain unique temporary fixtures.
+
+| File | Tier | Verdict | Evidence | Estimated agent tokens | Churn/edits |
+|---|---|---|---|---:|---|
+| engine-controller.test.mjs | critical | keep | Adds stale-generation refusal under exclusive ownership, prerequisite ordering without occupying concurrency, failed/invalid prerequisite refusal and persisted edges. | 4,243 | 0/1 |
+| engine-monitor.test.mjs | critical | keep | Actual loopback HTTP auth/host/origin/CSP, bounded versus deliberate evidence, durable controls and real detached monitor after launcher exit. | 1,565 | 0/0 |
+| engine-monitor-ui.test.mjs | critical | keep | Executes actual HTML/app in LinkeDOM: themes/auth, text safety, graph and capped phase coverage, generation-specific evidence, truthful receipts and failed polling. | 3,301 | 0/0 |
+
+Full merge verification passes **205/205** in one 45.2-second Windows run, with package check and smoke. Independent review found and regression tests fixed expanded results surviving generation changes and old pending receipts reappearing after persistence. UI tests also caught stale expanded worker status and misleading phase totals beyond the 60-node graph limit. The earlier full run caught the worker-status regression while this test/fix was being completed; the final suite includes the corrected behavior.
+
+Actual browser checks cover light and dark themes, 390-pixel mobile layout without document overflow, removed auth fragment, node selection, three declared dependency arrows and changing discovered-worker percentage. These use explicitly simulated workers and do not establish native model/tool streaming. See `reports/monitor-browser-check.json`. Native execution evidence remains the separate foundation/engine/background reports. CSS has no automated visual-diff baseline.
+
+No tests deleted, merged, demoted or quarantined; estimated tokens removed 0 and edit-lane demotions 0. The existing Windows PR platform exception remains. Statistical flakiness, CI cost and other operating systems remain unmeasured. Time: focused HTTP/UI tests are under one second each on this host; full checks remain at merge. Risk: DOM tests cannot certify browser CSP/layout, so actual browser inspection supplies distinct evidence. Complexity: use the existing Node/LinkeDOM tools. Best practice: real HTTP and process boundaries test auth and lifetime; DOM tests own display transitions. Maintainability: controller, HTTP and UI seams have separate owners and no legacy runtime imports.
+
+## Background controls reassessment
+
+Agent-tests 0.3.2 inventories 24 files with no wiring or risk-map gaps. The critical/merge controller owner now has 14 cases; the new background file has two static declarations expanded by Node into three cases. All 17 focused cases pass. They exercise real QuickJS, SQLite and detached processes with deterministic workers; native acceptance separately proves managed-ChatGPT execution. Independent review found and regression tests fixed pause-to-stop deadline escalation, incomplete mailbox settlement, and premature terminal publication on both success and failure.
+
+| File | Tier | Verdict | Evidence | Estimated agent tokens | Churn/edits |
+|---|---|---|---|---:|---|
+| engine-controller.test.mjs | critical | keep | Durable controls, replay refusal after unknown execution or failed cleanup, bounded drain, late-write refusal and final publication. Both fixed-database findings are unique temporary directories, not shared paths. | 3,722 | 0/0 |
+| engine-background.test.mjs | critical | keep | Real launcher exit, independent CLI pause/status, saved-script resume, precommit timeout and redacted startup failure without dispatch. | 1,093 | 0/0 |
+
+The 22 unchanged files retain their preceding verdicts; this scoped reassessment does not recertify legacy code. No tests are removed, merged, demoted or quarantined: estimated tokens removed 0, edit-lane demotions 0. The Windows PR exception and previously reported agent-tests temporary-database false positive remain unchanged. Statistical flakiness, CI cost and other operating systems remain unmeasured.
+
+The full suite passes **192/192** in one 43.2-second Windows run; package check and smoke pass. Native background acceptance records pause/resume/replay attempt counts `[1,2,2]`, cached counts `[0,1,2]` and normal owned-server exit in each generation. An earlier observation failed despite a retained paused run; its original cause remains unknown. Native checks remain explicit and outside CI.
+
+Keep the controller/background files together for control edits. Time: one observed 2.4-second focused run, with full checks before pushing. Risk: fixtures cannot certify native interruption or descendant containment, which remain separately qualified. Complexity: no additional test runner or selection cache. Best practice: actual process and durable state boundaries own these regressions. Maintainability: these tests import no released runtime and survive its replacement.
+
+The subsequent cancellation delta adds six real-subprocess turn cases: pre-cancelled calls, running interruption, delayed start acknowledgement, missing terminal acknowledgement, acknowledgement arriving after the interruption deadline, and natural completion racing cancellation. The late-acknowledgement case reproduced and fixed a protocol action after the caller had returned. These extend the existing critical turn-test owner; no parallel test framework or new native CI dependency is added. The explicit one-turn native check requires command startup and terminal status `interrupted`, then verifies retained-server usability. No command-completion item arrived, so descendant state remains unverified.
+
+This cancellation checkpoint passes **181/181** full tests in one 48.6-second Windows run, package validation and smoke. Independent review found no remaining important/critical issue for the slice. Agent-tests still inventories 23 files with no wiring/risk gaps; the turn file is kept at critical/merge, approximately 1,165 tokens and 0/0 recorded churn. Existing shared-subject and temporary database findings retain their documented verdicts.
+
+## Fresh engine reassessment
+
+The checked agent-tests 0.3.2 runtime inventories 23 files. The owner-approved critical runtime tier extends to `engine/**`. This delta audit inspected all three new files and their subjects. The 20 unchanged files retain their preceding verdicts; five unflagged existing files remain kept without reopening. New coverage uses real QuickJS children and temporary SQLite databases, with a deterministic backend fake. Explicit native acceptance separately owns actual Codex behavior.
+
+| File | Tier | Verdict | Evidence | Estimated agent tokens | Churn/edits |
+|---|---|---|---|---:|---|
+| engine-controller.test.mjs | critical | keep | Ordered dispatch, concurrency, durable replay, changed timeout/failure suffixes, ownership and corrupt/unknown records. `worktree.fixed-db-file` is a false positive: each database is beneath a unique `mkdtemp` run directory. | 1,458 | 0/0 |
+| engine-evaluator.test.mjs | critical | keep | Actual isolated child proves pipeline independence, ordered null slots, forbidden host/import/clock access and bounded failing evaluation. | 689 | 0/0 |
+| engine-policy.test.mjs | critical | keep | Effective capability rejection, disabled versus active MCP inventory, safe keyed overrides and stable backend identity. | 697 | 0/0 |
+
+All 13 new cases passed. The full suite passed **175/175** in one 41.0-second Windows run; package check and offline smoke passed. Independent review found no remaining important/critical issue for this slice. Native acceptance passed two exact file reads and replay with zero further worker dispatches. One prior native attempt failed admission before inference without sufficient stage detail; the backend now retains admission diagnostics. No claim of statistical reliability follows from these runs.
+
+No risk-map or wiring gaps were reported. Existing shared-subject and temporary `.git` findings retain prior verdicts; the Windows PR exception remains. No deletion, merger, demotion or quarantine: tokens removed 0, edit-lane demotions 0. CI cost, statistical flakiness and other operating systems remain unmeasured.
+
+Keep direct selection of the three engine files during edits, adding foundation files when transport changes. Time: approximately 1.5 seconds for the observed engine check, with full checks at merge. Risk: the native canary protects the real integration boundary that fakes cannot prove. Complexity: no new test-selection framework. Best practice: one owner per protocol, isolation, persistence and policy seam. Maintainability: the fresh engine has no released-runtime imports; its tests can survive removal of that architecture.
+
+## Fresh foundation reassessment
+
+Agent-tests 0.3.2's checked runtime inventories 20 test files after the independent foundation work. The existing owner-approved production/consumer map applies; `foundation/**` has the same critical auth/execution tier as the worker boundary it will replace. The new tests are merge-lane subprocess contracts, not model calls. The scoped reassessment reads both new files and the existing flagged temporary `.git` fixtures; unchanged release files retain the prior audit below, rather than claiming another fresh review of every legacy seam.
+
+| File | Tier | Verdict | Evidence | Estimated agent tokens | Churn/edits |
+|---|---|---|---|---:|---|
+| codex-foundation.test.mjs | critical | keep | Real stdio children exercise framing, request identity, auth/config gates, terminal cancellation and redacted failure reports. Shared client subject with turn tests protects a different seam. | 2,429 | 0/0 |
+| codex-turn.test.mjs | critical | keep | Early events and overlapping threads must not cross-route results; failed turns, disconnects and unknown interruption state never become success. | 593 | 0/0 |
+
+The 23 expanded new cases passed in about 3.4 seconds. The complete suite passed 162 cases in 39.3 seconds on this host; this is a single observation, not a benchmark. Package check and offline smoke passed. Separately, the explicit native acceptance check passed six zero-model stages and two managed-ChatGPT worker reads with MXC. Native checks consume subscription usage only when `model-check.mjs` is explicitly run; they are outside automated CI. Ordinary tests never read credentials or invoke Codex.
+
+No missing tiers or wiring gaps were reported. Five unflagged existing files retain the earlier keep verdict without reopening: dashboard, observation, journal, worktrees and evaluator. The 13 flagged unchanged release files retain their prior reviewed verdicts; this delta audit does not newly certify them. The `.git` warnings are temporary fixtures, not reads of the real checkout's Git directory. The Windows PR frequency finding remains the existing verified-target exception. No tests were deleted, merged, demoted or quarantined: estimated tokens removed 0, edit-lane demotions 0. Statistical flakiness, CI minutes and full OS portability remain unmeasured.
+
+Keep direct file selection for foundation edits and full merge checks before pushing. Time: about 3.4 seconds for the new seam versus one observed 39.3-second full run, with broad regression detection at merge. Risk: transport/probe/turn changes may share failure handling, so select both files together. Complexity: no new runner or cache. Best practice: fixture transport owns deterministic protocol failures; explicit native acceptance owns actual Codex behavior. Maintainability: the fresh transport has no legacy imports, so no need to preserve or optimize the failed architecture to test it. Review this decision when the fresh controller replaces released entrypoints.
+
+## Released runtime audit
+
 Agent-tests 0.3.2 audited the v0.1.0 release and the v0.1.1 monitor change using its checked managed runtime. The owner confirmed production, consumers of plugin installs, saved workflows/commands, persisted runs and MCP, and the tiers in [.testing/risk.yml](../.testing/risk.yml). Preserve these consumers when changing versions. The compact client's older-supervisor path protects an actual installed 0.1.0 controller; it does not replace the matching immutable runtime required by stored runs.
 
 The monitor reassessment inventories 18 files with no missing tiers, shim or wiring findings. Keep the seven observation cases and 14 dashboard cases: they own bounded authenticated response/CLI contracts and actual HTML/app behavior, respectively. They caught real oversized metadata, lost journal ranges, hidden recovered failures and misleading resume controls. Shared-subject findings on existing manager/transport/integration files retain the earlier keep verdicts; their seams differ. The two `.git` warnings remain unique temporary repository fixtures. Windows PR execution remains the approved verified-target exception. No tests are removed, merged, demoted or quarantined.
@@ -58,3 +126,124 @@ Move clean native installation to release-only only if measured PR cost later ju
 - **Maintainability:** more CI paths and ownership; reconsider after collecting several successful run timings.
 
 Agent-tests currently scans ignored mutation probes if they use test filenames, although `npm test` includes only `test/*.test.mjs`. The evidence was corrected by renaming probes before the final scan. Its Windows warning does not account for repository visibility. These tool limitations belong in the agent-tests roadmap; neither justifies weakening coverage.
+
+## Structured-worker checkpoint
+
+The checked Agent-tests 0.3.2 runtime inventories 29 files after this delta, with no missing tiers, wiring or shim findings. Existing unchanged-file verdicts stand. The same Windows PR frequency exception applies. Four worktree warnings remain false positives: fixed SQLite filenames live inside unique `mkdtemp` roots, and the two `.git` directories are owned project fixtures. No test was removed, merged, demoted or quarantined; estimated tokens removed and edit-lane demotions are both zero.
+
+| Reviewed file | Tier | Verdict | Ownership and evidence | Estimated tokens | Churn/edits |
+|---|---|---|---|---|---|
+| engine-controller.test.mjs | critical | keep | Actual evaluator/SQLite replay, known-invalid versus unknown outcomes and durable shared correction reservations; fixed-db warnings use unique roots. | 5384 | 0/2 |
+| engine-worker-session.test.mjs | critical | keep | Same-thread corrections, exhaustion, cancellation/transport refusal and shared deadline. Shared-subject overlap with controller protects a different persistence seam. | 937 | 0/0 |
+| codex-turn.test.mjs | critical | keep | Real subprocess protocol verifies schema/model/effort forwarding and exact thread/turn routing. | 1288 | 0/1 |
+| engine-background.test.mjs | critical | keep | Actual detached resume retains defaults, including partial overrides preserving model/effort. | 1190 | 0/0 |
+| engine-schema.test.mjs | critical | keep | Valid/invalid JSON, nullable contradictions, enum/integer constraints, strict serialization and deterministic work admission. | 1146 | 0/0 |
+| engine-settings.test.mjs | critical | keep | Effective catalog/config/run/worker choices and refusal of unsupported settings or broader permissions. | 536 | 0/0 |
+
+Counts and token estimates above are the static scan before the final partial-resume regression; they are not runtime cases or timing estimates. The added partial-override assertions first failed and then passed in the existing detached test. Final verification passed all 222 native-expanded cases in one observed 52.7-second run, plus package check and smoke. Independent review confirmed the resume fix and found no remaining important findings in this slice. Static tooling does not measure CI cost or statistical reliability.
+
+The native `structured-check.mjs` separately proves one managed-ChatGPT command, exact validated JSON and zero-dispatch replay; its sanitized report is committed. Offline tests own correction/failure permutations so CI does not spend subscription usage. Independent review found and resolved nullable schema contradictions, silent non-JSON serialization, unconstrained enum work and partial-resume default loss. Keep the existing architecture advisory above: focused edit checks plus full merge checks, without a new selector/cache or duplicate native smoke calls.
+
+## Live activity checkpoint
+
+Agent-tests 0.3.2 inventories 30 test files with no missing tiers, wiring or shim findings. This delta retains the existing unchanged-file verdicts and the Windows PR exception. Six worktree warnings resolve to unique temporary roots or owned fixture `.git` markers. No tests were deleted, merged, demoted or quarantined; estimated tokens removed and edit-lane demotions remain zero. The existing cost/architecture advisory applies; no new runner, cache or duplicate native smoke was introduced.
+
+| Reviewed file | Tier | Verdict | Ownership and evidence | Estimated tokens | Churn/edits |
+|---|---|---|---|---|---|
+| engine-controller.test.mjs | critical | keep | Real SQLite rollback cannot leak usage; cached evidence preserves original history and attempts; active state is observable before completion. Fixed database names are inside unique roots. | 6384 | 0/3 |
+| engine-monitor.test.mjs | critical | keep | Actual authenticated HTTP paging, generation preconditions, bounded retention and corrupted counter rejection. Shared controller imports protect the HTTP seam. | 2061 | 0/0 |
+| codex-turn.test.mjs | critical | keep | Real subprocess routing/steering plus deterministic microtask reproduction of a completion masking lost activity; raw reasoning excluded. | 2384 | 0/2 |
+| engine-activity.test.mjs | critical | keep | In-memory SQLite owns normalization, bounded retention, pagination and monotonic per-thread usage. | Not ranked in abbreviated report | New file |
+| engine-monitor-ui.test.mjs | critical | keep | Executed DOM app checks generation-bound history, graph activity, text-only evidence and disclosed omissions; distinct from layout verification. | Not ranked in abbreviated report | Existing file |
+
+The final full suite passed 238 expanded cases in one observed 52.3-second run, plus package check and smoke. Independent review passed 59 affected cases and found no remaining important issues. Review regressions first failed for the terminal callback race, rollback leakage and inconsistent activity coverage, then passed after fixes. Static inventory does not measure CI cost, flakiness or numerical coverage.
+
+The extended existing native check consumed one managed-ChatGPT turn, observed persisted command startup while the worker was running, retained 59 activity records and token usage, then reused them with no new dispatch. `reports/activity-local-acceptance.json` and `reports/activity-browser-check.json` separate execution proof from light/dark/mobile inspection. No native calls run in CI. Individual worker controls and descendant/restart proof remain separate work.
+
+## Individual controls and Windows ownership checkpoint
+
+Agent-tests 0.3.2 inventories 33 files with no shim or wiring findings. This delta preserves earlier unchanged-file verdicts and the explicitly required Windows CI gate. All six worktree flags still resolve to per-test temporary roots or synthetic fixture `.git` markers. Shared-subject findings identify different seams: protocol routing, terminal inventory, result/session correction and actual Windows process ownership. No tests were removed or demoted; no new runner/cache is introduced.
+
+| Reviewed file | Tier | Verdict | Evidence | Estimated tokens | Churn/edits |
+|---|---|---|---|---|---|
+| engine-controller.test.mjs | critical | keep | Queued slot/dependency cancellation, exact controls, late steering receipt, failed cleanup prevents replay. Unique temp SQLite roots. | 8100 | 0/4 |
+| codex-turn.test.mjs | critical | keep | Actual subprocess failure fan-out cannot contaminate another active worker with pre-start evidence. | 2607 | 0/3 |
+| codex-foundation.test.mjs | critical | rewrite | Initialization now has its own adequate fixture budget; the 150 ms hang deadline is applied only to the request being tested. Review observed the old initialization race. | 2531 | 0/0 |
+| engine-monitor.test.mjs | critical | keep | Authenticated HTTP/CLI exact-turn controls and stale identity rejection. Unique temp database roots. | 2531 | 0/1 |
+| windows-job.test.mjs | critical | keep | Real Windows retained-job lifecycle, detached child, host death, argv and protocol pipe forwarding; skipped on non-Windows, mandatory on Windows release CI. | Not ranked in abbreviated report | New |
+| engine-backend.test.mjs | critical | keep | A successful empty-job receipt cannot mask a failed native terminal cleanup. Controller separately owns replay refusal. | Not ranked in abbreviated report | New |
+| codex-terminals.test.mjs | critical | keep | Real subprocess native inventory paging, malformed records and terminals remaining after cleanup. | Not ranked in abbreviated report | New |
+| engine-monitor-ui.test.mjs | critical | keep | Durable steering draft, exact request identity, cancellation confirmation and disabled terminal controls. | Not ranked in abbreviated report | Existing |
+
+Final full suite: 256/256 native-expanded tests passed in one observed 149.4-second run; package check and smoke passed. This measures one local run, not a reliability rate. Independent review found and fixed cleanup replay eligibility, shared mutable errors, missing ownership-source fingerprinting and overly broad job-empty claims. Native model calls remain explicit acceptance tools outside CI. The reviewed two-worker report proves steering/cancel isolation and scoped job drain; the browser check used that actual persisted run, including disabled terminal controls and cleanup wording, in the mobile dark theme. Light theme and Settings keyboard/outside dismissal were separately inspected. Safe restart remains a separate unfinished gate.
+
+## Reconciled restart checkpoint
+
+Agent-tests 0.3.2 inventories 34 files with no shim or wiring findings. The two additional fixed-database flags are inside unique restart-test temporary directories; the six prior worktree findings remain unchanged. Existing file verdicts and the Windows CI exception stand. No tests were removed, demoted or quarantined. Static tooling does not measure numerical coverage, CI cost or reliability.
+
+| Reviewed file | Tier | Verdict | Evidence | Estimated tokens | Churn/edits |
+|---|---|---|---|---|---|
+| engine-restart.test.mjs | critical | keep | Actual evaluator/SQLite prefix and suffix replay, immutable history, cumulative accounting, missing drain, stale identity, lifetime budget, concurrent ownership, abandoned admission, authenticated HTTP and CLI history reads. | 2548 | 0/0 |
+| engine-background.test.mjs | critical | rewrite | Real detached restart forwarding remains distinct from controller tests. Replaced the existing pause test's fixed-duration worker with an explicit test-owned gate, released only after its durable pause receipt is applied. | Not ranked in abbreviated report | Existing |
+| engine-monitor-ui.test.mjs | critical | keep | Executed application shows affected suffix, retains reconciliation during polling, sends exact restart identity, and reads historical evidence without activating old controls. | Not ranked in abbreviated report | Existing |
+
+Independent review found no remaining important restart implementation issues. The initial full suite reproduced the pause fixture race (264/265); the corrected fixture passed its focused checks and the full suite passed 265/265 in one observed 80.3-second run. Package check and smoke passed. Earlier findings about ordinary resume dropping history and absent positive native terminal cleanup evidence were fixed with failing regressions first. This is not a measured performance comparison with the failed run.
+
+The explicit native check in `reports/reconciled-restart-native.json` proves one cancelled worker restarted via the actual CLI, stale duplicate rejection, immutable prior evidence, cumulative usage and scoped owned-job drain. Browser inspection of that native run loaded its earlier failure and paged tool activity in light and dark at 390×844 with no document overflow. Model calls remain outside CI. Keep focused edit checks and full merge coverage; no additional runner or selection cache is warranted. The explicit gate removes timing assumptions without weakening process-boundary assertions.
+
+## Writer foundation checkpoint (not integrated)
+
+Agent-tests inventories 36 files, with no shim or wiring findings. The two new `.git` flags read the index of an explicitly initialized, unique test repository; a separate real linked-worktree case exercises production path discovery. Existing unchanged-file verdicts and Windows CI exception stand. No removal, demotion or runner changes; static scan does not measure reliability or numerical coverage.
+
+| Reviewed file | Tier | Verdict | Evidence |
+|---|---|---|---|
+| engine-workspaces.test.mjs | critical | keep | Six real Git cases own source/index preservation, independent workspaces, text/binary/new-file patches applied against both baselines, ignored-output capture, linked-source placement, disabled executable hooks/filters, symlink/conflict refusal and hardlink admission. |
+| engine-workspace-policy.test.mjs | critical | keep | Exact policy response gate rejects broader roots, implicit temporary grants, network, approvals and unexpected profile provenance. Native enforcement is checked separately. |
+
+Full suite passed 272/272 in one observed 50.4-second run; package check and smoke passed. Independent review identified patch configuration and worker-controlled ignore gaps, reproduced in failing tests and fixed. It also tightened the native check to require both an observed host-side owned write and denied link creation. The final native command-only check passed with zero model turns (`reports/workspace-command-boundary.json`). Its known preexisting-hardlink limitation is retained separately, not erased by the positive report (`reports/workspace-preexisting-hardlink-limitation.json`). Admission rejects those aliases, and input copying produces independent files.
+
+This checkpoint verifies standalone workspace capture/artifacts and a native command boundary. Controller/backend wiring, permission ceilings, native patch tool enforcement, monitor/CLI diff presentation and the real model edit/validate workflow remain unverified. Existing packaging checks still cover the current package, not a shipped writer runtime. Keep the previous focused-edit/full-merge strategy; tests using unique real Git fixtures protect boundaries that mocks would miss without requiring model calls in CI.
+
+## Integrated writers checkpoint
+
+Agent-tests 0.3.2 inventories 37 files with no shim or wiring gaps. The 13 worktree findings are reviewed: fixed SQLite files and `.git/index` references belong to unique real temporary repositories; the two new absolute paths in UI tests are inert display strings, never filesystem inputs. Existing unchanged-file verdicts and the verified-Windows PR exception stand. No tests removed or demoted.
+
+| File | Tier | Verdict | Evidence | Estimated tokens | Churn/edits |
+|---|---|---|---|---:|---|
+| engine-workspaces.test.mjs | critical | keep | Real Git capture/patch/replay, altered index rejection, prestart/interruption retention, fresh restart and concurrent correction-budget race. | 3879 | 0/0 |
+| engine-writer-retirement.test.mjs | critical | keep | Gated real artifact write reproduces late publication after drain timeout; protects persisted unknown state while backend close remains pending. | Not ranked | New |
+| engine-monitor.test.mjs | critical | keep | Authenticated bounded hash-checked patch HTTP reads and complete CLI reads, generation mismatch and corruption refusal. | 3237 | 0/2 |
+| engine-monitor-ui.test.mjs | critical | keep | Deliberate current/historical patch disclosure, unsafe text, unavailable capture, bounded cache and generation-specific requests. | 5602 | 0/3 |
+
+Full suite passed 285/285 in the final observed 56.0-second Windows run. Package check and process smoke passed. Independent review findings were reproduced before fixes: admission-budget race, late artifact publication, unauthenticated private index and misclassified process-free failure. Native checks also exposed global trust persistence invalidating replay; worker-process-only trust fixes it without editing user config. Final positive patch/PowerShell proof includes zero-dispatch replay. The separate negative patch report pairs native tool calls with rejection outputs and checks unchanged outside bytes. Ordinary file-change notifications omit early patch rejections; the acceptance probe explicitly enables raw events and retains only tool-call/output records, not reasoning. Browser inspection loaded the actual native diff in light/dark at 390×844 without document overflow.
+
+Keep focused edit checks and the full merge suite. Time: real Git tests add seconds, while native model calls stay outside CI. Risk: subprocess, persistence, authenticated HTTP and DOM assertions own different failure boundaries. Complexity: no extra runner or selection cache. Best practice: preserve real process/data checks instead of mirrored implementation tests. Maintainability: one lifecycle race regression uses a gated built-in write in its isolated test process and restores it in `finally`. Static tooling cannot measure reliability, numerical coverage or CI cost; this observed suite duration is not a performance benchmark.
+
+## Fresh saved-definition registry
+
+`engine-registry.test.mjs` is critical/merge and kept: five cases exercise actual project/personal/bundled directories, precedence, reload, extension/case collisions, traversal/link refusal, non-overwrite and unrelated-skill protection, plus actual CLI validation/save/list/read processes. The fixture `.git` directory is deliberately created in an owned temporary repository shape; it is never assumed for a real checkout. The CLI subprocess receives isolated home environment paths. Review found a repeated-extension canonicalization bug that could resolve a returned name to another definition; the test failed before the rejection fix. New module coverage does not replace legacy installer tests until the fresh installer exists. No tests removed or demoted; native named workflow installation remains a separate pending gate.
+
+Final Windows suite passed 290/290 in 58.6 seconds, with package check and smoke passing. Two preceding full runs encountered Windows `EPERM` while the legacy drain-barrier test read a snapshot concurrently with queued atomic replacements. The test now flushes via the public `get` method before opening the durable snapshot, with its worker still held at the drain barrier. This preserves the persisted-status assertion and changes no legacy production code. The focused test and full suite passed after synchronization; this is not a claim that arbitrary external Windows readers cannot interfere with the legacy journal.
+
+## Fresh-runtime cutover audit
+
+The owner explicitly authorized replacing the old architecture and removing MCP. The preservation obligation is existing installed runtime directories and stored data, not a compatibility server inside 0.2.0. `managed-runtime.test.mjs` verifies original pointer/run bytes survive upgrade, and original-runtime/session bindings reject substituted paths, source/dependency bytes and foreign controls. The clean native installation check verifies packaged production files and absence of the retired source/MCP SDK. No migration deletes or reinterprets old JSON runs.
+
+Agent-tests 0.3.2 scanned 41 pre-cutover files with no parsing or wiring gaps. The sole shim-title flag belongs to the intentional old-data preservation test. Its fixed temporary-looking default path is used only in a pure path comparison, never filesystem I/O. Previously reviewed SQLite/.git findings use unique temporary roots; UI absolute paths remain inert display strings. Windows PR verification remains required for the verified deployment platform. The phase remains production; risk tiers remain critical for runtime, workers, data and public entrypoints. The obsolete MCP consumer/areas are replaced by explicit retained-runtime/data consumers under the owner’s new contract.
+
+| Retired/reworked files | Verdict | Replacement protection |
+| --- | --- | --- |
+| runtime-evaluator, runtime-script | Delete with old source | engine-evaluator, engine-schema: separate real QuickJS process, language restrictions, bounded execution and schema rejection |
+| runtime-manager, runtime-journal | Delete with old source | engine-controller, engine-background, engine-restart, engine-activity: SQLite persistence, exclusive ownership, ordered replay, drain barriers and unknown evidence |
+| workers, workers-integration, workers-recovery, workers-worktrees | Delete with old source | codex-foundation, codex-turn, codex-terminals, windows-job, engine-worker-session, engine-backend, engine-workspaces and workspace-policy: admission, exact turns, retained native process handles and isolated artifacts |
+| surfaces-bootstrap, surfaces-mcp, surfaces-launcher, surfaces-daemon | Delete with old surface | managed-runtime, managed-entry and clean-install: explicit setup, pinned upgrade routing, no MCP, production-only native plugin install, session checks and corruption refusal |
+| surfaces-command, surfaces | Delete with old surface | engine-registry and engine-mode: real scoped files/generated skills, routing override and actual hook process |
+| surfaces-dashboard, surfaces-observation, surfaces-shutdown | Delete with old surface | engine-monitor, engine-monitor-ui, engine-background and controller: authenticated bounded evidence, theme/graph controls, stale generations and drained terminal states |
+| surfaces-recipes | Rewrite as engine-recipes | All seven task-shape invariants retained using the real new evaluator/controller; writer recipes create real temporary Git worktrees |
+| managed-runtime, managed-entry, engine-mode | Keep | Real filesystem/install-subprocess/CLI/hook boundaries; preserve data and reject wrong session or modified dependencies |
+
+This removes 18 old test files with their implementation, adds the migrated recipe file, and retains every fresh-engine test. Old approval, MCP, JSON-journal, PID-inspector and quota-wait APIs are intentionally retired; this is not a claim that the new package implements those APIs. Open broader parity remains in the ledger. Recipe review reproduced three schema-valid empty-evidence cases before fixing them; raw answers remain inspectable while unsupported verdicts/cross-checks cannot count as complete.
+
+The first cutover suite passed 166/166 in 24.6 seconds before the final empty-evidence regression changes; final verification follows. This is a changed test scope, not an equivalent-scope speed benchmark. Keep full Windows merge coverage and an explicit clean-install release gate. Time: shorter current-source suite, plus native package installation. Risk: real data/process boundaries retain dedicated owners; final native model proof remains outside CI. Complexity: one runtime implementation and one public command path replace the old parallel stack. Best practice: test supported contracts and preserve declared stored-data obligations. Maintainability: recipe/API changes update a single current-source suite. No demotion, skipped failure, test-selection cache or quarantine was introduced.
+
+Final cutover verification passed 166/166 tests in 24.94 seconds after the empty-evidence fixes, plus package check, process smoke, clean native installation and production audit (zero vulnerabilities). The exact 0.2.0 candidate installed-workflow report records a native command, verified owned-job cleanup, cached original-session resume and authenticated dashboard. Agent-tests directory mapping false positives and genuine missing documentation areas are tracked in its wiki roadmap.

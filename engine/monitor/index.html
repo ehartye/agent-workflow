@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Agent Workflow · Run monitor</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%23ffc16a'/%3E%3Cpath d='M9 7v13h15m-5-5 5 5-5 5' fill='none' stroke='%2308121e' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#workers">Skip to workers</a>
+  <header class="masthead">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">↳</span> agent workflow <span class="edition">Run monitor</span></div>
+    <div class="connection"><span id="connection">Connecting…</span><button id="refresh" type="button">Refresh</button><div class="settings">
+      <button id="settings-toggle" type="button" aria-label="Settings" title="Settings" aria-expanded="false" aria-controls="settings-panel"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m9 3-.5 2.3-2 1.2L4.2 6 2 9.8l1.8 1.5v2.4L2 15.2 4.2 19l2.3-.5 2 1.2L9 22h4l.5-2.3 2-1.2 2.3.5 2.2-3.8-1.8-1.5v-2.4L20 9.8 17.8 6l-2.3.5-2-1.2L13 3Z" transform="translate(1 -0.5)"/><circle cx="12" cy="12" r="3.2"/></svg></button>
+      <section id="settings-panel" class="settings-panel" aria-label="Settings" hidden><label class="theme-label" for="theme">Theme<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></section>
+    </div></div>
+  </header>
+  <main>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section class="run-heading" aria-labelledby="run-title">
+      <div><p class="eyebrow" id="generation">Saved workflow</p><h1 id="run-title">Connecting to your run</h1><p id="description" class="muted">Waiting for persisted run evidence.</p></div>
+      <div class="run-controls"><span id="run-status" class="badge">Loading</span><div class="button-row"><button id="pause" type="button" disabled>Pause</button><button id="stop" type="button" class="danger" disabled>Stop</button><button id="resume" type="button" class="primary" disabled>Resume</button></div></div>
+    </section>
+    <dl class="vitals" aria-label="Run evidence">
+      <div><dt>Results accepted</dt><dd id="completed">—</dd></div>
+      <div><dt>Reused results</dt><dd id="cached">—</dd></div>
+      <div><dt>Worker attempts</dt><dd id="attempts">—</dd></div>
+      <div class="cleanup"><dt>Process cleanup</dt><dd id="cleanup">Awaiting evidence</dd></div>
+    </dl>
+    <section class="flow-panel" aria-labelledby="flow-heading">
+      <div class="section-heading"><div><h2 id="flow-heading">Workflow map</h2><p id="flow-progress" class="muted">Waiting for discovered workers.</p></div><div class="flow-legend"><span><i class="group-line" aria-hidden="true"></i>Grouping</span><span><i class="dependency-line" aria-hidden="true"></i>Dependency →</span></div></div>
+      <div class="progress-track" role="progressbar" aria-label="Accepted results among discovered workers" aria-valuemin="0" aria-valuemax="100" id="progress"><span id="progress-fill"></span></div>
+      <div id="workflow-map" class="workflow-map"></div>
+      <p class="map-scroll-hint">Scroll horizontally to inspect the map.</p>
+      <p id="map-note" class="map-note">Grouping does not imply execution order.</p>
+    </section>
+    <div class="workspace">
+      <section class="worker-panel" aria-labelledby="workers-heading" id="workers" tabindex="-1">
+        <div class="section-heading"><h2 id="workers-heading">Workers</h2><span id="worker-count" class="utility">0 recorded</span></div>
+        <div class="filters"><label>State<select id="status-filter"><option value="">All states</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>unknown</option></select></label><label>Phase<select id="phase-filter"><option value="">All phases</option></select></label></div>
+        <p class="rail-caption">Dispatch order · select a worker to inspect</p>
+        <ol id="worker-list" class="worker-list" aria-label="Ordered workers"></ol>
+        <p id="empty" class="empty">Workers appear here when the workflow requests them.</p>
+      </section>
+      <section class="inspector" aria-labelledby="detail-heading">
+        <div class="section-heading"><h2 id="detail-heading">Worker details</h2><span id="detail-status" class="badge" hidden></span></div>
+        <div id="detail"><p class="empty">Select a worker to read its prompt, result and execution evidence.</p></div>
+      </section>
+    </div>
+    <section class="receipts" aria-labelledby="receipts-heading"><div class="section-heading"><h2 id="receipts-heading">Control receipts</h2><span class="muted">Acceptance and completion are separate</span></div><p id="receipt-empty" class="muted">Pause lets active workers finish. Stop requests interruption. Receipts record whether the runner applied your request.</p><ol id="receipt-list"></ol></section>
+    <section class="artifacts" aria-label="Run artifacts"><details><summary>Workflow result &amp; errors</summary><div id="run-evidence"><p class="muted">No run evidence loaded.</p></div></details><details id="script-panel"><summary>Saved workflow script</summary><p class="muted">The script is displayed exactly as saved.</p><button id="load-script" type="button">Read script</button><pre id="script" tabindex="0" hidden></pre></details></section>
+    <footer><span>Agent Workflow / local run monitor</span><span id="updated">No snapshot received</span></footer>
+  </main>
+</body>
+</html>

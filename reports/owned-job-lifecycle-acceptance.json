@@ -1,0 +1,43 @@
+{
+  "status": "passed",
+  "backend": "mxc",
+  "inferenceRequests": 1,
+  "normal": {
+    "bothObservedAlive": true,
+    "exitCode": 0,
+    "bothExited": true,
+    "elapsedMs": 0
+  },
+  "cancel": {
+    "bothObservedAlive": true,
+    "nativeTerminalsBefore": 1,
+    "steeringConfirmed": true,
+    "turnError": {
+      "code": "TURN_CANCELLED",
+      "message": "Codex turn was cancelled"
+    },
+    "interruption": {
+      "terminalObserved": true,
+      "terminalStatus": "interrupted",
+      "descendants": "notVerified"
+    },
+    "termination": [
+      {
+        "terminated": true
+      }
+    ],
+    "nativeTerminalsAfter": 0,
+    "bothExited": true,
+    "elapsedMs": 0,
+    "totalElapsedMs": 3
+  },
+  "scope": "Observed canary parent and detached child only; not arbitrary process-tree certification",
+  "ownership": "windows-job",
+  "cleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "verified",
+    "jobEmpty": true
+  },
+  "checkedAt": "2026-10-13T17:35:32.553Z"
+}

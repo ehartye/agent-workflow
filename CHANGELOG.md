@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- Replace the old supervisor/MCP runtime with a CLI and skill integration around pinned native Codex App Server workers, using managed ChatGPT subscription authentication.
+- Add validated structured results, model/reasoning settings, live activity, exact-worker steering/cancellation, and explicitly reconciled suffix restart.
+- Isolate authorized edits in sibling Git worktrees; preserve source inputs, reviewable diffs and historical artifacts.
+- Show workflow phases, dependencies, discovered progress and status in an authenticated graph monitor. Put System/Light/Dark themes behind the gear button.
+- Add scoped saved definitions and reusable commands, plus explicit session/project workflow mode.
+- Install complete source/dependency fingerprints outside mutable caches; retain each run’s runtime and original session across upgrades. Preserve existing 0.1.x data/runtimes without interpreting them as new runs.
+- Remove custom MCP configuration and obsolete source/dependencies. Rewrite all skills with paired Yoda checks and migrate all six recipes to the new evaluator.
+
+Release availability and its pinned commit are recorded in GitHub Releases and the shared marketplace.
+
 ## 0.1.1
 
 - Rework the workflow monitor with an Agent Marketing inspired navy/amber layout, dispatch rail and responsive evidence panes.

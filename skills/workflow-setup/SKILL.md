@@ -1,29 +1,22 @@
 ---
 name: workflow-setup
-description: Install or check the owned Agent Workflow local runtime when setting up this plugin, when its MCP server says the managed runtime is missing, or after an explicit plugin update requires setup.
+description: Install, repair or check the owned Agent Workflow runtime when the user asks to set up the plugin, the CLI reports a missing managed runtime, or a plugin update requires setup.
 ---
 
-The installed plugin cache is read-only package content; installation does not imply Node dependencies were installed. This setup writes only the plugin’s persistent data directory and installs the package lock’s pinned dependencies with npm lifecycle scripts disabled.
+Use the packaged CLI without a custom MCP server. Resolve plugin-root from this installed skill: two parents above its directory. Require Node 24+ and npm. Setup copies a fingerprinted runtime outside mutable plugin cache, installs locked production dependencies with lifecycle scripts disabled, and selects it for new runs. Existing authorization to install/update covers these steps; do not ask again.
 
-Require Node 24+ and npm. Call `workflow_setup_info` first: before dependencies are installed, or when the package changed, a dependency-free read-only MCP bootstrap supplies the exact host-resolved `pluginRoot`, `dataDir`, `setupCommand` and `verifyCommand`. The bootstrap never installs, updates, starts a daemon or runs workers.
-
-Before replacing an existing runtime, read [upgrade and drain instructions](references/upgrades.md) and inspect the exact instance. Drain its old supervisor before setup selects the replacement. A changed-package launcher rejects even `shutdown`; use the retained old runtime as documented. Do not interrupt active work without authorization.
-
-If the setup-info tool is unavailable, inspect the concrete CLI startup setup command or host diagnostics. If `PLUGIN_ROOT` and `PLUGIN_DATA` are available in the actual plugin subprocess, use those exact values. The parent agent’s ordinary shell may not have these host variables; do not substitute its default directory for the installed instance’s data. Native Codex may use a hashed plugin data directory, so do not guess it.
-
-Locate this skill’s plugin root (two parent directories above this skill folder) when working from a source checkout. Outside a plugin host, use the explicit user-selected data directory or the normal Agent Workflow default. A custom CLI data directory is a separate instance unless it matches the host’s resolved `PLUGIN_DATA`.
-
-Run:
+The shared CLI/hook data directory is explicit --data-dir, otherwise AGENT_WORKFLOW_DATA_DIR if set, then LOCALAPPDATA/agent-workflow (home .local/share/agent-workflow without LOCALAPPDATA). PLUGIN_DATA does not implicitly select another instance. Keep explicit data selection identical across setup, doctor, runs and mode; never store managed state in plugin cache.
 
 ```text
-node "<plugin-root>/bin/setup.mjs" --data-dir "<plugin-data-directory>"
-node "<plugin-root>/bin/launch.mjs" doctor --data-dir "<plugin-data-directory>"
+node "<plugin-root>/bin/launch.mjs" setup
+node "<plugin-root>/bin/launch.mjs" doctor --cwd "<project>"
+node "<plugin-root>/bin/launch.mjs" workflows --cwd "<project>"
 ```
 
-Execute the returned executable/argument arrays with native shell quoting. PowerShell uses quoted arguments, not backslash-escaped quotes; keep the executable path and each argument separate when forming its command.
+Add --data-dir "<directory>" to each command when explicitly selected. In PowerShell keep executable/arguments separate and use the call operator for a quoted executable path. JSON escaping is not shell quoting.
 
-Do not install globally or modify the host’s global AGENTS/config. Setup copies an immutable runtime version outside the plugin cache and atomically selects it. Existing run records stay in persistent data. It never silently updates at MCP launch; a changed package produces a useful explicit setup error. Inspect the actual command result before claiming setup is ready.
+Read [upgrades](references/upgrades.md) before updating/repairing existing state. Preserve old runtime versions/run data and active work. A missing/changed package requires explicit setup, never installation during dispatch.
 
-Inspect setup and doctor results, then reconnect the plugin MCP server and use `workflow_list` to verify the connection. Report hook trust separately from runtime readiness.
+Inspect setup and doctor JSON before claiming readiness. Doctor checks pinned native Codex and command-only admission with existing managed ChatGPT login; it makes no inference request. Incompatible account/provider routing fails. Do not introduce API keys or API-billed fallback, globally install dependencies or edit Codex settings. Do not run a model workflow merely to check installation unless that usage is authorized.
 
-Hook trust is separate from installing the plugin. The optional prompt hook only routes genuinely user-submitted prompts after `workflow_mode` opt-in; the host skips it until the user reviews and trusts the current hook definition. It is not required for manual workflow tools or dashboard use. Hook-bearing plugins are for manual/local Codex installation and are currently ineligible for the public directory.
+Report selected runtime, readiness and admission/cleanup errors. Mode stays off unless requested. Hook trust is separate from setup/manual CLI/dashboard; successful doctor does not establish trusted hooks. Windows MXC is the verified write platform; SSH verification is deferred.

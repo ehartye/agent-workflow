@@ -1,23 +1,21 @@
-# Upgrade an installed runtime
+# Managed updates and repair
 
-Use the exact host data directory obtained from setup-info or host diagnostics. Inspect `<dataDir>/runtime.json` and `<dataDir>/service.json` before executing setup. Missing files mean there is no recorded selected runtime or supervisor; do not start a supervisor merely to shut it down.
+Keep the same explicitly selected data directory throughout. Otherwise CLI/hooks share AGENT_WORKFLOW_DATA_DIR if set, then LOCALAPPDATA/agent-workflow (home .local/share/agent-workflow without LOCALAPPDATA). PLUGIN_DATA does not silently redirect state.
 
-For an existing instance, read `runtime.json.path` as the retained old runtime directory. Verify that it is a direct child of `<dataDir>/runtime`, has no symlink/junction traversal, and contains the installed CLI. Reject malformed or escaping paths. The changed package's `launch.mjs` refuses launch before dispatch, including `shutdown`; call the retained runtime's CLI directly instead:
+Fresh selection lives in runtime-v2.json, immutable versions in runtime-v2, and SQLite runs in runs-v2. Legacy release directories remain separate. Do not reinterpret old JSON runs as SQLite, move between namespaces or delete retained versions to hide integrity errors.
+
+Use the updated package's public launcher:
 
 ```text
-node "<retained-old-runtime>/bin/agent-workflow.mjs" doctor --data-dir "<exact-host-dataDir>"
-node "<retained-old-runtime>/bin/agent-workflow.mjs" list --data-dir "<exact-host-dataDir>"
-node "<retained-old-runtime>/bin/agent-workflow.mjs" shutdown --data-dir "<exact-host-dataDir>"
+node "<plugin-root>/bin/launch.mjs" setup --data-dir "<directory>"
+node "<plugin-root>/bin/launch.mjs" doctor --cwd "<project>" --data-dir "<directory>"
+node "<plugin-root>/bin/launch.mjs" list --data-dir "<directory>"
 ```
 
-`doctor` reads without starting a supervisor. Only use `list`/`shutdown` after doctor confirms a healthy existing service. Let active work finish, or use stop/drain controls when already authorized; do not silently interrupt another workflow to install an update. A shutdown response acknowledges the request, not completed drain. Wait for successful supervisor exit and removal of its service record; a failed drain blocks replacement and remains evidence to review.
+Setup fingerprints package inputs, installs pinned dependencies in staging and atomically selects the new runtime. Existing installation/update authorization covers this; no repeated confirmation is needed. It does not stop workers or migrate semantics. Keep prior versions: commands for an exact fresh run ID use its recorded original runtime, and mutations require its original session. The recorded Node version must match too.
 
-Now execute setup and doctor from the updated package using that same explicit data directory. Inspect their results, reconnect MCP, and read `workflow_list` before claiming the new tools are connected. Keep retained runtime directories: a paused run requires its matching runtime identity and may need its old CLI to resume. Installing an update does not migrate paused script semantics, reconcile effects or trust hooks.
+After updating, inspect an existing run by exact ID. Resume only when requested and its state/cleanup permits it. Updating does not reconcile unknown effects or authorize repeating work. Legacy runs need their retained legacy runtime and original data; the fresh launcher does not import them.
 
-For PowerShell, use the call operator when the executable is a quoted path:
+Incomplete installs, changed fingerprints, missing dependencies and incompatible Node versions are evidence to preserve. Identify the affected runtime before repair. Do not overwrite integrity receipts or clear owner locks. If repair cannot preserve a run's original runtime, report that limitation rather than claiming a new installation makes it resumable.
 
-```powershell
-& '<node-executable>' '<plugin-root>/bin/setup.mjs' '--data-dir' '<exact-host-dataDir>'
-```
-
-The returned `setupCommand`/`verifyCommand` argument arrays are data, not shell-escaped command text. Do not pass JSON string escaping such as `\"` through to the shell.
+Runtime readiness, account admission, hook trust and completed model work are separate observations. Doctor is command-only with no inference; native workflow verification needs an authorized subscription-consuming run.

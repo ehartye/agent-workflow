@@ -1,10 +1,23 @@
 ---
 name: workflow-mode
-description: Enable, disable or inspect Agent Workflow ultracode-style routing when the user explicitly asks for workflow mode, ultracode mode, or persistent workflow routing for this session or project.
+description: Enable, disable or inspect Agent Workflow routing when the user explicitly asks for workflow mode, ultracode mode, or persistent workflow routing for this session or project.
 ---
 
-Use `workflow_mode` with `value: on/off/status`. Session mode requires the real host session ID; never invent one. Project mode uses the requested project cwd. If the user names a project, apply that scope. If a session ID is unavailable, report that session routing needs a real ID and use explicit workflow tools in the meantime.
+Use `node "<plugin-root>/bin/launch.mjs" mode on|off|status`. Resolve plugin-root from this installed skill, two parents above its directory. A request to run one workflow uses agent-workflow and does not enable persistent mode.
 
-Mode state is stored outside the plugin cache. It injects concise routing context through the trusted UserPromptSubmit hook and leaves ordinary questions/direct edits in the normal flow. Worker processes marked `AGENT_WORKFLOW_WORKER=1` and tool messages are excluded. No global AGENTS file is changed.
+Default to session scope with the real Codex identity from context or CODEX_THREAD_ID; never fabricate one. For explicitly requested project routing, use that project's actual cwd:
 
-Enabling this mode grants no broader tool, file, network or publication permission. It is a plugin routing preference, not a native Codex effort slider, composer switch or hard shared token budget. Installing the plugin does not trust hooks; the user separately reviews the host’s hook definition before it can run.
+```text
+node "<plugin-root>/bin/launch.mjs" mode on --scope session --session "<originating-session>"
+node "<plugin-root>/bin/launch.mjs" mode status --scope session --session "<originating-session>"
+node "<plugin-root>/bin/launch.mjs" mode off --scope session --session "<originating-session>"
+node "<plugin-root>/bin/launch.mjs" mode on --scope project --cwd "<project>"
+node "<plugin-root>/bin/launch.mjs" mode status --scope project --cwd "<project>"
+node "<plugin-root>/bin/launch.mjs" mode off --scope project --cwd "<project>"
+```
+
+Keep explicit --data-dir consistent. Otherwise CLI/hooks share AGENT_WORKFLOW_DATA_DIR if set, then LOCALAPPDATA/agent-workflow or home .local/share/agent-workflow. PLUGIN_DATA does not implicitly redirect it. Inspect the result before reporting the requested scope enabled/disabled. Use workflow-setup if installation is missing.
+
+Mode is opt-in and persists outside plugin cache. The prompt hook supplies routing context for user prompts; ordinary questions and small direct edits stay conversational. Workers/tool messages are excluded. A status question or steering instruction does not replace the active user objective.
+
+Mode grants no file, network, publication or installation permission, and adds no native composer control, effort slider or shared hard budget. Manual CLI/dashboard use does not require mode. Hook trust is separate; report runtime readiness and hook availability independently. Do not edit global AGENTS or Codex settings to imitate routing.

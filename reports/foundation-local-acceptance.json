@@ -1,0 +1,129 @@
+{
+  "status": "passed",
+  "inferenceRequests": 2,
+  "requestedBackend": "mxc",
+  "workers": [
+    {
+      "index": 0,
+      "status": "passed",
+      "startedAt": 1791896801588,
+      "completedAt": 1791896811170,
+      "terminalStatus": "completed",
+      "finalMarkerMatched": true,
+      "commandCount": 1,
+      "commands": [
+        {
+          "status": "completed",
+          "exitCode": 0,
+          "markerMatched": true
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "status": "passed",
+      "startedAt": 1791896801588,
+      "completedAt": 1791896814218,
+      "terminalStatus": "completed",
+      "finalMarkerMatched": true,
+      "commandCount": 1,
+      "commands": [
+        {
+          "status": "completed",
+          "exitCode": 0,
+          "markerMatched": true
+        }
+      ]
+    }
+  ],
+  "codexVersion": "codex-cli 0.162.1",
+  "admission": {
+    "status": "passed",
+    "inferenceRequests": 0,
+    "stages": [
+      {
+        "name": "authentication",
+        "status": "passed",
+        "evidence": {
+          "mode": "chatgpt",
+          "provider": "openai"
+        }
+      },
+      {
+        "name": "windows-readiness",
+        "status": "passed",
+        "evidence": {
+          "status": "ready",
+          "commandProven": false
+        }
+      },
+      {
+        "name": "buffered-command",
+        "status": "passed",
+        "evidence": {
+          "exitCode": 0,
+          "marker": "FOUNDATION_OK",
+          "policy": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "outputTruncated": false
+        }
+      },
+      {
+        "name": "streamed-command",
+        "status": "passed",
+        "evidence": {
+          "exitCode": 0,
+          "marker": "FOUNDATION_OK",
+          "policy": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "outputTruncated": false
+        }
+      },
+      {
+        "name": "pty-command",
+        "status": "passed",
+        "evidence": {
+          "exitCode": 0,
+          "marker": "FOUNDATION_OK",
+          "policy": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "outputTruncated": false
+        }
+      },
+      {
+        "name": "cancellation",
+        "status": "passed",
+        "evidence": {
+          "terminalResponse": true,
+          "exitCode": 1,
+          "descendants": "notVerified"
+        }
+      }
+    ],
+    "runnerEquivalence": "notVerified",
+    "cleanup": {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified"
+    }
+  },
+  "authentication": {
+    "mode": "chatgpt",
+    "provider": "openai"
+  },
+  "overlapped": true,
+  "cleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified"
+  },
+  "checkedAt": "2026-10-13T13:06:54.666Z",
+  "nodeVersion": "v24.18.0",
+  "descendants": "notVerified"
+}

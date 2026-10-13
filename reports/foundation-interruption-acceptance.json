@@ -1,0 +1,102 @@
+{
+  "status": "passed",
+  "inferenceRequests": 1,
+  "backend": "mxc",
+  "commandStarted": true,
+  "commands": [],
+  "descendants": "notVerified",
+  "codexVersion": "codex-cli 0.162.1",
+  "admission": {
+    "status": "passed",
+    "inferenceRequests": 0,
+    "stages": [
+      {
+        "name": "authentication",
+        "status": "passed",
+        "evidence": {
+          "mode": "chatgpt",
+          "provider": "openai"
+        }
+      },
+      {
+        "name": "windows-readiness",
+        "status": "passed",
+        "evidence": {
+          "status": "ready",
+          "commandProven": false
+        }
+      },
+      {
+        "name": "buffered-command",
+        "status": "passed",
+        "evidence": {
+          "exitCode": 0,
+          "marker": "FOUNDATION_OK",
+          "policy": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "outputTruncated": false
+        }
+      },
+      {
+        "name": "streamed-command",
+        "status": "passed",
+        "evidence": {
+          "exitCode": 0,
+          "marker": "FOUNDATION_OK",
+          "policy": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "outputTruncated": false
+        }
+      },
+      {
+        "name": "pty-command",
+        "status": "passed",
+        "evidence": {
+          "exitCode": 0,
+          "marker": "FOUNDATION_OK",
+          "policy": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "outputTruncated": false
+        }
+      },
+      {
+        "name": "cancellation",
+        "status": "passed",
+        "evidence": {
+          "terminalResponse": true,
+          "exitCode": 1,
+          "descendants": "notVerified"
+        }
+      }
+    ],
+    "runnerEquivalence": "notVerified",
+    "cleanup": {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified"
+    }
+  },
+  "turnError": {
+    "code": "TURN_CANCELLED",
+    "message": "Codex turn was cancelled"
+  },
+  "interruption": {
+    "terminalObserved": true,
+    "terminalStatus": "interrupted",
+    "descendants": "notVerified"
+  },
+  "interruptionElapsedMs": 3,
+  "retainedServerCommandPassed": true,
+  "cleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified"
+  },
+  "checkedAt": "2026-10-13T14:01:48.512Z"
+}
