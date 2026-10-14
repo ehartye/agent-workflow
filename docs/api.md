@@ -1,6 +1,6 @@
 # Fresh CLI and monitor API
 
-This describes the 0.3.0 runtime. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
+This describes the 0.3.1 candidate runtime. Published 0.3.0 remains the release baseline until the new release gates pass. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
 
 ## CLI
 
@@ -13,8 +13,9 @@ All commands accept --data-dir. Otherwise state selection uses AGENT_WORKFLOW_DA
 | workflows / read [scope:]name | --cwd |
 | save [scope:]name | --script, --cwd, --command, --overwrite |
 | validate file | Alternatively --script file |
-| run [scope:]name | Alternatively --script file; --cwd, --session, --args JSON, --concurrency, --model, --effort, --max-attempts, --writable, --foreground, --backend, --worker-timeout-ms, --run-timeout-ms, --capture-policy file |
+| run [scope:]name | Alternatively --script file; --cwd, --session, --args JSON, --concurrency, --model, --effort, --max-attempts, --writable, --foreground, --backend, --worker-timeout-ms, --run-timeout-ms, --capture-policy file, --worker-capabilities file |
 | list / status ID / result ID | Inspect persisted runs; list accepts --show-hidden |
+| watch ID | --session, --generation, --jsonl; optional --after, --idle-ms, --poll-ms |
 | worker ID | --position, --generation, optional --source-generation |
 | events ID | --position, --generation, --source-generation, --after, --limit |
 | patch ID | --position, --generation, --source-generation, --basis inputs or base |
@@ -38,6 +39,70 @@ Run defaults: concurrency 2 (range 1–256), read-only/no-network/never-approve.
 Worker deadlines default to 600,000 ms, with an explicit range of 1–1,800,000 ms. Overall run wall deadlines default to disabled (0), with an optional limit up to 86,400,000 ms. Completion/manual Stop owns the default run lifetime; evaluator CPU, memory and no-pending-work idle protections still apply. Persisted deadline values retain their original meaning on replay. Explicit capture policy is immutable after new-run admission; resume/restart reject policy overrides. See [capture and lifecycle](session-delivery.md) for policy syntax, inventories, exact revision targets and lost-response inspection.
 
 Normal run returns a detached startup receipt. --foreground waits and returns a nonzero exit code unless the run completed with complete worker coverage. Read-only status exit zero means the read succeeded, not the run. result returns retained result/error; inspect status for coverage and cleanup.
+
+## Attached observation
+
+`watch ID --session SESSION --generation N --jsonl` attaches a read-only JSONL observer to the exact retained run. Detached startup receipts include `watch.required:true`, `attached:false`, the generation/cursor and copyable `argv`; returning that receipt does not attach an observer. The coordinator names an owner, starts the observer, confirms its `attached` record and retains the last completely written event cursor. Keep the same data directory and original session. Stop the observer with Ctrl+C without stopping or retrying workflow execution.
+
+Terminal worker/run notifications are durable SQLite records written with their corresponding state transactions. A worker notification follows its settled execution/cleanup; a forced-drain unknown is deferred until aggregate close. The final run notification and header commit together after backend cleanup, preserving negative or unknown cleanup facts. Events include sequence, generation, kind, status/time, exact worker position/attempt when applicable, and bounded cleanup/error facts. They exclude prompts, raw outputs, account data and credentials. Worker failures remain replayable after a consumer disconnects. `--after` defaults to 0 and must be 0 or a retained event in the selected current generation; reconnect explicitly with the last received cursor. Generation changes require a refreshed exact target. The journal never silently drops earlier terminal events: its 100,000-event capacity reserves the generation's maximum worker count plus one before admission. Older runtimes without this contract remain unsupported rather than migrated.
+
+Polling defaults to 500 ms (`--poll-ms` 100–10,000). `worker-progress` reports the latest safe completed-command/file-change fact, not a complete tool stream. An observer-local idle warning defaults to 60,000 ms (`--idle-ms` 1,000–86,400,000); commentary does not reset a running worker's idle clock. A warning occurs once until new actual progress, identifies the exact attempt and prompts inspection, not cancellation or retry. Watching has no execution controls and writes no run state. The `attached`, `worker-progress` and `idle-warning` records are live observer facts, separate from durable terminal notifications. A named attached coordinator observer relays them to the originating conversation; no native host push-delivery guarantee is claimed.
+
+The observer drains available terminal pages before exit. Exit 0 means the observed run status is `completed`, or the output consumer disconnected; distinguish these cases from received records, never the exit code alone. Other terminal statuses exit 1, observation errors exit 2 and explicit observer cancellation exits 130. Completion does not certify task objectives or artifact acceptance. A lost/broken output pipe does not advance the consumer cursor past an incompletely written record or mutate the workflow. The coordinator still verifies effects, capture integrity and final coverage.
+
+## Worker capability bundle
+
+New runs accept `--worker-capabilities <file>`. The bounded UTF-8 JSON file declares an immutable ceiling; scripts select only declared IDs with `agent(prompt,{skills:['compose'],requireTools:['compose-cli']})`. Omission preserves existing behavior. Resume/restart reject bundle overrides, recheck original source identities and availability, and retain earlier failed/unknown rows. A changed source, receipt, dependency or capability fingerprint cannot reuse saved results. The resolver participates in runtime source identity.
+
+The exact version 1 shape below lists required fields. Arrays may be empty for skills/tools; a declared tool requires nonempty skills, runtime/dependency files and readiness. `sha256` is a lowercase 64-character SHA-256 of actual file bytes. Values are coordinator-reviewed identities, not self-certifying JSON claims.
+
+```javascript
+{
+  version: 1,
+  skills: [{
+    id: 'compose', name: 'plugin:compose',
+    root: '<absolute original plugin directory>',
+    path: '<absolute original skills/compose/SKILL.md>', sha256: '<digest>',
+    references: [{path: 'scripts/usage.md', sha256: '<digest>'}]
+  }],
+  tools: [{
+    id: 'compose-cli', skills: ['compose'],
+    node: {path: '<absolute verified node.exe>', version: 'v24.18.0', sha256: '<digest>'},
+    launcher: {root: '<absolute plugin directory>', path: '<absolute managed launcher>', sha256: '<digest>'},
+    runtime: {
+      root: '<absolute retained managed runtime>',
+      files: [{path: 'cli.mjs', sha256: '<digest>'}],
+      receipt: {path: 'receipt.json', sha256: '<digest>'}
+    },
+    dependencies: {
+      root: '<absolute retained dependency directory>',
+      files: [{path: 'package-lock.json', sha256: '<digest>'}],
+      receipt: {path: 'receipt.json', sha256: '<digest>'}
+    },
+    environment: {AGENT_BEEPS_HOME: '<absolute managed home>', PLAYWRIGHT_BROWSERS_PATH: '<absolute browser cache>'},
+    readiness: [{id: 'capabilities', args: ['capabilities'], marker: '<exact stdout marker>', timeoutMs: 5000}],
+    guidance: '<task invocation constraints; use instructions returned by the native skill tool>'
+  }]
+}
+```
+
+Unknown fields, duplicate IDs/names/paths, unsafe or linked paths, missing skill sources, changed bytes and plugin manifests in selected skill directories reject admission. References/files use normalized relative paths inside their declared original root; no traversal, filesystem links or relocated copies. Directory layout remains original. The coordinator must enumerate required references, tool sources and dependencies: the resolver verifies those files and receipt bytes, but cannot authenticate a receipt or discover an undeclared transitive dependency closure from JSON. A missing managed tool may remain unavailable for independent source authoring; identity mismatch/unsafe paths reject even when that tool is optional.
+
+Every file exposed beneath an exact selected skill directory, including native discovery metadata and resources, must have a declared content identity. The scan is bounded at 512 entries and depth 6; nested undeclared skills, plugin manifests and descendant links reject. Linked documentation outside the native skill package may be declared by its original plugin-relative path and verified hash. If native resource access cannot reach it, an ordinary bounded read of that exact verified document is allowed only after genuine native skill activation; it cannot replace `skills.list`/`skills.read` or manually load another skill body. Windows native command arguments also have a pre-dispatch encoded-size guard; a valid manifest can still exceed that platform budget and be refused.
+
+Bounds: manifest 256 KiB; 32 skills, 16 tools; portable IDs 1–100 characters, native names 1–200; paths at most 4,096. Each skill has at most 64 references; skill verification reads at most 128 files/64 MiB, with 1 MiB per SKILL.md and 16 MiB per reference. Each tool source check reads at most 128 files/512 MiB, with 256 MiB for Node and 16 MiB for other files. Each runtime/dependency tree has at most 64 files. Each tool declares at most eight readiness stages, each with at most 32 arguments (2,048 characters each/16,384 total), a marker up to 200 characters, and timeout 1–20,000 ms. Readiness output is capped at 8,192 bytes and never retained. Readiness runs exactly `[node.path,launcher.path,...args]`, once per required stage. These commands must be reviewed nonmutating queries; instruction guidance is not an enforced executable allowlist. No setup/install/service/fallback/retry is synthesized.
+
+Worker skill access uses the genuine pinned Codex 0.162.1 `skills.list`/`skills.read` tools. `thread/start.selectedCapabilityRoots` maps each selected ID to `{location:{type:'environment',environmentId:'local',path:dirname(SKILL.md)}}`. Selecting exact skill directories avoids selecting a broad plugin manifest/MCP/apps bundle. Only selected-skill workers receive the process-local `features.code_mode.direct_only_tool_namespaces=["skills"]` override; its effective value is validated and participates in identity. Model selection and all existing permission ceilings stay unchanged. Workers call `skills.list({authority:{kind:'executor'}})` and `skills.read` using the returned package/main_resource and native pagination, then use associated CLI instructions from that native read. There is no extraRoots registration, UserInput skill injection, manual skill-body parsing/injection or fake skill server.
+
+Before tool-dependent inference, the owned restricted worker executes actual root/file/environment checks and every required readiness stage through native `command/exec` with read-only/no-network policy. Only explicit `AGENT_BEEPS_HOME`, `AGENT_SPRITES_HOME` and `PLAYWRIGHT_BROWSERS_PATH` values may be selected; conflicting tool environments reject. Parent managed homes are not inherited. Optional associated tools retain missing source/readiness stages. Schema correction repeats neither activation instructions nor readiness commands and asks only for an answer from existing evidence.
+
+Readiness and task/correction execution share one worker deadline, starting immediately before readiness after existing App Server/thread startup. Native command and RPC timeouts are capped by the remaining budget; no later readiness command or model turn starts after expiry. Post-readiness inventory keeps its 15-second maximum within that budget. Cleanup has its separate bounded drain and must retain uncertainty after a lost response. Establishing the thread before readiness permits native inventory cleanup even when a known executed check fails with zero inference.
+
+Only fully admitted required tools add verified invocation metadata to the initial task prompt: tool ID, absolute Node path/version, launcher path, named environment values and the exact readiness stages that passed. The bounded manifest supplies these values; skill bodies are not copied. Optional tools receive no passed-invocation claim. This metadata proves neither other operations nor artifact production, and is not an executable allowlist or broader permission grant.
+
+Evidence distinguishes native direct-tool exposure, exact selected roots, source fingerprints, actual readiness start/exit/marker facts and observed namespaced list/read call/output pairs. Pair observation is not tool success: catalog bodies and skill bodies are not retained, enabled-name/read-root matching remains unverified by this metadata observer, and task JSON cannot certify it. `noInference` means no task turn was dispatched; an executed nonzero check is process-observed and never `noProcessStarted`. A lost readiness response remains an unknown execution even with zero inference and prevents ordinary replay. Cleanup remains required independently. A version/capabilities query cannot certify render transport, output artifacts or effects. Generated PNG/atlas/WAV/measurement/config files must stay in assigned writer roots and pass existing capture integrity plus coordinator review. Native MCP/apps/browser/host grants remain unavailable. Fresh native skill/tool/artifact acceptance, combined verification and release belong to the coordinator.
+
+The supported route is source-backed by [native skill tools](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/ext/skills/src/tools/mod.rs#L55), [executor skill tests](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/app-server/tests/suite/v2/executor_skills.rs#L306) and [DirectModelOnly exposure](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/core/src/tools/spec_plan.rs#L541). [Native acceptance](verification.md) separately records genuine public-CLI skill calls and managed Beeps init/new/list with captured output review. WAV rendering/listening and sprite export remain unverified.
 
 ## Scripts, persistence and replay
 

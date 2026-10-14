@@ -31,32 +31,48 @@ export async function probe(client, { cwd, command, cancelCommand, platform = pr
   const executeStage = async (name, run) => {
     const stage = { name, status: 'running' };
     report.stages.push(stage);
-    try { stage.evidence = await run(); stage.status = 'passed'; }
+    try { stage.evidence = await run(stage); stage.status = 'passed'; }
     catch (error) { stage.status = 'failed'; stage.error = errorRecord(error); throw error; }
   };
   const policy = { type: 'readOnly', networkAccess: false };
   const execParams = argv => ({ command: argv, cwd, sandboxPolicy: policy, timeoutMs, outputBytesCap: 8192 });
-  async function runCommand(kind) {
+  async function runCommand(kind, stage) {
     const processId = `${kind}-${randomUUID()}`;
-    let output = '';
+    let output = Buffer.alloc(0);
     let truncated = false;
+    let outputValid = true;
     const streamed = kind !== 'buffered';
     const unsubscribe = client.onNotification(message => {
       if (message.method !== 'command/exec/outputDelta' || message.params?.processId !== processId) return;
-      const delta = Buffer.from(message.params.deltaBase64, 'base64').toString('utf8');
-      if (message.params.stream === 'stdout') output = (output + delta).slice(0, 8192);
-      truncated ||= message.params.capReached;
+      const delta = Buffer.from(message.params.deltaBase64, 'base64');
+      if (message.params.stream === 'stdout') {
+        truncated ||= output.length + delta.length > 8192;
+        output = Buffer.concat([output, delta.subarray(0, 8192 - output.length)]);
+      }
+      const capReached = message.params.capReached;
+      if (capReached !== undefined && typeof capReached !== 'boolean') outputValid = false;
+      truncated ||= capReached === true;
     });
     try {
       const result = await client.request('command/exec', {
         ...execParams(command), processId, streamStdoutStderr: streamed, ...(kind === 'pty' ? { tty: true } : {}),
       }, { timeoutMs: timeoutMs + 1000 });
+      const record = result && typeof result === 'object' && !Array.isArray(result) ? result : null;
+      const collected = output.toString('utf8');
       // Node's VT stripper can leave a Windows drive/path suffix from OSC titles.
-      const stdout = kind === 'pty' ? stripVTControlCharacters(output.replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g, '')) : streamed ? output : result.stdout;
-      if (result.exitCode !== 0 || truncated || stdout?.trim() !== 'FOUNDATION_OK') {
+      const stdout = kind === 'pty' ? stripVTControlCharacters(collected.replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g, '')) : streamed ? collected : record?.stdout;
+      // Project only safe observations after a response. RPC rejections leave
+      // evidence absent; neither missing results nor failures prove no startup.
+      const evidence = {
+        exitCode: Number.isSafeInteger(record?.exitCode) ? record.exitCode : null,
+        markerObserved: typeof stdout === 'string' && stdout.trim() === 'FOUNDATION_OK',
+        policy, outputTruncated: truncated,
+      };
+      stage.evidence = evidence;
+      if (evidence.exitCode !== 0 || evidence.outputTruncated || !evidence.markerObserved || !outputValid) {
         throw fault('COMMAND_FAILED', 'Sandbox command did not return the expected marker and successful exit');
       }
-      return { exitCode: result.exitCode, marker: 'FOUNDATION_OK', policy, outputTruncated: false };
+      return { ...evidence, marker: 'FOUNDATION_OK' };
     } finally { unsubscribe(); }
   }
   async function cancel() {
@@ -113,9 +129,9 @@ export async function probe(client, { cwd, command, cancelCommand, platform = pr
       if (result.status !== 'ready') throw fault('SANDBOX_NOT_READY', 'Windows sandbox did not report ready');
       return { status: result.status, commandProven: false };
     });
-    await executeStage('buffered-command', () => runCommand('buffered'));
-    await executeStage('streamed-command', () => runCommand('streamed'));
-    await executeStage('pty-command', () => runCommand('pty'));
+    await executeStage('buffered-command', stage => runCommand('buffered', stage));
+    await executeStage('streamed-command', stage => runCommand('streamed', stage));
+    await executeStage('pty-command', stage => runCommand('pty', stage));
     await executeStage('cancellation', cancel);
     report.status = 'passed';
   } catch (error) {

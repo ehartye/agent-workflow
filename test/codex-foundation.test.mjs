@@ -10,6 +10,14 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const fixture = fileURLToPath(new URL('./fixtures/foundation-server.mjs', import.meta.url));
+
+test('managed capability homes are explicit named values and cannot widen launch environment',async()=>{
+ const {createLaunch}=await import('../foundation/launch.mjs');
+ const options={executable:process.execPath,cwd:process.cwd(),env:{AGENT_BEEPS_HOME:'parent-is-not-inherited',AGENT_SPRITES_HOME:'parent-is-not-inherited',OPENAI_API_KEY:'secret'}};
+ const launch=createLaunch({...options,capabilityEnvironment:{AGENT_BEEPS_HOME:process.cwd()}});
+ assert.deepEqual(launch.env,{AGENT_BEEPS_HOME:process.cwd()});
+ for(const capabilityEnvironment of [{NODE_OPTIONS:'--require unwanted'},{OPENAI_API_KEY:'secret'},{AGENT_BEEPS_HOME:'relative'}])assert.throws(()=>createLaunch({...options,capabilityEnvironment}),{code:'LAUNCH_INVALID'});
+});
 async function connect(t, options = {}, mode = '') {
   const module = await import('../foundation/client.mjs').catch(() => null);
   assert.ok(module?.AppServer, 'Fresh AppServer client must exist');
@@ -141,7 +149,7 @@ test('version-command diagnostics exclude subprocess stderr and argv', async () 
   assert.deepEqual(diagnostic(error), { code: 'CHECK_FAILED', message: 'Foundation check failed; untrusted diagnostic details were excluded' });
 });
 
-test('probe proves buffered, streamed and PTY execution plus terminal cancellation without a model turn', async t => {
+test('synthetic subprocess probe covers buffered, streamed and PTY execution plus terminal cancellation without a model turn', async t => {
   const client = await connect(t);
   const { probe } = await probeModule();
   const report = await probe(client, { cwd: process.cwd(), command: ['fixture-only'], cancelCommand: ['fixture-only'], platform: 'win32', timeoutMs: 500 });
@@ -153,8 +161,81 @@ test('probe proves buffered, streamed and PTY execution plus terminal cancellati
   ]);
   assert.equal(report.cleanup.serverExited, true);
   assert.equal(report.cleanup.descendants, 'notVerified');
+  assert.equal(report.runnerEquivalence, 'notVerified');
+  for (const stage of report.stages.filter(stage => stage.name.endsWith('-command'))) {
+    assert.deepEqual(stage.evidence, {
+      exitCode: 0, marker: 'FOUNDATION_OK', markerObserved: true,
+      policy: { type: 'readOnly', networkAccess: false }, outputTruncated: false,
+    });
+  }
   assert.equal(JSON.stringify(report).includes('private@example.invalid'), false);
 });
+
+// These are synthetic command results from an owned subprocess, not native
+// sandbox, Windows status, runner-equivalence or descendant-drain proof.
+const commandResultCases = [
+  ['nonzero', { exitCode: 7, markerObserved: true, outputTruncated: false }],
+  ['windows-status', { exitCode: -1073741502, markerObserved: false, outputTruncated: false }],
+  ['incorrect-marker', { exitCode: 0, markerObserved: false, outputTruncated: false }],
+  ['missing-marker', { exitCode: 0, markerObserved: false, outputTruncated: false }],
+  ['fractional-exit', { exitCode: null, markerObserved: true, outputTruncated: false }],
+  ['unsafe-exit', { exitCode: null, markerObserved: true, outputTruncated: false }],
+  ['null-exit', { exitCode: null, markerObserved: true, outputTruncated: false }],
+  ['boolean-exit', { exitCode: null, markerObserved: true, outputTruncated: false }],
+  ['string-exit', { exitCode: null, markerObserved: true, outputTruncated: false }],
+  ['secret-exit', { exitCode: null, markerObserved: true, outputTruncated: false }],
+  ['missing-exit', { exitCode: null, markerObserved: true, outputTruncated: false }],
+  ['null-result', { exitCode: null, markerObserved: false, outputTruncated: false }],
+  ['unknown-result', { exitCode: null, markerObserved: false, outputTruncated: false }],
+  ['array-result', { exitCode: null, markerObserved: false, outputTruncated: false }],
+  ['secret-outputs', { exitCode: 0, markerObserved: false, outputTruncated: false }],
+];
+
+for (const kind of ['buffered', 'streamed', 'pty']) {
+  test(`synthetic ${kind} command failures retain only safe observations and owned cleanup`, async t => {
+    // Common result projection has one owner; streamed output/cap handling is
+    // shared with PTY. Keep stage wiring and PTY normalization representative.
+    const cases = kind === 'buffered' ? [...commandResultCases,
+      ['malformed-stdout', { exitCode: 0, markerObserved: false, outputTruncated: false }],
+    ] : kind === 'streamed' ? commandResultCases.filter(([name]) => ['nonzero', 'secret-outputs'].includes(name))
+      : commandResultCases.filter(([name]) => name === 'nonzero');
+    if (kind === 'streamed') cases.push(
+      ['stdout-cap', { exitCode: 0, markerObserved: true, outputTruncated: true }],
+      ['stderr-cap', { exitCode: 0, markerObserved: true, outputTruncated: true }],
+      ['local-cap', { exitCode: 0, markerObserved: true, outputTruncated: true }],
+      ['local-byte-cap', { exitCode: 0, markerObserved: true, outputTruncated: true }],
+      ['omitted-cap', { exitCode: 7, markerObserved: true, outputTruncated: false }],
+      ['malformed-cap', { exitCode: 0, markerObserved: true, outputTruncated: false }],
+    );
+    for (const [scenario, observations] of cases) {
+      await t.test(scenario, async t => {
+        const client = await connect(t, {}, `command-result-${kind}-${scenario}`);
+        const { probe } = await probeModule();
+        const report = await probe(client, {
+          cwd: 'REVIEW_CWD_SENTINEL', command: ['REVIEW_ARGV_SENTINEL'],
+          cancelCommand: ['fixture-only'], platform: 'win32', timeoutMs: 1000,
+        });
+        const failed = report.stages.at(-1);
+        assert.equal(report.status, 'failed');
+        assert.equal(failed.name, `${kind}-command`);
+        assert.equal(failed.status, 'failed');
+        assert.ok(report.stages.slice(0, -1).every(stage => stage.status === 'passed'));
+        assert.deepEqual(failed.evidence, {
+          ...observations, policy: { type: 'readOnly', networkAccess: false },
+        });
+        assert.deepEqual(failed.error, {
+          code: 'COMMAND_FAILED', message: 'Sandbox command did not return the expected marker and successful exit',
+        });
+        assert.deepEqual(report.error, failed.error);
+        assert.equal(report.inferenceRequests, 0);
+        assert.equal(report.runnerEquivalence, 'notVerified');
+        assert.equal(report.cleanup.serverExited, true);
+        assert.equal(report.cleanup.descendants, 'notVerified');
+        assert.doesNotMatch(JSON.stringify(report), /REVIEW_[A-Z_]+|private@example|stdout|stderr|argv|cwd|noProcessStarted/);
+      });
+    }
+  });
+}
 
 for (const [mode, expected] of [['api', 'AUTH_UNSUPPORTED'], ['not-ready', 'SANDBOX_NOT_READY'], ['command-failure', 'RPC_ERROR'], ['cancel-hangs', 'CANCEL_UNVERIFIED']]) {
   test(`probe fails closed for ${mode} and retains primary error separately from cleanup`, async t => {
@@ -163,7 +244,11 @@ for (const [mode, expected] of [['api', 'AUTH_UNSUPPORTED'], ['not-ready', 'SAND
     const report = await probe(client, { cwd: process.cwd(), command: ['fixture-only'], cancelCommand: ['fixture-only'], platform: 'win32', timeoutMs: 150 });
     assert.equal(report.status, 'failed');
     assert.equal(report.error.code, expected);
-    if (mode === 'command-failure') assert.match(report.error.message, /runner pipe-in/);
+    if (mode === 'command-failure') {
+      assert.match(report.error.message, /runner pipe-in/);
+      assert.equal(Object.hasOwn(report.stages.at(-1), 'evidence'), false, 'RPC rejection has no command result evidence');
+      assert.doesNotMatch(JSON.stringify(report), /REVIEW_[A-Z_]+|private@example|noProcessStarted/);
+    }
     assert.equal(report.cleanup.serverExited, true);
     assert.equal(report.inferenceRequests, 0);
     assert.equal(report.stages.at(-1).status, 'failed');

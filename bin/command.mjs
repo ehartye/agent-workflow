@@ -16,7 +16,12 @@ import {MAX_RUN_TIMEOUT_MS,MAX_WORKER_TIMEOUT_MS} from '../engine/deadlines.mjs'
 import {readLifecycle,readLifecycleReceipt,requestLifecycle,planPrune,applyPrune} from '../engine/run-lifecycle.mjs';
 import * as workspacePolicy from '../engine/workspace-policy.mjs';
 import {createSessionServices} from '../engine/monitor-adapters.mjs';
+import {doctorFailure} from './doctor-diagnostics.mjs';
+import {readCapabilities} from '../engine/worker-capabilities.mjs';
 const print=value=>console.log(JSON.stringify(value,null,2));
+function backgroundReceipt(id,receipt,p){
+ return{id,...receipt,watch:{...receipt.watch,argv:[process.execPath,join(pluginRoot,'bin','launch.mjs'),'watch',id,'--session',p.sessionId,'--generation',String(receipt.generation),'--after','0','--jsonl','--data-dir',p.dataDir]}};
+}
 function integer(value,name,{min=0,max=Number.MAX_SAFE_INTEGER,required=false}={}){if(value===undefined&&!required)return undefined;if(typeof value!=='string'||!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)<min||Number(value)>max)throw Error(`--${name} requires an integer from ${min} to ${max}`);return Number(value);}
 function deadlines(options){
  const run=integer(options['run-timeout-ms'],'run-timeout-ms',{max:MAX_RUN_TIMEOUT_MS});
@@ -37,8 +42,8 @@ function lifecycleRequest(p){
 export async function main(tokens=process.argv.slice(2)){
  const p=parseCommand(tokens),o=p.values;if(p.command==='help'||o.help){process.stdout.write(help);return 0;}
  let owner;
- if(p.runCommand){owner=await resolveRun({dataDir:p.dataDir,id:p.id,...(p.mutation?{sessionId:p.sessionId}:{})});if(p.command==='dashboard'&&o['current-ui']){const current=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(current.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the explicitly installed current UI');}else if(resolve(owner.runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select this run’s original runtime');}
- else{const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the managed runtime');}
+ if(p.runCommand){owner=await resolveRun({dataDir:p.dataDir,id:p.id,...(p.mutation||p.command==='watch'?{sessionId:p.sessionId}:{})});if(p.command==='dashboard'&&o['current-ui']){const current=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(current.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the explicitly installed current UI');}else if(resolve(owner.runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select this run’s original runtime');}
+ else if(p.command!=='doctor'){const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the managed runtime');}
  if(p.command==='mode'){const options={dataDir:p.dataDir,cwd:p.cwd,sessionId:p.sessionId,scope:o.scope??'session'};print(p.id==='status'?await readMode(options):await setMode(p.id,options));return 0;}
  const registry={cwd:p.cwd};
  if(p.command==='workflows'){print(await listWorkflows(registry));return 0;}
@@ -59,7 +64,16 @@ export async function main(tokens=process.argv.slice(2)){
  }
  const backendName=o.backend??(process.platform==='win32'?'mxc':'configured');if(!['mxc','configured'].includes(backendName))throw Error('Unknown worker backend');
  if(p.command==='doctor'){
-  const executable=await nativeCodex(pluginRoot);let backend;try{backend=await createManagedBackend({executable,cwd:p.cwd,backend:backendName});const cleanup=await backend.close();print({status:cleanup.serverExited?'passed':'failed',inferenceRequests:0,node:process.version,codex:executable,backend:backendName,admission:backend.admission,cleanup});return cleanup.serverExited?0:1;}finally{await backend?.close();}
+  let backend,stage='runtime';
+  try{
+   const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the managed runtime');
+   const executable=await nativeCodex(pluginRoot);stage='backend';
+   backend=await createManagedBackend({executable,cwd:p.cwd,backend:backendName});stage='cleanup';
+   const cleanup=await backend.close();
+   const requiresJob=process.platform==='win32'||cleanup?.ownershipScope==='windows-job-members';
+   if(cleanup?.serverExited!==true||requiresJob&&cleanup.jobEmpty!==true||cleanup.error){print(doctorFailure({code:'WORKER_DRAIN'},{stage,backend:backendName,admission:backend.admission,cleanup}));return 1;}
+   print({status:'passed',inferenceRequests:0,node:process.version,codex:executable,backend:backendName,admission:backend.admission,cleanup});return 0;
+  }catch(error){print(doctorFailure(error,{stage,backend:backendName,admission:backend?.admission}));return 1;}
  }
  if(p.command==='run'){
   if(o.script&&p.id)throw Error('Choose a saved workflow name or --script');if(!o.script&&!p.id)throw Error('Provide a saved workflow name or --script');
@@ -67,17 +81,24 @@ export async function main(tokens=process.argv.slice(2)){
   const args=o.args===undefined?null:JSON.parse(o.args),concurrency=integer(o.concurrency,'concurrency',{min:1,max:256})??2,limits=deadlines(o);
   const defaults={...(o.model?{model:o.model}:{}),...(o.effort?{effort:o.effort}:{}),...(o['max-attempts']!==undefined?{maxAttempts:integer(o['max-attempts'],'max-attempts',{min:1,max:5})}:{}),...(o.writable?{permissions:{sandbox:'workspace-write'}}:{})};
   let capturePolicy;
+  const capabilities=o['worker-capabilities']===undefined?null:await readCapabilities(o['worker-capabilities']);
   if(o['capture-policy']!==undefined){
    if(typeof workspacePolicy.validateCapturePolicy!=='function')throw Error('Capture policy validation is unavailable in this retained runtime; coordinator integration is required');
    capturePolicy=workspacePolicy.validateCapturePolicy(await boundedJson(o['capture-policy'],2*1024*1024)).policy;
   }
   const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir}),binding=await bindRun({dataDir:p.dataDir,runtime,sessionId:p.sessionId});
-  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults,...(capturePolicy===undefined?{}:{capturePolicy})},input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
-  try{if(!o.foreground){print({id:binding.id,...await startBackground(input)});return 0;}
-   const backend=await createManagedBackend({executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
+  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults,...(capturePolicy===undefined?{}:{capturePolicy}),...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})},input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
+  try{if(!o.foreground){print(backgroundReceipt(binding.id,await startBackground(input),p));return 0;}
+   const backend=await createManagedBackend({executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}
  }
  const runDir=owner.runDir;
+ if(p.command==='watch'){
+  if(!o.jsonl)throw Error('watch requires --jsonl');
+  const {watchRun}=await import('../engine/watch.mjs');
+  const abort=new AbortController(),stop=()=>abort.abort();process.on('SIGINT',stop);process.on('SIGTERM',stop);
+  try{return(await watchRun(runDir,{sessionId:p.sessionId,generation:integer(o.generation,'generation',{min:1,required:true}),after:integer(o.after,'after')??0,pollMs:integer(o['poll-ms'],'poll-ms',{min:100,max:10000})??500,idleMs:integer(o['idle-ms'],'idle-ms',{min:1000,max:86400000})??60000,signal:abort.signal})).exitCode;}finally{process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop);}
+ }
  if(p.command==='status'){print({id:p.id,runDir,...await monitorData(runDir),lifecycle:await readLifecycle(runDir)});return 0;}
  if(p.command==='result'){print(await monitorData(runDir,{kind:'result'}));return 0;}
  if(p.command==='dashboard'){const {binding}=await createSessionServices({dataDir:p.dataDir,sessionId:p.sessionId,pinnedRunId:p.id});print({id:p.id,...await startMonitor(runDir,{binding})});return 0;}
@@ -97,7 +118,7 @@ export async function main(tokens=process.argv.slice(2)){
   print(await monitorData(runDir,{kind:p.command==='events'?'activity':p.command,generation,position,sourceGeneration,after:integer(o.after,'after')??0,limit:integer(o.limit,'limit',{min:1,max:100})??50,basis:o.basis??'inputs',stage:o.stage??'outputs',previewBytes:32*1024*1024}));return 0;
  }
  if(p.command==='resume'||p.command==='restart-worker'){
-  print({id:p.id,...await startBackground({runDir,sessionId:p.sessionId,resume:true,...deadlines(o),...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})})});return 0;
+  print(backgroundReceipt(p.id,await startBackground({runDir,sessionId:p.sessionId,resume:true,...deadlines(o),...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})}),p));return 0;
  }
  print(await requestControl(runDir,{sessionId:p.sessionId,generation,action:p.command,...(['steer','cancel-worker'].includes(p.command)?{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),turnId:o.turn??null,...(o.text!==undefined?{text:o.text}:{})}:{})}));return 0;
 }

@@ -10,11 +10,17 @@ import {fault,diagnostic} from '../foundation/client.mjs';
 import {restartPlan} from './restart.mjs';
 import {resolveDeadlines} from './deadlines.mjs';
 import {validateCapturePolicy} from './workspace-policy.mjs';
+import {freezeCapabilities} from './worker-capabilities.mjs';
 
 export async function startBackground(input,{runnerPath=fileURLToPath(new URL('./background-child.mjs',import.meta.url)),startupMs=60000}={}){
   if(!isAbsolute(input.runDir??'')||typeof input.sessionId!=='string'||!input.sessionId||!Number.isFinite(startupMs)||startupMs<=0)throw fault('BACKGROUND_INPUT','Provide an absolute run directory and originating session');
   const previous=input.resume?await readRun(input.runDir):null;
   if(previous&&previous.sessionId!==input.sessionId)throw fault('REPLAY_SESSION','Run belongs to another originating session');
+  if(previous&&input.workerCapabilities!==undefined)throw fault('CAPABILITY_OVERRIDE','Saved runs retain the original worker capability bundle');
+  const capabilityValue=previous?.workerCapabilities??input.workerCapabilities;
+  const capabilities=capabilityValue===undefined?null:await freezeCapabilities(capabilityValue);
+  if(previous?.workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==previous.workerCapabilitiesHash||input.workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==input.workerCapabilitiesHash)throw fault('CAPABILITY_IDENTITY','Worker capability ceiling identity changed');
+  if(previous&&capabilities&&JSON.stringify(previous.workerCapabilitySources)!==JSON.stringify(capabilities.toolSources))throw fault('CAPABILITY_IDENTITY','Worker tool source availability changed');
   if(previous&&input.capturePolicy!==undefined)throw fault('CAPTURE_POLICY_OVERRIDE','Saved runs retain their original capture policy; start a new run to change it');
   const policyValue=previous?.launch?.capturePolicy??input.capturePolicy;
   const frozenPolicy=policyValue===undefined?null:validateCapturePolicy(policyValue);
@@ -27,6 +33,7 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   if(previous&&(!previous.launch||input.restart===undefined&&(previous.cleanup?.serverExited!==true||['running','pausing','stopping','finishing'].includes(previous.status)||previous.workers.some(worker=>['running','unknown'].includes(worker.status)))))throw fault('REPLAY_UNKNOWN','Run launch context or completed execution is not verified');
   if(input.defaults!==undefined&&(!input.defaults||typeof input.defaults!=='object'||Array.isArray(input.defaults)))throw fault('BACKGROUND_INPUT','Worker defaults must be an object');
   const launch={codex:input.codex??previous?.launch.codex,cwd:input.cwd??previous?.launch.cwd,backend:input.backend??previous?.launch.backend??'configured',defaults:{...previous?.launch.defaults,...input.defaults}};
+  if(capabilities)Object.assign(launch,{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint});
   if(frozenPolicy)Object.assign(launch,{capturePolicy:frozenPolicy.policy,capturePolicyHash:frozenPolicy.policyHash});
   const native=createLaunch({executable:launch.codex,cwd:launch.cwd,backend:launch.backend});
   launch.cwd=native.cwd;
@@ -58,7 +65,7 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
       if(message?.kind==='ready'&&Number.isInteger(message.generation)&&!committed){
         committed=true;child.send({kind:'commit'},error=>{if(error)finish(fault('START_UNCERTAIN','Background commit delivery is uncertain; inspect the saved run'));});
       }else if(message?.kind==='started'&&committed&&Number.isInteger(message.generation)){
-        finish(null,{status:'running',runDir:input.runDir,generation:message.generation,pid:child.pid,resultPath});
+        finish(null,{status:'running',runDir:input.runDir,generation:message.generation,pid:child.pid,resultPath,watch:{required:true,attached:false,sessionId:input.sessionId,generation:message.generation,after:0}});
       }else if(message?.kind==='failed')finish(fault('BACKGROUND_FAILED','Background admission failed; inspect its retained completion receipt'));
     });
   });
@@ -81,7 +88,7 @@ export async function serveBackground(requestPath,createBackend){
   try{
     const request=JSON.parse(await readFile(requestPath,'utf8'));
     parseScript(request.script);
-    const backend=await createBackend({executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,defaults:request.launch.defaults??{}});
+    const backend=await createBackend({executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,defaults:request.launch.defaults??{},...(request.launch.workerCapabilities?{workerCapabilities:request.launch.workerCapabilities,workerCapabilitiesHash:request.launch.workerCapabilitiesHash}:{})});
     const run=await runWorkflow({...request,backend,onReady:async({generation})=>{
       await send({kind:'ready',generation});await permission;
       await send({kind:'started',generation});

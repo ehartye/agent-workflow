@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+- Provision immutable, hash-verified skill/tool bundles and genuine native executor `skills.list` / `skills.read` calls for workers; supply verified invocation paths only after required readiness passes.
+- Share required readiness and task execution deadlines; reject nested plugin activation, undeclared resources, oversized Windows command lines and changed capability identities before dispatch.
+- Persist terminal notifications atomically and add an originating-session CLI watcher with reconnectable cursors, cleanup barriers and advisory executable-progress warnings. Detached receipts disclose that an observer still needs attachment.
+- Require named live observers and early artifact checkpoints in workflow guidance. Preserve original failed/unknown runs and independently reviewed partial handoffs.
+- Retain bounded public doctor/startup diagnostics, owned-process cleanup, native tool observations and partial command outcomes after failure. Exclude asynchronous messages from final task answers.
+- Improve clean-install failure preservation and document native resource boundaries, worker prerequisites and scoped execution evidence. Publish three interactive dashboard layout options for owner review; this release does not select or implement one.
+
 ## 0.3.0
 
 - Keep workflows alive through legitimate broker work until completion/manual Stop, with configurable worker deadlines and optional overall wall limits. Keep dashboards available until explicit Close.

@@ -5,6 +5,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {parseCommand,help} from './arguments.mjs';
 import {pluginRoot,paths,noLinks,installRuntime,selectRuntime,resolveRun} from './managed-runtime.mjs';
+import {doctorFailure} from './doctor-diagnostics.mjs';
 export async function main(tokens=process.argv.slice(2)){
  const parsed=parseCommand(tokens);if(parsed.command==='help'||parsed.values.help){process.stdout.write(help);return 0;}
  if(parsed.command==='setup'){console.log(JSON.stringify(await installRuntime({dataDir:parsed.dataDir}),null,2));return 0;}
@@ -18,7 +19,10 @@ export async function main(tokens=process.argv.slice(2)){
   runtime=(await resolveRun({dataDir:parsed.dataDir,id:parsed.id,...(parsed.mutation?{sessionId:parsed.sessionId}:{})})).runtime;
   if(parsed.command==='dashboard'&&parsed.values['current-ui'])runtime=await selectRuntime({pluginRoot,dataDir:parsed.dataDir});
  }else{
-  try{runtime=await selectRuntime({pluginRoot,dataDir:parsed.dataDir});}catch(e){if(e.code==='ENOENT')throw Error(`Managed runtime is missing. Run node "${join(pluginRoot,'bin','launch.mjs')}" setup --data-dir "${parsed.dataDir}"`);throw e;}
+  try{runtime=await selectRuntime({pluginRoot,dataDir:parsed.dataDir});}catch(e){
+   if(parsed.command==='doctor'){console.log(JSON.stringify(doctorFailure(e,{stage:'runtime',backend:parsed.values.backend??(process.platform==='win32'?'mxc':'configured')}),null,2));return 1;}
+   if(e.code==='ENOENT')throw Error(`Managed runtime is missing. Run node "${join(pluginRoot,'bin','launch.mjs')}" setup --data-dir "${parsed.dataDir}"`);throw e;
+  }
  }
  return await new Promise((done,reject)=>{
   const child=spawn(process.execPath,[join(runtime.path,'bin','command.mjs'),...tokens],{env:{...process.env,AGENT_WORKFLOW_DATA_DIR:parsed.dataDir},windowsHide:true,stdio:'inherit'});

@@ -3,12 +3,13 @@ import {runTurn} from '../foundation/turn.mjs';
 import {compileSchema} from './schema.mjs';
 import {DEFAULT_WORKER_TIMEOUT_MS} from './deadlines.mjs';
 
-export async function runWorkerSession(client,{threadId,prompt,schema,settings,execution,timeoutMs=DEFAULT_WORKER_TIMEOUT_MS,signal,reserveRetry,turn=runTurn,onActive,onEvent}){
+export async function runWorkerSession(client,{threadId,prompt,schema,settings,execution,capabilities,timeoutMs=DEFAULT_WORKER_TIMEOUT_MS,deadline,signal,reserveRetry,turn=runTurn,onActive,onEvent}){
   const compiled=schema===undefined?null:compileSchema(schema);
   const maxAttempts=compiled?settings.maxAttempts:1;
-  if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>5||!Number.isFinite(timeoutMs)||timeoutMs<=0)throw Object.assign(fault('WORKER_SETTINGS','Invalid worker attempt limit or deadline'),{notStarted:true});
-  const evidence={commands:[],attempts:[]};
-  const deadline=performance.now()+timeoutMs;
+  if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>5||!Number.isFinite(timeoutMs)||timeoutMs<=0||deadline!==undefined&&!Number.isFinite(deadline))throw Object.assign(fault('WORKER_SETTINGS','Invalid worker attempt limit or deadline'),{notStarted:true});
+  const evidence={commands:[],commandCoverage:'retainedItemsOnly',attempts:[]};
+  if(capabilities)evidence.capabilities=structuredClone(capabilities);
+  deadline??=performance.now()+timeoutMs;
   let terminalObserved=false;
   try{
     for(let number=1;number<=maxAttempts;number++){
@@ -21,7 +22,7 @@ export async function runWorkerSession(client,{threadId,prompt,schema,settings,e
       if(remaining<=0)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');
       const attempt={number,status:'running'};evidence.attempts.push(attempt);
       terminalObserved=false;
-      const result=await turn(client,{threadId,prompt:number===1?prompt:'Correct your previous answer to match the supplied output schema. Return only the JSON object. Do not run commands or use tools; revise the answer from existing evidence.',timeoutMs:remaining,signal,model:settings.model,effort:settings.effort,execution,...(compiled?{outputSchema:compiled.schema}:{}),onActive,onEvent});
+      const result=await turn(client,{threadId,prompt:number===1?[prompt,capabilities?.instructions].filter(Boolean).join('\n\n'):'Correct your previous answer to match the supplied output schema. Return only the JSON object. Do not run commands or use tools; revise the answer from existing evidence.',timeoutMs:remaining,signal,model:settings.model,effort:settings.effort,execution,...(compiled?{outputSchema:compiled.schema}:{}),onActive,onEvent});
       terminalObserved=true;
       attempt.turnId=result.turnId;
       if(result.output)attempt.output=result.output;
@@ -43,8 +44,10 @@ export async function runWorkerSession(client,{threadId,prompt,schema,settings,e
   }catch(error){
     const last=evidence.attempts.at(-1);
     if(last&&error.output)last.output=error.output;
+    if(last?.status==='running'&&Array.isArray(error.output?.commandEvidence?.commands))evidence.commands.push(...error.output.commandEvidence.commands.slice(0,1024).map(item=>({status:['completed','failed','declined','inProgress'].includes(item.status)?item.status:'unknown',exitCode:Number.isInteger(item.exitCode)?item.exitCode:null})));
     if(last?.status==='running'){last.status='failed';last.error=diagnostic(error);}
     error.evidence=evidence;
+    if(evidence.attempts.length===0)error.noInference=true;
     if(terminalObserved)error.terminalObserved=true;
     throw error;
   }

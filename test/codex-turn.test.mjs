@@ -1,7 +1,9 @@
 // @lane merge
 // @subject foundation/turn.mjs
 // @subject foundation/client.mjs
+// @subject foundation/tool-observation.mjs
 // @subject test/fixtures/foundation-server.mjs
+// @subject test/fixtures/tool-observation-server.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
@@ -61,6 +63,163 @@ test('explicit final answers take precedence over unphased messages with bounded
   assert.doesNotMatch(JSON.stringify(result.output.answer),/PRIVATE_PROGRESS|count/);
 });
 
+async function messageTurn(messages,snapshot=messages,started=[]){
+  const {runTurn}=await import('../foundation/turn.mjs');let notify;const observed=[];
+  const client={onFailure(){return()=>{};},onNotification(fn){notify=fn;return()=>{};},async request(){
+    for(const item of started)notify({method:'item/started',params:{threadId:'thread',turnId:'turn',item}});
+    for(const item of messages)notify({method:'item/completed',params:{threadId:'thread',turnId:'turn',item}});
+    notify({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'completed',items:snapshot}}});
+    return{turn:{id:'turn'}};
+  }};
+  const result=await runTurn(client,{threadId:'thread',prompt:'fixture',onEvent:message=>observed.push(message)});
+  return{result,observed};
+}
+for(const [phase,answerPhase] of [['final_answer','final_answer'],[undefined,undefined],['final_answer',undefined]])test(`async ${phase??'legacy'} notices cannot contaminate ${answerPhase??'legacy'} JSON answers`,async()=>{
+  const notice={id:'notice',type:'agentMessage',phase,delivery:'async',text:'PRIVATE_NOTICE '+ 'x'.repeat(20000)};
+  const answer={id:'answer',type:'agentMessage',phase:answerPhase,text:'{"count":2}'};
+  const {result,observed}=await messageTurn([notice,answer],[{...notice,phase:undefined,delivery:undefined},{...answer,phase:undefined}]);
+  assert.deepEqual(JSON.parse(result.text),{count:2});assert.equal(result.items.length,2);
+  assert.equal(result.items.find(item=>item.id==='notice').delivery,'async');
+  assert.ok(result.items.find(item=>item.id==='notice').truncated.includes('text'));
+  assert.equal(observed.filter(message=>message.params.item?.id==='notice').length,1);
+  assert.equal(result.output.answer.selectedItems,1);assert.deepEqual(result.output.answer.excludedDelivery,{async:1,unsupported:0});
+  assert.ok(Buffer.byteLength(JSON.stringify(result.output.answer))<500);
+  assert.doesNotMatch(JSON.stringify(result.output.answer),/PRIVATE_NOTICE|count/);
+});
+test('start-only async metadata excludes later omissions without promoting unfinished messages',async()=>{
+ const notice={id:'notice',type:'agentMessage',phase:'final_answer',delivery:'async',text:'PRIVATE_NOTICE'};
+ const omitted={id:'notice',type:'agentMessage',phase:'final_answer',text:'PRIVATE_NOTICE'};
+ const answer={id:'answer',type:'agentMessage',phase:'final_answer',text:'{"count":2}'};
+ const unfinished={id:'unfinished',type:'agentMessage',phase:'final_answer',text:'PRIVATE_UNFINISHED'};
+ const {result}=await messageTurn([omitted,answer],[omitted,answer],[notice,unfinished]);
+ assert.deepEqual(JSON.parse(result.text),{count:2});
+ assert.equal(result.items.find(item=>item.id==='notice').delivery,'async');
+ assert.equal(result.items.some(item=>item.id==='unfinished'),false);
+ assert.deepEqual(result.output.answer.excludedDelivery,{async:1,unsupported:0});
+});
+
+test('only async or unsupported delivery messages remain observable with no terminal answer',async()=>{
+  const {result}=await messageTurn([
+    {id:'async',type:'agentMessage',phase:'final_answer',delivery:'async',text:'{"count":2}'},
+    {id:'future',type:'agentMessage',phase:'final_answer',delivery:'future-delivery',text:'{"count":3}'}
+  ],[{id:'async',type:'agentMessage',text:'{"count":2}'},{id:'future',type:'agentMessage',text:'{"count":3}'}]);
+  assert.equal(result.text,'');assert.equal(result.output.answer.selection,'none');
+  assert.equal(result.items.find(item=>item.id==='future').delivery,'future-delivery');
+  assert.deepEqual(result.output.answer.excludedDelivery,{async:1,unsupported:1});
+});
+
+for(const phase of ['commentary','partial_answer'])test(`start-only ${phase} metadata cannot become a legacy answer after omission`,async()=>{
+ const notice={id:'notice',type:'agentMessage',phase,text:'PRIVATE_PROGRESS'},omitted={id:'notice',type:'agentMessage',text:'PRIVATE_PROGRESS'};
+ const answer={id:'answer',type:'agentMessage',text:'{"count":2}'};
+ const {result}=await messageTurn([omitted,answer],[omitted,answer],[notice]);
+ assert.deepEqual(JSON.parse(result.text),{count:2});assert.equal(result.items.find(item=>item.id==='notice').phase,phase);
+});
+
+test('unfinished exclusion metadata is bounded without promoting started text',async()=>{
+ const {runTurn}=await import('../foundation/turn.mjs');let notify;
+ const client={onFailure(){return()=>{};},onNotification(fn){notify=fn;return()=>{};},async request(){
+  for(let i=0;i<1025;i++)notify({method:'item/started',params:{threadId:'thread',turnId:'turn',item:{id:`notice-${i}`,type:'agentMessage',phase:'commentary',text:'unfinished'}}});
+  notify({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'completed',items:[]}}});return{turn:{id:'turn'}};
+ }};
+ await assert.rejects(runTurn(client,{threadId:'thread',prompt:'fixture'}),{code:'TURN_OUTPUT_LIMIT'});
+});
+test('legacy ordinary answers deduplicate by item ID and preserve exact text',async()=>{
+  const answer={id:'answer',type:'agentMessage',text:'Do not salvage {"count":2}'};
+  const {result}=await messageTurn([answer,answer],[answer]);
+  assert.equal(result.text,answer.text);assert.equal(result.output.answer.selection,'legacy');
+  assert.equal(result.output.answer.selectedItems,1);assert.throws(()=>JSON.parse(result.text));
+});
+test('contradictory final answers cannot silently select a convenient JSON object',async()=>{
+  const {result}=await messageTurn([2,3].map(count=>({id:`answer-${count}`,type:'agentMessage',phase:'final_answer',text:JSON.stringify({count})})));
+  assert.equal(result.text,'{"count":2}\n{"count":3}');assert.throws(()=>JSON.parse(result.text));
+  assert.equal(result.output.answer.selectedItems,2);
+});
+
+async function toolTurn(t,mode='pairs'){
+  const client=await AppServer.connect({command:process.execPath,args:[fileURLToPath(new URL('./fixtures/tool-observation-server.mjs',import.meta.url)),mode],shutdownMs:100});
+  t.after(()=>client.close());const {runTurn}=await import('../foundation/turn.mjs');const events=[];
+  const result=await runTurn(client,{threadId:'thread',prompt:'fixture',timeoutMs:3000,onEvent:message=>events.push(message)});
+  // An explicit acknowledgement proves late output was delivered after completion.
+  await client.request('late-output');
+  return{client,result,events};
+}
+test('raw native tools are projected before early retention and paired only by confirmed identities',async t=>{
+  const {client,result,events}=await toolTurn(t);
+  const tools=result.output.toolObservations;
+  assert.ok(tools,'safe native tool coverage must be retained');
+  const byId=Object.fromEntries(tools.observations.map(value=>[value.callId,value]));
+  assert.equal(byId.reject.outcome,'reportedRejected');assert.equal(byId.reject.callObserved,true);assert.equal(byId.reject.outputObserved,true);
+  assert.equal(byId.reordered.outcome,'reportedSucceeded');
+  assert.equal(byId.conflict.outcome,'unknown');assert.equal(byId.conflict.ambiguous,true);
+  assert.equal(byId.orphan.outcome,'unknown');assert.equal(byId.orphan.outputObserved,false);
+  assert.equal(byId.outputOnly.callObserved,false);assert.equal(byId.outputOnly.outcome,'unknown');
+  assert.equal(byId.unnamedOrphan,undefined,'An unnamed orphan output cannot invent a tool identity');
+  assert.equal(byId.namespaced.outcome,'unknown');assert.equal(byId.namespaced.namespace,'unverified');
+  assert.equal(byId.contentArray.outcome,'unknown');assert.equal(byId.function.tool,'apply_patch');assert.equal(byId.function.outcome,'unknown');
+  assert.equal(byId.malformed.outcome,'unknown');assert.equal(byId.familyConflict.outcome,'unknown');
+  assert.equal(byId.toolConflict.outcome,'unknown');assert.equal(byId.namespaceConflict.outcome,'unknown');
+  assert.equal(byId.reused.outcome,'unknown');assert.equal(byId.reused.ambiguous,true);
+  assert.equal(byId.foreignOutput.outputObserved,false);assert.equal(byId.unrecognized.outcome,'unknown');
+  assert.equal(byId.ambiguousOutput.outcome,'unknown');assert.equal(byId.malformedInput.outcome,'unknown');
+  assert.equal(byId.failed.outcome,'reportedFailed');assert.equal(byId.missingName,undefined);
+  assert.equal(byId.reject.tool,'exec','A rejected nested patch remains an exec wrapper observation');
+  assert.equal(byId.directPatch.tool,'apply_patch');assert.equal(byId.directPatch.outcome,'unknown','Script wrappers cannot report direct apply_patch outcomes');
+  assert.equal(byId.wait.tool,'wait');assert.equal(byId.wait.outcome,'reportedSucceeded');
+  assert.equal(byId.namedExec.tool,'exec');assert.equal(byId.namedExec.outcome,'reportedSucceeded');
+  assert.equal(byId.crlf.outcome,'reportedSucceeded');
+  assert.equal(byId.overhead.outcome,'reportedSucceeded');
+  assert.equal(byId.functionExec.tool,'exec');assert.equal(byId.functionExec.outcome,'unknown','Pinned Script wrappers belong to custom code-mode calls');
+  for(const id of ['supportedConflict','reorderedConflict','duplicateName']){
+    assert.equal(byId[id].tool,'exec');assert.equal(byId[id].ambiguous,true);assert.equal(byId[id].outcome,'unknown');
+  }
+  for(const id of ['outputNamespace','nullNamespace']){
+    assert.equal(byId[id].namespace,'unverified');assert.equal(byId[id].outcome,'unknown');
+  }
+  assert.equal(byId.execOutputOnly.tool,'exec');assert.equal(byId.execOutputOnly.callObserved,false);assert.equal(byId.execOutputOnly.outcome,'unknown');
+  assert.equal(byId.waitOrphan.tool,'wait');assert.equal(byId.waitOrphan.outputObserved,false);assert.equal(byId.waitOrphan.outcome,'unknown');
+  for(const id of ['emptyArray','singlePart','extraPart','mixedContent','missingText','extraFields','secondaryFields','nullPart','reorderedHeader',
+    'secondaryHeader','latePrimaryHeader','lateSecondaryHeader','embeddedPrimaryHeader','embeddedSecondaryHeader','repeatedHeader',
+    'secondaryRunning','completedError','combinedHeaderBody','extraHeaderNewline','missingFailureDetail','missingFailurePrefix','malformedOverhead','malformedHeader','running','stringOutput']){
+    assert.equal(byId[id].tool,'exec');assert.equal(byId[id].outcome,'unknown',id);
+  }
+  assert.equal(byId.foreign,undefined);
+  assert.equal(tools.capability,'unverified');assert.ok(tools.counters.duplicate>=2);assert.ok(tools.counters.conflicting>=2);
+  assert.ok(tools.counters.malformed>=2);assert.ok(tools.counters.discarded>=2);
+  assert.ok(tools.counters.missingCall>=2);assert.ok(tools.counters.missingOutput>=1);
+  const raw=events.filter(message=>message.method==='rawResponseItem/completed');assert.ok(raw.length>0);
+  assert.equal(raw.filter(message=>message.params.toolObservation.callId==='reject').length,2);
+  assert.equal(raw.filter(message=>message.params.toolObservation.callId==='conflict').length,3);
+  assert.ok(raw.every(message=>['exec','wait','apply_patch'].includes(message.params.toolObservation?.tool)&&!Object.hasOwn(message.params,'item')));
+  const safeKeys=['tool','callId','family','namespace','callObserved','outputObserved','outcome','ambiguous'].sort();
+  for(const value of [...tools.observations,...raw.map(message=>message.params.toolObservation)])assert.deepEqual(Object.keys(value).sort(),safeKeys);
+  const {projectToolEvent}=await import('../foundation/tool-observation.mjs');
+  const oversized=projectToolEvent({method:'rawResponseItem/completed',params:{threadId:'thread',turnId:'turn',item:{
+    type:'custom_tool_call_output',call_id:'oversized',name:'exec',output:[{type:'input_text',text:'Script completed\nWall time 0.1 seconds\nOutput:\n'},
+      {type:'input_text',text:'💡'.repeat(300000)}],reasoning:'SECRET_REASONING'}}});
+  assert.equal(oversized.outcome,'unknown','Oversized bodies cannot bypass bounded wrapper inspection');
+  assert.ok(Buffer.byteLength(JSON.stringify(oversized))<500);assert.doesNotMatch(JSON.stringify(oversized),/SECRET_|💡|sha256|hash|input_text|Script completed/);
+  assert.ok(events.every(message=>message.params.threadId==='thread'&&(message.params.turnId??message.params.turn?.id)==='turn'));
+  const terminal=events.find(message=>message.method==='turn/completed');assert.deepEqual(terminal.params.toolObservationSummary.counters,tools.counters);
+  assert.doesNotMatch(JSON.stringify({result,events}),/SECRET_|Bearer|private@example|encrypted|arguments|patch bytes|Script error/);
+  assert.equal(await client.request('interrupt-count'),0);
+  assert.deepEqual(await client.close(),{serverExited:true,forced:false,descendants:'notVerified'});
+});
+test('foreign and malformed raw identities are discarded with persisted terminal coverage',async t=>{
+  const {result,events}=await toolTurn(t,'foreign-only');const tools=result.output.toolObservations;
+  assert.deepEqual(tools.observations,[]);assert.equal(tools.observed,0);
+  assert.equal(tools.counters.foreign,1);assert.equal(tools.counters.malformed,1);assert.equal(tools.counters.discarded,2);
+  assert.deepEqual(events.find(message=>message.method==='turn/completed').params.toolObservationSummary.counters,tools.counters);
+});
+for(const mode of ['early-overflow','confirmed-overflow'])test(`${mode} bounds safe tool observation without cancelling a valid answer`,async t=>{
+  const {result,events}=await toolTurn(t,mode);const tools=result.output.toolObservations;
+  assert.equal(result.text,'{"count":2}');assert.ok(tools.observations.length<=256);
+  assert.ok(tools.counters.discarded>0);assert.ok(tools.counters.overflow>0);
+  if(mode==='early-overflow')assert.ok(tools.counters.unconfirmedDiscarded>0);
+  assert.ok(tools.observations.every(value=>value.tool==='exec'&&value.outcome==='unknown'&&!value.outputObserved));
+  assert.ok(events.filter(message=>message.method==='rawResponseItem/completed').length<=256);
+  assert.ok(Buffer.byteLength(JSON.stringify(result))<120000);
+});
+
 test('shared transport failure cannot transfer pre-start annotations into an active turn',async t=>{
   const {client,runTurn}=await setup(t,'turn-hang');let announce;
   const active=new Promise(resolve=>{announce=resolve;});
@@ -110,6 +269,28 @@ test('activity persistence failure interrupts a live turn and preserves the prim
     assert.equal(error.message,'fixture persistence failure');assert.equal(error.interruption.terminalObserved,true);return true;
   });
   assert.equal(await client.request('interrupt-count',{}),1);
+});
+
+for(const cancellation of [true,false])test(`${cancellation?'cancellation':'timeout'} output metrics include the observed interruption terminal`,async()=>{
+  const {runTurn}=await import('../foundation/turn.mjs');let notify,retired=false;const abort=new AbortController(),events=[];
+  const client={onFailure(){return()=>{};},onNotification(fn){notify=fn;return()=>{retired=true;};},request(method){
+    if(method==='turn/start')return new Promise(resolve=>setImmediate(()=>{
+      resolve({turn:{id:'turn'}});queueMicrotask(()=>{
+        for(let i=0;i<3;i++)notify({method:'item/agentMessage/delta',params:{threadId:'thread',turnId:'turn',itemId:'progress',delta:String(i)}});
+        if(cancellation)abort.abort();
+      });
+    }));
+    assert.equal(method,'turn/interrupt');
+    notify({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'interrupted',items:[]}}});
+    return Promise.resolve({});
+  }};
+  await assert.rejects(runTurn(client,{threadId:'thread',prompt:'fixture',signal:abort.signal,timeoutMs:40,interruptTimeoutMs:100,onEvent:message=>events.push(message)}),error=>{
+    assert.equal(error.code,cancellation?'TURN_CANCELLED':'TURN_TIMEOUT');assert.equal(error.interruption.terminalObserved,true);
+    assert.equal(events.at(-1).method,'turn/completed');assert.equal(events.length,4);
+    assert.equal(error.output.observedMessages,events.length);
+    assert.equal(error.output.observedBytes,events.reduce((sum,message)=>sum+Buffer.byteLength(JSON.stringify(message)),0));
+    assert.equal(retired,true);return true;
+  });
 });
 
 test('early completed turn cannot mask an activity persistence failure',async t=>{

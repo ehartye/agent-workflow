@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline';
 
 const mode = process.argv[2];
+const commandResultMode = /^command-result-(buffered|streamed|pty)-(.+)$/.exec(mode);
 const commands = new Map();
 const turns = new Map();
 let approvalRequest;
@@ -83,6 +84,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     if (mode.startsWith('turn-hang')||mode==='turn-steer') {
       reply(req.id, { turn: { id: turnId } });
       notification('turn/started', {threadId,turn:{id:turnId,status:'inProgress',items:[]}});
+      if(mode==='turn-hang-after-command')notification('item/completed',{threadId,turnId,item:{id:'read-before-stall',type:'commandExecution',status:'completed',exitCode:0,command:'PRIVATE_COMMAND',cwd:'PRIVATE_CWD',aggregatedOutput:'PRIVATE_OUTPUT'}});
       return;
     }
     if(mode==='turn-activity'){
@@ -112,11 +114,58 @@ createInterface({ input: process.stdin }).on('line', line => {
   }
   if (req.method === 'command/exec') {
     if (req.params.sandboxPolicy?.type !== 'readOnly' || req.params.sandboxPolicy.networkAccess !== false) throw new Error('Probe broadened permissions');
-    if (mode === 'command-failure') return process.stdout.write(`${JSON.stringify({ id: req.id, error: { code: -32000, message: 'runner pipe-in timeout' } })}\n`);
+    if (mode === 'command-failure') return process.stdout.write(`${JSON.stringify({ id: req.id, error: { code: -32000, message: 'runner pipe-in timeout REVIEW_SECRET_SENTINEL private@example.invalid' } })}\n`);
     if (req.params.processId?.startsWith('cancel-')) {
       commands.set(req.params.processId, req.id);
       notification('command/exec/outputDelta', { processId: req.params.processId, stream: 'stdout', deltaBase64: Buffer.from('READY\n').toString('base64'), capReached: false });
       return;
+    }
+    const kind = req.params.tty ? 'pty' : req.params.streamStdoutStderr ? 'streamed' : 'buffered';
+    if (commandResultMode?.[1] === kind) {
+      if (req.params.outputBytesCap !== 8192) throw new Error('Probe changed its command output cap');
+      const scenarios = {
+        nonzero: { exitCode: 7 },
+        'windows-status': { exitCode: -1073741502, stdout: '' },
+        'incorrect-marker': { stdout: 'FOUNDATION_WRONG\n' },
+        'missing-marker': { stdout: '' },
+        'fractional-exit': { exitCode: 0.5 },
+        'unsafe-exit': { exitCode: Number.MAX_SAFE_INTEGER + 1 },
+        'null-exit': { exitCode: null },
+        'boolean-exit': { exitCode: false },
+        'string-exit': { exitCode: '0' },
+        'secret-exit': { exitCode: { secret: 'REVIEW_EXIT_SENTINEL private@example.invalid' } },
+        'missing-exit': { result: { stdout: 'FOUNDATION_OK\n', stderr: 'REVIEW_SECRET_SENTINEL' } },
+        'null-result': { result: null, stdout: '' },
+        'unknown-result': { result: 'REVIEW_RESULT_SENTINEL', stdout: '' },
+        'array-result': { result: [0, 'REVIEW_RESULT_SENTINEL'], stdout: '' },
+        'secret-outputs': { stdout: 'FOUNDATION_OK\nREVIEW_SECRET_SENTINEL private@example.invalid', stderr: 'REVIEW_STDERR_SENTINEL' },
+        'malformed-stdout': { stdout: { secret: 'REVIEW_STDOUT_SENTINEL' } },
+        'stdout-cap': { capStream: 'stdout' },
+        'stderr-cap': { capStream: 'stderr' },
+        'local-cap': { stdout: `FOUNDATION_OK\n${' '.repeat(8192)}` },
+        'local-byte-cap': { stdout: `FOUNDATION_OK\n${'\u3000'.repeat(3000)}` },
+        'omitted-cap': { exitCode: 7, omitCap: true },
+        'malformed-cap': { capStream: 'stdout', capReached: 'REVIEW_CAP_SENTINEL' },
+      };
+      const sample = scenarios[commandResultMode[2]];
+      if (!sample) throw new Error('Unknown synthetic command result scenario');
+      const stdout = sample.stdout ?? 'FOUNDATION_OK\n';
+      const stderr = sample.stderr ?? 'REVIEW_STDERR_SENTINEL private@example.invalid';
+      if (kind !== 'buffered') {
+        const output = kind === 'pty' ? `\u001b[?25l${stdout}\u001b]0;REVIEW_PTY_TITLE_SENTINEL\u0007\u001b[?25h` : stdout;
+        for (const [stream, text] of [['stdout', output], ['stderr', stderr]]) {
+          notification('command/exec/outputDelta', {
+            processId: req.params.processId, stream, deltaBase64: Buffer.from(text).toString('base64'),
+            ...(sample.omitCap ? {} : { capReached: sample.capStream === stream ? sample.capReached ?? true : false }),
+          });
+        }
+      }
+      return reply(req.id, Object.hasOwn(sample, 'result') ? sample.result : {
+        exitCode: Object.hasOwn(sample, 'exitCode') ? sample.exitCode : 0, stdout: kind === 'buffered' ? stdout : '', stderr,
+        account: 'private@example.invalid', command: ['REVIEW_ARGV_SENTINEL'], cwd: 'REVIEW_CWD_SENTINEL',
+        sandboxPolicy: { type: 'dangerFullAccess', networkAccess: true },
+        error: 'REVIEW_RESULT_SENTINEL', noProcessStarted: true,
+      });
     }
     if (req.params.streamStdoutStderr || req.params.tty) {
       const output = req.params.tty ? '\u001b[?25l\u001b[2J\u001b[HFOUNDATION_OK\r\n\u001b]0;C:\\fixture\\codex.exe\u0007\u001b[?25h' : 'FOUNDATION_OK\n';

@@ -1,0 +1,202 @@
+// @lane merge
+// @subject engine/worker-capabilities.mjs
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {join,dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+const root=fileURLToPath(new URL('../',import.meta.url));
+const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
+async function resolver(){const module=await import('../engine/worker-capabilities.mjs').catch(()=>null);assert.ok(module?.verifySkillSources,'Source verification must exist');return module;}
+async function fixture(t){
+  const source=await mkdtemp(join(root,'.capability-test-'));t.after(()=>rm(source,{recursive:true,force:true}));
+  const path=join(source,'skills','compose','SKILL.md'),reference=join(source,'scripts','usage.md');
+  await mkdir(dirname(path),{recursive:true});await mkdir(dirname(reference),{recursive:true});
+  await writeFile(path,'---\nname: plugin:compose\n---\nNative content; no manual injection.\n');
+  await writeFile(reference,'Keep the original plugin-relative layout.\n');
+  return {source,path,reference,skill:{id:'compose',name:'plugin:compose',root:source,path,sha256:digest(await readFile(path)),references:[{path:'scripts/usage.md',sha256:digest(await readFile(reference))}]}};
+}
+test('source verification checks original bytes and references without extracting a skill body',async t=>{
+  const {verifySkillSources}=await resolver(),{skill,path}=await fixture(t);
+  const verified=await verifySkillSources([skill]);
+  assert.match(verified.fingerprint,/^[a-f0-9]{64}$/);
+  assert.equal(verified.skills[0].path,path);assert.equal(verified.skills[0].references.length,1);
+  assert.equal(Object.isFrozen(verified.skills[0]),true);
+  assert.doesNotMatch(JSON.stringify(verified),/Native content|no manual injection/);
+});
+test('source identity drift and escaping references fail closed',async t=>{
+  const {verifySkillSources}=await resolver(),{skill,path,reference}=await fixture(t);
+  for(const change of [{enabled:true},{sha256:'0'.repeat(64)},{references:[{path:'../escape.md',sha256:skill.sha256}]},{references:[{path:'scripts/usage.md',sha256:skill.sha256}]},{path:reference}]){
+    await assert.rejects(verifySkillSources([{...skill,...change}]),error=>/^SKILL_/.test(error.code));
+  }
+  await writeFile(path,'Changed source');await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE'});
+});
+test('duplicate IDs names paths and unbounded references are rejected',async t=>{
+  const {verifySkillSources}=await resolver(),{skill}=await fixture(t);
+  for(const skills of [[skill,skill],[skill,{...skill,id:'other'}],[{...skill,references:Array(65).fill(skill.references[0])}],null]){
+    await assert.rejects(verifySkillSources(skills),{code:'SKILL_MANIFEST'});
+  }
+});
+
+test('native discovery refuses broader plugin manifests and undeclared nested skills',async t=>{
+  const {verifySkillSources}=await resolver();
+  for(const name of ['plugin.json','.codex-plugin/plugin.json','.claude-plugin/plugin.json','.cursor-plugin/plugin.json','nested/.cursor-plugin/plugin.json','nested/SKILL.md']){
+    await t.test(name,async child=>{
+      const {skill,path}=await fixture(child),extra=join(dirname(path),name);
+      await mkdir(dirname(extra),{recursive:true});await writeFile(extra,'{}');
+      await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE'});
+    });
+  }
+});
+
+test('native discovery refuses descendant directory links without following them',async t=>{
+  const {verifySkillSources}=await resolver(),{skill,path,source}=await fixture(t);
+  const outside=join(source,'outside');await mkdir(outside);await writeFile(join(outside,'SKILL.md'),'Undeclared skill');
+  await symlink(outside,join(dirname(path),'linked'),process.platform==='win32'?'junction':'dir');
+  await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE'});
+});
+
+test('native skill metadata and resources must belong to the declared source identity',async t=>{
+  const {verifySkillSources}=await resolver(),{skill,path,source}=await fixture(t);
+  const metadata=join(dirname(path),'agents','openai.yaml');await mkdir(dirname(metadata),{recursive:true});
+  await writeFile(metadata,'policy:\n  allow_implicit_invocation: false\n');
+  await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE'});
+  skill.references.push({path:'skills/compose/agents/openai.yaml',sha256:digest(await readFile(metadata))});
+  await verifySkillSources([skill]);
+  await writeFile(metadata,'changed metadata');await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE'});
+});
+
+test('immutable bundle rejects unknown grants and selects exact native executor roots',async t=>{
+  const {freezeCapabilities,selectCapabilities}=await resolver(),{skill}=await fixture(t);
+  assert.equal(typeof freezeCapabilities,'function');
+  const bundle=await freezeCapabilities({version:1,skills:[skill],tools:[]});
+  const selected=selectCapabilities(bundle.manifest,{skills:['compose']});
+  assert.deepEqual(selected.roots,[{id:'compose',location:{type:'environment',environmentId:'local',path:dirname(skill.path)}}]);
+  assert.equal(selected.native.catalog,'notObserved');
+  assert.match(selected.instructions,/skills\.list/);assert.match(selected.instructions,/skills\.read/);
+  assert.doesNotMatch(selected.instructions,/Native content|no manual injection/);
+  for(const value of [{version:1,skills:[skill],tools:[],ready:true},{version:2,skills:[],tools:[]}])await assert.rejects(freezeCapabilities(value),{code:'CAPABILITY_MANIFEST'});
+  for(const options of [{skills:null},{requireTools:null},{skills:['missing']},{skills:['compose','compose']},{skills:[skill.path]},{skills:['compose'],requireTools:['missing']}])assert.throws(()=>selectCapabilities(bundle.manifest,options),{code:'CAPABILITY_SELECTION'});
+});
+
+test('valid oversized capability commands are rejected before process dispatch',async t=>{
+  const {selectCapabilities}=await resolver(),{skill,tool}=await toolFixture(t);
+  tool.guidance='g'.repeat(4000);
+  const first=tool.runtime.files[0];
+  tool.runtime.files=Array.from({length:64},(_,index)=>({path:`${'a'.repeat(180)}${index}/file`,sha256:first.sha256}));
+  const {validateCapabilities}=await resolver();
+  const manifest=validateCapabilities({version:1,skills:[skill],tools:[tool]});
+  assert.ok(Buffer.byteLength(JSON.stringify(manifest))<256*1024);
+  assert.throws(()=>selectCapabilities(manifest,{skills:['compose'],requireTools:['compose-tool']}),{code:'CAPABILITY_SELECTION'});
+});
+
+async function toolFixture(t){
+  const f=await fixture(t),launcher=join(f.source,'scripts','run-managed.mjs');
+  await writeFile(launcher,'process.stdout.write(process.argv[2]==="fail"?"PRIVATE_DIAGNOSTIC":"READY\\n");process.exitCode=process.argv[2]==="fail"?7:0;');
+  await writeFile(join(f.source,'receipt.json'),'{}');
+  const receipt={path:'receipt.json',sha256:digest(await readFile(join(f.source,'receipt.json')))};
+  const tool={id:'compose-tool',skills:['compose'],node:{path:process.execPath,version:process.version,sha256:digest(await readFile(process.execPath))},launcher:{root:f.source,path:launcher,sha256:digest(await readFile(launcher))},runtime:{root:f.source,files:[{path:'scripts/run-managed.mjs',sha256:digest(await readFile(launcher))}],receipt},dependencies:{root:f.source,files:[receipt],receipt},environment:{AGENT_BEEPS_HOME:f.source},readiness:[{id:'capabilities',args:['ready'],marker:'READY',timeoutMs:1000}],guidance:'Use the managed tool from the native skill instructions.'};
+  return {...f,tool};
+}
+function commandClient(seen,env){
+  return{async request(method,params){
+    assert.equal(method,'command/exec');seen.push(params);
+    assert.deepEqual(params.sandboxPolicy,{type:'readOnly',networkAccess:false});
+    assert.equal(params.streamStdoutStderr,false);
+    try{const result=await promisify(execFile)(params.command[0],params.command.slice(1),{cwd:params.cwd,env,timeout:params.timeoutMs,windowsHide:true,maxBuffer:8192});return{exitCode:0,...result};}
+    catch(error){if(Number.isInteger(error.code))return{exitCode:error.code,stdout:error.stdout,stderr:error.stderr};throw error;}
+  }};
+}
+test('required managed readiness executes real processes; optional tools retain missing stages',async t=>{
+  const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,tool,source,reference}=await toolFixture(t);
+  assert.equal(typeof admitWorkerCapabilities,'function');
+  const bundle=await freezeCapabilities({version:1,skills:[skill],tools:[tool]});
+  const env={...process.env,...tool.environment},seen=[];
+  const optional=await admitWorkerCapabilities(commandClient(seen,env),{cwd:source,selection:selectCapabilities(bundle.manifest,{skills:['compose']})});
+  assert.equal(optional.tools[0].status,'notChecked');assert.deepEqual(optional.tools[0].missing,['source','readiness']);
+  assert.ok(optional.instructions.includes(JSON.stringify(reference)),'Verified external documents need their actual original path after native activation');
+  assert.match(optional.instructions,/outside.*native.*package/i);
+  assert.equal(optional.instructions.includes(tool.node.path),false,'optional metadata is not admitted invocation guidance');
+  assert.equal(seen.length,1,'only skill source check runs for independent authoring');
+  const admitted=await admitWorkerCapabilities(commandClient(seen,env),{cwd:source,selection:selectCapabilities(bundle.manifest,{skills:['compose'],requireTools:['compose-tool']})});
+  assert.equal(admitted.tools[0].status,'passed');assert.equal(admitted.tools[0].stages.at(-1).exitCode,0);
+  assert.equal(admitted.tools[0].stages.at(-1).start,'observed');assert.equal(admitted.native.catalog,'notObserved');
+  assert.doesNotMatch(JSON.stringify(admitted),/PRIVATE_DIAGNOSTIC/);
+  const {runWorkerSession}=await import('../engine/worker-session.mjs');
+  let taskPrompt;
+  await runWorkerSession({}, {threadId:'fixture',prompt:'Use the admitted tool',settings:{model:'fixture-model',effort:'low'},capabilities:admitted,turn:async(client,input)=>{
+    taskPrompt=input.prompt;return{text:'done',turnId:'fixture-turn',items:[]};
+  }});
+  const metadata={id:tool.id,node:{path:tool.node.path,version:tool.node.version},launcher:tool.launcher.path,environment:tool.environment,readiness:tool.readiness};
+  assert.ok(taskPrompt.includes(JSON.stringify(metadata)),'initial model task receives exact verified invocation paths, environment and checked stages');
+  assert.doesNotMatch(taskPrompt,/Native content; no manual injection/,'skill bodies are not copied into task prompts');
+});
+test('nonzero executed readiness and unknown transport failures never certify no startup or retry',async t=>{
+  const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,tool,source}=await toolFixture(t);
+  tool.readiness[0].args=['fail'];
+  const bundle=await freezeCapabilities({version:1,skills:[skill],tools:[tool]}),selection=selectCapabilities(bundle.manifest,{skills:['compose'],requireTools:['compose-tool']}),seen=[];
+  await assert.rejects(admitWorkerCapabilities(commandClient(seen,{...process.env,...tool.environment}),{cwd:source,selection}),error=>{
+    const stage=error.capabilities.tools[0].stages.at(-1);
+    assert.equal(stage.start,'observed');assert.equal(stage.exitCode,7);assert.equal(stage.status,'failed');assert.equal(error.noInference,true);assert.notEqual(error.noProcessStarted,true);assert.notEqual(error.executionUnknown,true);
+    assert.doesNotMatch(JSON.stringify(error.capabilities),/PRIVATE_DIAGNOSTIC/);return true;
+  });
+  assert.equal(seen.length,3);
+  let calls=0;
+  await assert.rejects(admitWorkerCapabilities({async request(){calls++;throw Error('PRIVATE_DIAGNOSTIC');}},{cwd:source,selection}),error=>{
+    assert.equal(error.capabilities.sources.start,'unknown');assert.notEqual(error.noProcessStarted,true);assert.equal(error.executionUnknown,true);return true;
+  });assert.equal(calls,1);
+});
+
+test('readiness shares a bounded deadline and dispatches nothing after it expires',async t=>{
+  const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,tool,source}=await toolFixture(t);
+  const bundle=await freezeCapabilities({version:1,skills:[skill],tools:[tool]}),selection=selectCapabilities(bundle.manifest,{skills:['compose'],requireTools:['compose-tool']});
+  const seen=[],deadline=performance.now()+80;
+  await assert.rejects(admitWorkerCapabilities({async request(method,params,options){
+    seen.push({params,options});await new Promise(resolve=>setTimeout(resolve,100));
+    return{exitCode:0,stdout:'WORKER_SKILL_SOURCE_OK',stderr:''};
+  }},{cwd:source,selection,deadline}),error=>{
+    assert.equal(error.code,'CAPABILITY_READINESS');assert.equal(error.noInference,true);
+    assert.equal(error.capabilities.sources.start,'observed');assert.equal(error.capabilities.sources.exitCode,0);assert.notEqual(error.executionUnknown,true);return true;
+  });
+  assert.equal(seen.length,1);assert.ok(seen[0].params.timeoutMs<=80);assert.ok(seen[0].options.timeoutMs<=80);
+  await assert.rejects(admitWorkerCapabilities({async request(){throw Error('expired deadline dispatched a command');}},{cwd:source,selection,deadline:performance.now()-1}),error=>{
+    assert.equal(error.capabilities.sources.start,'notStarted');assert.notEqual(error.executionUnknown,true);return true;
+  });
+});
+
+test('native skills observation excludes payloads foreign namespaces and ambiguous pairs',async()=>{
+ const {observeNativeSkills}=await resolver();let listener;const evidence={catalog:'notObserved',read:'notObserved'};
+ const client={onNotification(fn){listener=fn;return()=>{};}};
+ const observer=observeNativeSkills(client,'owned',evidence);
+ const notify=item=>listener({method:'rawResponseItem/completed',params:{threadId:'owned',turnId:'initial',item}});
+ notify({type:'function_call',call_id:'foreign',namespace:'other',name:'skills.list',arguments:'PRIVATE_PAYLOAD'});
+ notify({type:'function_call_output',call_id:'foreign',output:'PRIVATE_PAYLOAD'});
+ notify({type:'function_call',call_id:'ambiguous',namespace:'skills',name:'list',arguments:'PRIVATE_PAYLOAD'});
+ notify({type:'function_call',call_id:'ambiguous',namespace:'skills',name:'read',arguments:'PRIVATE_PAYLOAD'});
+ notify({type:'function_call_output',call_id:'ambiguous',output:'PRIVATE_PAYLOAD'});
+ observer.confirm('initial');observer.finish();
+ assert.equal(evidence.catalog,'notObserved');assert.equal(evidence.read,'notObserved');
+ assert.doesNotMatch(JSON.stringify(evidence),/PRIVATE_PAYLOAD/);
+ assert.equal(evidence.observations.some(entry=>entry.callId==='foreign'),false);
+});
+
+test('native skill proof stays incomplete when early coverage drops a conflicting identity',async()=>{
+  const {observeNativeSkills}=await resolver();
+  const {EARLY_TOOL_LIMIT}=await import('../foundation/tool-observation.mjs');
+  let listener;const evidence={catalog:'notObserved',read:'notObserved'};
+  const observer=observeNativeSkills({onNotification(fn){listener=fn;return()=>{};}},'owned',evidence);
+  const notify=item=>listener({method:'rawResponseItem/completed',params:{threadId:'owned',turnId:'initial',item}});
+  for(const name of ['list','read']){
+    notify({type:'function_call',call_id:name,namespace:'skills',name,arguments:'{}'});
+    notify({type:'function_call_output',call_id:name,output:'PRIVATE_PAYLOAD'});
+  }
+  for(let index=4;index<EARLY_TOOL_LIMIT;index++)notify({type:'function_call',call_id:'filler',name:'exec',arguments:'{}'});
+  notify({type:'function_call',call_id:'list',namespace:'other',name:'list',arguments:'{}'});
+  observer.confirm('initial');observer.finish();
+  assert.equal(evidence.catalog,'notObserved');assert.equal(evidence.read,'notObserved');
+  assert.equal(evidence.coverage,'incomplete');assert.equal(evidence.counters.unconfirmedDiscarded,1);
+  assert.doesNotMatch(JSON.stringify(evidence),/PRIVATE_PAYLOAD/);
+});

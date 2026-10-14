@@ -2,7 +2,7 @@
 
 Run durable JavaScript workflows with parallel Codex workers, ordered replay and an authenticated local monitor. Workers use the existing managed ChatGPT subscription through pinned native Codex App Server. The fresh runtime exposes CLI and dashboard surfaces; it has no custom MCP server or API-key fallback.
 
-This is the **0.3.0 implementation**. Publication is recorded in [GitHub Releases](https://github.com/ehartye/agent-workflow/releases); broader Ultracode parity remains tracked separately. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
+This is the **0.3.1 implementation**. Publication is recorded in [GitHub Releases](https://github.com/ehartye/agent-workflow/releases); broader Ultracode parity remains tracked separately. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
 
 ## Install and start
 
@@ -12,6 +12,8 @@ Require Node 24+ with npm and an existing managed ChatGPT login. Install the ver
 codex plugin marketplace upgrade hartye-plugins
 codex plugin add agent-workflow@hartye-plugins
 ```
+
+For an existing installation, inspect the selected version after marketplace refresh. If refresh already installed and enabled the intended release, skip the redundant plugin add; preserve earlier runtimes and run data. Explicitly run setup for changed package bytes before starting new workflows.
 
 For development, native plugin installation from a local checkout is:
 
@@ -40,11 +42,12 @@ Use the agent-workflow skill or CLI. Starts and mutating run controls, including
 node "<plugin-root>/bin/launch.mjs" read plugin:item-audit --cwd "C:/path/to/project"
 node "<plugin-root>/bin/launch.mjs" run plugin:item-audit --cwd "C:/path/to/project" --session "<originating-session>" --args '{"items":[{"id":"src","scope":"src/"}]}'
 node "<plugin-root>/bin/launch.mjs" status "<returned-run-id>"
+node "<plugin-root>/bin/launch.mjs" watch "<returned-run-id>" --session "<originating-session>" --generation "<returned-generation>" --jsonl
 node "<plugin-root>/bin/launch.mjs" result "<returned-run-id>"
 node "<plugin-root>/bin/launch.mjs" dashboard "<returned-run-id>" --session "<originating-session>"
 ```
 
-Start returns durable admission while a detached local process continues. Inspect the actual status and coverage; admission is not completion. A successful status command can describe a failed run.
+Start returns durable admission while a detached local process continues. Its watch receipt reports `required:true,attached:false`: assign a live observer, attach the returned watch command, and report failures and terminal outcomes promptly. Watching retains replayable terminal events with consumer-owned cursors; advisory idle warnings measure completed command/file-change progress, not commentary. A closed observer does not stop or retry the run. CLI watch does not provide native parent-chat push; the host/coordinator must consume it. Inspect actual status and coverage; admission is not completion, and a successful status command can describe a failed run.
 
 Workflows have no overall wall deadline by default; they continue until completion or manual Stop. Workers default to 10 minutes each, configurable up to 30 minutes with `--worker-timeout-ms`. Use `--run-timeout-ms` to opt into an overall wall limit (1–86,400,000 ms; 0 disables it). Both flags work with `run` and `resume`; saved limits carry forward on resume. Guest CPU, memory and idle-deadlock protection remain active. See the [runtime contract](skills/agent-workflow/references/runtime-api.md).
 
@@ -53,6 +56,8 @@ Open the **complete returned dashboard URL**, including its authentication fragm
 Workers default to read-only, no network and approvals never. Authorized edits require --writable and the verified Windows MXC backend. Each writer gets a separate worktree from captured run inputs; dependencies do not import predecessor edits. Inspect returned patches before separately authorized integration. There is no automatic merge or publication.
 
 Use an explicit immutable `--capture-policy file` to omit approved generated directories while protecting assigned source outputs. Inspect excluded metadata through CLI/dashboard pages; omitted payload bytes are not retained. Reversible hide/archive preserves active, failed and unknown outcomes. Separate reviewed prune plans retire only safely eligible payloads, retaining audit and recovery evidence. See [session delivery, capture and retirement](docs/session-delivery.md) and [worker prerequisites](skills/agent-workflow/references/worker-prerequisites.md).
+
+New runs can declare immutable `--worker-capabilities file` bundles. Workers select declared `skills` and `requireTools` IDs; native executor `skills.list` / `skills.read` activate the exact resources, and required tool readiness precedes task execution. Source hashes, invocation paths, sandbox limits and retained native evidence remain separate checks. See [worker capabilities](docs/worker-capabilities.md).
 
 ## Saved scripts and recipes
 

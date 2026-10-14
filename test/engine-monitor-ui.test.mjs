@@ -313,6 +313,20 @@ test('monitor sends explicit generation controls, confirms stop and keeps pendin
   assert.doesNotMatch(view.get('receipt-list').textContent, /pending|Generation 4/, 'A new generation must not retain a prior generation local receipt');
 });
 
+test('native tool inspector shows safe pair identity and terminal coverage under its tool filter',async()=>{
+ const observation={tool:'apply_patch',callId:'call_fixture',family:'custom',namespace:'absent',callObserved:true,outputObserved:true,outcome:'reportedRejected',ambiguous:false};
+ const coverage={source:'rawResponseItem/completed',capability:'unverified',observed:2,trackedIds:1,retained:1,paired:1,counters:{missingCall:0,missingOutput:0,discarded:0}};
+ const view=await monitor({run:{workers:[worker(0,'completed')]},response:path=>path.startsWith('/api/activity?')?{ok:true,json:async()=>({records:[
+  {seq:1,at:'2026-10-13T12:00:00Z',attempt:1,type:'nativeTool',status:'reportedRejected',threadId:'thread_fixture',turnId:'turn_fixture',toolObservation:observation},
+  {seq:2,at:'2026-10-13T12:00:01Z',attempt:1,type:'turn',status:'completed',toolObservationSummary:coverage},
+ ],observed:2,retained:2,dropped:0,nextCursor:2,hasMore:false})}:undefined});
+ await view.click(view.get('load-activity'));
+ const text=view.get('activity-history').textContent;
+ assert.match(text,/Native tool.*rejection reported/i);assert.match(text,/call_fixture/);assert.match(text,/thread_fixture/);assert.match(text,/turn_fixture/);
+ assert.match(text,/callObserved/);assert.match(text,/outputObserved/);assert.match(text,/Tool observation coverage/);assert.match(text,/missingOutput/);
+ assert.equal(view.get('activity-history').querySelectorAll('.activity-record').length,1,'terminal coverage remains visible even though the turn is filtered');
+});
+
 test('worker steering preserves its draft through activity refresh and sends exact worker identity',async()=>{
   const current=worker(0,'running',{attempts:2,activeTurn:{threadId:'thread',turnId:'turn'},dependencies:[]});
   const view=await monitor({run:{workers:[current]}});
