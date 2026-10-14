@@ -4,7 +4,7 @@ import {lstat,realpath,open,opendir} from 'node:fs/promises';
 import {createHash,randomUUID} from 'node:crypto';
 import {isAbsolute,resolve,relative,parse,join,basename,dirname} from 'node:path';
 import {fault} from '../foundation/client.mjs';
-import {projectToolEvent,createToolObserver,EARLY_TOOL_LIMIT} from '../foundation/tool-observation.mjs';
+import {projectToolEvent,createToolObserver,EARLY_TOOL_LIMIT,skillRootIdentity} from '../foundation/tool-observation.mjs';
 
 const MAX_FILES=128,MAX_BYTES=64*1024*1024;
 const sha=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
@@ -110,7 +110,7 @@ export function assertDirectSkills(config){
 
 // Reuse the native tool invariant owner. An alternate parser must not turn
 // custom calls, bare aliases or reused unsupported IDs into native skill proof.
-export function observeNativeSkills(client,threadId,evidence){
+export function observeNativeSkills(client,threadId,evidence,{skills=[]}={}){
   const observer=createToolObserver(),early=[];let activeTurn,closed=false;
   const apply=fact=>{
     if(fact.turnId!==activeTurn){observer.discardForeign(fact.malformed);return;}
@@ -138,6 +138,13 @@ export function observeNativeSkills(client,threadId,evidence){
       evidence[key]=evidence.coverage!=='complete'?'notObserved':seen.some(entry=>!entry.ambiguous&&entry.callObserved&&entry.outputObserved)?'callAndOutputObserved':seen.some(entry=>!entry.ambiguous&&entry.callObserved)?'callObserved':'notObserved';
     }
     evidence.catalogContents='notRetained';evidence.readRootMatch='notVerified';
+    if(skills.length){
+      const observed=skills.filter(skill=>evidence.coverage==='complete'&&snapshot.observations.some(entry=>entry.tool==='skills.read'&&entry.family==='function'&&entry.namespace==='skills'&&
+        !entry.ambiguous&&entry.callObserved&&entry.outputObserved&&entry.skillRead?.start===true&&entry.skillRead.main===true&&entry.skillRead.root===skillRootIdentity(dirname(skill.path)))).map(skill=>skill.id);
+      const missing=skills.filter(skill=>!observed.includes(skill.id)).map(skill=>skill.id);
+      evidence.activation={status:missing.length?'incomplete':'complete',required:skills.map(skill=>skill.id),observed,missing,body:'notVerified'};
+      if(!missing.length)evidence.readRootMatch='observedForSelectedMainReads';
+    }
   }};
 }
 const environments=new Set(['AGENT_BEEPS_HOME','AGENT_SPRITES_HOME','PLAYWRIGHT_BROWSERS_PATH']);
@@ -151,17 +158,39 @@ function validateTree(tree){
   if(!exact(tree,['root','files','receipt'])||!absolute(tree.root)||!fileIdentity(tree.receipt)||!Array.isArray(tree.files)||!tree.files.length||tree.files.length>64||tree.files.some(item=>!fileIdentity(item))||new Set(tree.files.map(item=>item.path.toLowerCase())).size!==tree.files.length)failManifest();
   const receipt=tree.files.find(file=>file.path===tree.receipt.path);if(receipt&&receipt.sha256!==tree.receipt.sha256)failManifest();
 }
+function jsonExpectation(value){
+  if(!value||typeof value!=='object'||Array.isArray(value)||![Object.prototype,null].includes(Object.getPrototypeOf(value)))return false;
+  const keys=Reflect.ownKeys(value);
+  return keys.length>0&&keys.length<=16&&keys.every(key=>{
+    if(typeof key!=='string'||!/^[A-Za-z][A-Za-z0-9_-]{0,99}$/.test(key)||key==='prototype'||Object.hasOwn(Object.prototype,key))return false;
+    const entry=Object.getOwnPropertyDescriptor(value,key);
+    if(!entry?.enumerable||!Object.hasOwn(entry,'value'))return false;
+    const item=entry.value;
+    return item===null||typeof item==='boolean'||typeof item==='number'&&Number.isFinite(item)||typeof item==='string'&&item.length<=200;
+  });
+}
 export function validateCapabilities(input){
   if(!exact(input,['version','skills','tools'])||input.version!==1||!Array.isArray(input.skills)||input.skills.length>32||!Array.isArray(input.tools)||input.tools.length>16)failManifest();
   let manifest;
-  try{const serialized=JSON.stringify(input);if(Buffer.byteLength(serialized)>256*1024)failManifest();manifest=JSON.parse(serialized);}catch{failManifest();}
+  try{
+    // Check expectations before JSON serialization can erase undefined fields,
+    // convert nonfinite numbers to null, or flatten inherited/accessor values.
+    for(const tool of input.tools)if(Array.isArray(tool?.readiness))for(const stage of tool.readiness){
+      if(stage&&Object.hasOwn(stage,'json')){
+        const entry=Object.getOwnPropertyDescriptor(stage,'json');
+        if(!Object.hasOwn(entry,'value')||!jsonExpectation(entry.value))failManifest();
+      }
+    }
+    const serialized=JSON.stringify(input);if(Buffer.byteLength(serialized)>256*1024)failManifest();manifest=JSON.parse(serialized);
+  }catch{failManifest();}
   const skillIds=new Set(manifest.skills.map(skill=>skill?.id)),toolIds=new Set();
   for(const tool of manifest.tools){
     if(!exact(tool,['id','skills','node','launcher','runtime','dependencies','environment','readiness','guidance'])||!id(tool.id)||toolIds.has(tool.id)||!Array.isArray(tool.skills)||!tool.skills.length||tool.skills.length>32||new Set(tool.skills).size!==tool.skills.length||tool.skills.some(value=>!skillIds.has(value))||!exact(tool.node,['path','version','sha256'])||!absolute(tool.node.path)||!/^v(?:2[4-9]|[3-9][0-9])\.\d+\.\d+$/.test(tool.node.version)||!sha(tool.node.sha256)||!exact(tool.launcher,['root','path','sha256'])||!absolute(tool.launcher.root)||!absolute(tool.launcher.path)||!inside(tool.launcher.root,tool.launcher.path)||!sha(tool.launcher.sha256)||!tool.environment||typeof tool.environment!=='object'||Array.isArray(tool.environment)||Object.entries(tool.environment).some(([key,value])=>!environments.has(key)||!absolute(value))||typeof tool.guidance!=='string'||!tool.guidance.trim()||tool.guidance.length>4000||!Array.isArray(tool.readiness)||!tool.readiness.length||tool.readiness.length>8)failManifest();
     toolIds.add(tool.id);validateTree(tool.runtime);validateTree(tool.dependencies);
     const stages=new Set();
     for(const stage of tool.readiness){
-      if(!exact(stage,['id','args','marker','timeoutMs'])||!id(stage.id)||stages.has(stage.id)||!Array.isArray(stage.args)||stage.args.length>32||stage.args.some(value=>typeof value!=='string'||value.length>2048||/[\u0000-\u001f\u007f]/.test(value))||stage.args.join('').length>16384||!bounded(stage.marker)||stage.marker.length>200||!Number.isInteger(stage.timeoutMs)||stage.timeoutMs<1||stage.timeoutMs>20000)failManifest();
+      const expectation=exact(stage,['id','args','marker','timeoutMs'])?bounded(stage.marker)&&stage.marker.length<=200:exact(stage,['id','args','json','timeoutMs'])&&jsonExpectation(stage.json);
+      if(!expectation||!id(stage.id)||stages.has(stage.id)||!Array.isArray(stage.args)||stage.args.length>32||stage.args.some(value=>typeof value!=='string'||value.length>2048||/[\u0000-\u001f\u007f]/.test(value))||stage.args.join('').length>16384||!Number.isInteger(stage.timeoutMs)||stage.timeoutMs<1||stage.timeoutMs>20000)failManifest();
       stages.add(stage.id);
     }
   }
@@ -242,21 +271,28 @@ export function selectCapabilities(manifest,options={}){
     instructions:skills.length?`Use the genuine native skills.list tool with {authority:{kind:"executor"}}, then skills.read with the package and main_resource returned by that catalog. Use native resource/cursor pagination for references. Confirm the enabled expected skill names and returned skill_root against these selected identities: ${JSON.stringify(skills.map(skill=>({id:skill.id,name:skill.name,skill_root:dirname(skill.path)})))}. If native catalog/read is unavailable or mismatched, report that missing stage; do not imitate skill activation by reading SKILL.md with commands. Selecting a skill grants no additional write, network, interactive or delegation permissions. ${tools.map(tool=>`Tool ${tool.id} (${toolIds.includes(tool.id)?'required readiness':'readiness unverified'}): ${tool.guidance}`).join(' ')}`:''});
 }
 
-export async function admitWorkerCapabilities(client,{cwd,selection,signal,deadline=Infinity}){
+export async function admitWorkerCapabilities(client,{cwd,selection,signal,deadline=Infinity,sandboxPolicy={type:'readOnly',networkAccess:false}}){
   if(!selection)return null;
   const evidence={fingerprint:selection.fingerprint,skills:selection.skills.map(skill=>({id:skill.id,name:skill.name,path:skill.path,sha256:skill.sha256,references:skill.references})),roots:selection.roots,native:{...selection.native},tools:[],instructions:selection.instructions};
-  const stage=async(id,command,marker,timeoutMs)=>{
-    const fact={id,status:'running',start:'unknown',exitCode:null,markerObserved:false,outputTruncated:false};
+  const stage=async(id,command,expectation,timeoutMs)=>{
+    const text=typeof expectation==='string';
+    const fact={id,status:'running',start:'unknown',exitCode:null,expectation:text?'marker':'json',matched:false,...(text?{markerObserved:false}:{}),outputTruncated:false};
     try{
       if(signal?.aborted){fact.start='notStarted';throw fault('CAPABILITY_CANCELLED','Worker capability admission was cancelled before command dispatch');}
       const remaining=Math.floor(deadline-performance.now());
       if(remaining<=0){fact.start='notStarted';throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');}
       timeoutMs=Math.min(timeoutMs,remaining);
-      const result=await client.request('command/exec',{processId:`capability-${randomUUID()}`,command,cwd,sandboxPolicy:{type:'readOnly',networkAccess:false},streamStdoutStderr:false,timeoutMs,outputBytesCap:8192},{timeoutMs:Math.min(timeoutMs+1000,remaining)});
+      const result=await client.request('command/exec',{processId:`capability-${randomUUID()}`,command,cwd,sandboxPolicy,streamStdoutStderr:false,timeoutMs,outputBytesCap:8192},{timeoutMs:Math.min(timeoutMs+1000,remaining)});
       if(Number.isSafeInteger(result?.exitCode)){fact.start='observed';fact.exitCode=result.exitCode;}
       fact.outputTruncated=typeof result?.stdout!=='string'||typeof result?.stderr!=='string'||Buffer.byteLength((result?.stdout??'')+(result?.stderr??''))>=8192;
-      fact.markerObserved=typeof result?.stdout==='string'&&result.stdout.trim()===marker;
-      if(fact.exitCode!==0||fact.outputTruncated||!fact.markerObserved)throw fault('CAPABILITY_READINESS','Worker source or readiness command did not return a successful bounded marker');
+      if(text)fact.matched=fact.markerObserved=typeof result?.stdout==='string'&&result.stdout.trim()===expectation;
+      else if(!fact.outputTruncated){
+        try{
+          const value=JSON.parse(result.stdout);
+          fact.matched=Boolean(value&&typeof value==='object'&&!Array.isArray(value)&&Object.entries(expectation).every(([key,item])=>Object.hasOwn(value,key)&&value[key]===item));
+        }catch{fact.matched=false;}
+      }
+      if(fact.exitCode!==0||fact.outputTruncated||!fact.matched)throw fault('CAPABILITY_READINESS','Worker source or readiness command did not satisfy its bounded expectation');
       if(performance.now()>=deadline)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');
       fact.status='passed';
     }catch{fact.status='failed';}
@@ -274,7 +310,7 @@ export async function admitWorkerCapabilities(client,{cwd,selection,signal,deadl
     if(!selection.requireTools.includes(tool.id))continue;
     fact.stages.push(await stage('tool-sources',toolSourceCommand(tool),'WORKER_TOOL_SOURCE_OK',20000));
     if(fact.stages.at(-1).status!=='passed'){fact.status='failed';blocked();}fact.missing=['readiness'];
-    for(const readiness of tool.readiness){fact.stages.push(await stage(readiness.id,[tool.node.path,tool.launcher.path,...readiness.args],readiness.marker,readiness.timeoutMs));if(fact.stages.at(-1).status!=='passed'){fact.status='failed';blocked();}}
+    for(const readiness of tool.readiness){fact.stages.push(await stage(readiness.id,[tool.node.path,tool.launcher.path,...readiness.args],readiness.marker??readiness.json,readiness.timeoutMs));if(fact.stages.at(-1).status!=='passed'){fact.status='failed';blocked();}}
     fact.status='passed';fact.missing=[];
   }
   const admitted=selection.tools.filter(tool=>selection.requireTools.includes(tool.id)).map(tool=>({id:tool.id,node:{path:tool.node.path,version:tool.node.version},launcher:tool.launcher.path,environment:tool.environment,readiness:tool.readiness}));

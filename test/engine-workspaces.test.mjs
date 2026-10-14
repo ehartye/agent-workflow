@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm,unlink,symlink,realpath,link,open,stat,readdir} from 'node:fs/promises';
 import {join,dirname,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {createHash} from 'node:crypto';
+import {createHash,randomFillSync} from 'node:crypto';
+import {createReadStream} from 'node:fs';
 import {execFile} from 'node:child_process';
 import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
@@ -62,6 +63,29 @@ test('writer workspaces capture exact local inputs and keep two writers and sour
 
 const capturePolicy={version:1,excludeDirs:['generated/'],protectedPaths:['assigned/','binary.dat','note.txt']};
 async function sparse(path,bytes=128*1024*1024+1){const handle=await open(path,'w');try{await handle.truncate(bytes);}finally{await handle.close();}}
+
+test('512 MiB capture budgets retain and replay generated binary above 128 MiB with a diff above 32 MiB',async t=>{
+  const {root,source,artifacts}=await fixture(t),mib=1024*1024;
+  const inputs=await captureInputs({source,artifactsDir:join(artifacts,'inputs'),capturePolicy:{version:1,excludeDirs:[],protectedPaths:[]}});
+  const worker=await createWorkspace({inputs,artifactsDir:join(artifacts,'worker')}),payload=join(worker.cwd,'generated.bin');
+  await sparse(payload,129*mib);
+  const handle=await open(payload,'r+'),chunk=randomFillSync(Buffer.alloc(mib));
+  try{for(let offset=0;offset<33*mib;offset+=chunk.length)await handle.write(chunk,0,chunk.length,offset);}finally{await handle.close();}
+  const streamHash=async path=>{const hash=createHash('sha256');for await(const bytes of createReadStream(path))hash.update(bytes);return hash.digest('hex');};
+  const expected=await streamHash(payload),result=await collectWorkspace(worker);
+  assert.ok(result.bytes>128*mib);assert.ok(result.bytes<512*mib);
+  const manifest=JSON.parse(await readFile(result.manifestPath,'utf8')),retained=manifest.files.find(file=>file.name==='generated.bin');
+  assert.equal(retained.size,129*mib);assert.equal(retained.sha256,expected);assert.equal(await streamHash(retained.blobPath),expected);
+  assert.ok((await stat(result.patchPath)).size>32*mib);assert.ok((await stat(result.patchPath)).size<512*mib);
+  assert.equal(await streamHash(result.patchPath),result.patchHash);assert.equal(await verifyWorkspace(result),true);
+  const preview=await workspaces.readWorkspacePatch(result,{previewBytes:1024});assert.equal(preview.truncated,true);assert.ok(preview.bytes>32*mib);
+  await assert.rejects(workspaces.readWorkspacePatch(result,{previewBytes:32*mib+1}),{code:'PATCH_INPUT'});
+  const replay=join(root,'review');await git(source,'worktree','add','--detach',replay,inputs.base);
+  await exec('git',['apply',result.basePatchPath],{cwd:replay,windowsHide:true,timeout:60000,maxBuffer:1024*1024});
+  assert.equal(await streamHash(join(replay,'generated.bin')),expected);
+  const blob=await open(retained.blobPath,'r+');try{await blob.write(Buffer.from([chunk[0]^255]),0,1,0);}finally{await blob.close();}
+  await assert.rejects(verifyWorkspace(result),{code:'WORKSPACE_ARTIFACT'});
+});
 
 test('explicit capture excludes large generated payloads with complete inventories and retains ignored source and binary outputs',async t=>{
   const {source,artifacts}=await fixture(t);
@@ -175,11 +199,11 @@ test('policy and inventory tampering rejects load, admission, collection and rep
 
 test('nonexcluded overflow retains capture stage and precise diagnostics under an explicit policy',async t=>{
   const {source,artifacts}=await fixture(t);const inputs=await captureInputs({source,artifactsDir:join(artifacts,'inputs'),capturePolicy});
-  const worker=await createWorkspace({inputs,artifactsDir:join(artifacts,'worker')});await sparse(join(worker.cwd,'large.bin'));
+  const worker=await createWorkspace({inputs,artifactsDir:join(artifacts,'worker')});await sparse(join(worker.cwd,'large.bin'),512*1024*1024+1);
   await assert.rejects(collectWorkspace(worker),error=>{
     assert.equal(error.code,'WORKSPACE_ARTIFACT');assert.deepEqual(error.captureFailure,{stage:'files',cause:{code:'WORKSPACE_LIMIT',message:'Workspace exceeds the byte capture limit'}});
     assert.equal(error.workspacePath,worker.cwd);return true;
-  });assert.equal((await stat(join(worker.cwd,'large.bin'))).size,128*1024*1024+1);
+  });assert.equal((await stat(join(worker.cwd,'large.bin'))).size,512*1024*1024+1);
 });
 
 test('oversized and over-count persisted inventories fail closed before admission',async t=>{
@@ -224,7 +248,7 @@ test('workspace preparation freezes policies and refuses legacy or version two p
   await mkdir(join(legacyWorker.cwd,'generated'));await sparse(join(legacyWorker.cwd,'generated','large.bin'));
   await assert.rejects(verifyWorkspace(legacyResult),{code:'WORKSPACE_ARTIFACT'});
   const another=await createWorkspace({inputs:legacyLoaded,artifactsDir:join(artifacts,'legacy-overflow')});
-  await mkdir(join(another.cwd,'generated'));await sparse(join(another.cwd,'generated','large.bin'));await assert.rejects(collectWorkspace(another),{code:'WORKSPACE_ARTIFACT'});
+  await mkdir(join(another.cwd,'generated'));await sparse(join(another.cwd,'generated','large.bin'),512*1024*1024+1);await assert.rejects(collectWorkspace(another),{code:'WORKSPACE_ARTIFACT'});
 });
 
 test('capture persistence must precede writer creation and a failed persistence callback is never retried',async t=>{
@@ -295,6 +319,29 @@ function writerBackend(execute){
   return{identity:'writer-fixture',resolveOptions:settings.resolve,execute,close:async()=>cleanup};
 }
 
+test('parent isolated writers retain exact reviewed artifacts and replay without changing source or access',async t=>{
+  const {resolveAccess}=await import('../engine/access-policy.mjs');
+  const {root,source}=await fixture(t),runDir=join(root,'run');let calls=0;
+  const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}});
+  const settings=createSettings({catalog:[{model:'fixture',isDefault:true,defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}]}],accessPolicy,defaults:{workspace:'isolated'}});
+  // Synthetic catalog identity; no native discovery is claimed by this writer fixture.
+  const backend=()=>({identity:'parent-fixture',accessPolicy,parentCapabilities:{fingerprint:'a'.repeat(64),coverage:{complete:true}},resolveOptions:settings.resolve,close:async()=>cleanup,execute:async({options,workspace})=>{
+    calls++;assert.equal(options.permissions.sandbox,'danger-full-access');assert.ok(workspace,'full-access isolated writer must receive captured worktree');
+    assert.notEqual(workspace.cwd,source);await writeFile(join(workspace.cwd,'note.txt'),'parent edit\n');return{value:'done',terminalObserved:true,evidence:{cleanup}};
+  }});
+  const input={runDir,sessionId:'s',launch:{cwd:source,accessPolicy},script:'export const meta={name:"parent-writer",description:"proof"};return await agent("edit",{workspace:"isolated"});'};
+  const first=await runWorkflow({...input,accessPolicy,backend:backend()});assert.equal(first.status,'completed');assert.equal(calls,1);
+  assert.equal(await readFile(join(source,'note.txt'),'utf8'),'base\n');assert.match(await readFile(first.workers[0].workspace.patchPath,'utf8'),/parent edit/);
+  assert.deepEqual(first.accessPolicy,accessPolicy);assert.deepEqual(first.launch.accessPolicy,accessPolicy);
+  const replay=await runWorkflow({...input,resume:true,backend:backend()});assert.equal(replay.coverage.cached,1);assert.equal(calls,1);
+  await assert.rejects(runWorkflow({...input,resume:true,accessPolicy,backend:backend()}),{code:'ACCESS_OVERRIDE'});
+  const noPolicy=backend();delete noPolicy.accessPolicy;
+  await assert.rejects(runWorkflow({...input,resume:true,backend:noPolicy}),{code:'ACCESS_POLICY'});
+  assert.equal((await readRun(runDir)).generation,2);assert.equal(calls,1);
+  await writeFile(join(first.workers[0].workspace.cwd,'note.txt'),'changed after review');
+  await assert.rejects(runWorkflow({...input,resume:true,backend:backend()}),{code:'WORKSPACE_ARTIFACT'});
+});
+
 test('controller freezes explicit exclusions before writer dispatch and replays the same captured identity',async t=>{
   const {root,source}=await fixture(t),runDir=join(root,'run');let calls=0;
   await mkdir(join(source,'generated'));await sparse(join(source,'generated','dependency.bin'));
@@ -328,14 +375,14 @@ test('capture limits retain a precise durable diagnostic and leave completed wor
   const {root,source}=await fixture(t),runDir=join(root,'run');
   const result=await runWorkflow({runDir,sessionId:'s',launch:{cwd:source},script:'export const meta={name:"capture-limit",description:"proof"};return await agent("edit");',backend:writerBackend(async({workspace})=>{
     const handle=await open(join(workspace.cwd,'large-dependency.bin'),'w');
-    try{await handle.truncate(128*1024*1024+1);}finally{await handle.close();}
+    try{await handle.truncate(512*1024*1024+1);}finally{await handle.close();}
     return{value:'worker finished',terminalObserved:true,evidence:{cleanup}};
   })});
   const worker=result.workers[0];
   assert.equal(worker.status,'unknown');assert.equal(worker.error.code,'WORKSPACE_ARTIFACT');
   assert.deepEqual(worker.workspaceError.capture,{stage:'files',cause:{code:'WORKSPACE_LIMIT',message:'Workspace exceeds the byte capture limit'}});
   assert.equal(worker.evidence.cleanup.jobEmpty,true);assert.equal(worker.workspace.patchPath,undefined);
-  assert.equal((await stat(join(worker.workspace.cwd,'large-dependency.bin'))).size,128*1024*1024+1);
+  assert.equal((await stat(join(worker.workspace.cwd,'large-dependency.bin'))).size,512*1024*1024+1);
   assert.deepEqual((await readRun(runDir)).workers[0].workspaceError,worker.workspaceError);
 });
 test('a writer rejected before any process starts retains its empty diff with a known failure',async t=>{
@@ -382,7 +429,16 @@ test('controller persists writer diffs, reuses intact work and rejects changed r
   const {root,source}=await fixture(t);await writeFile(join(source,'local.txt'),'local input');let calls=0;
   const input={runDir:join(root,'run'),sessionId:'s',launch:{cwd:source},script:'export const meta={name:"writers",description:"proof"};return await parallel([()=>agent("A"),()=>agent("B")]);'};
   const backend=()=>writerBackend(async({prompt,workspace})=>{calls++;assert.equal(await readFile(join(workspace.cwd,'local.txt'),'utf8'),'local input');await writeFile(join(workspace.cwd,'note.txt'),prompt+'\n');return{value:prompt,terminalObserved:true,evidence:{cleanup}};});
-  const first=await runWorkflow({...input,backend:backend()});assert.equal(first.status,'completed');assert.equal(calls,2);assert.notEqual(first.workers[0].workspace.cwd,first.workers[1].workspace.cwd);
+  const first=await runWorkflow({...input,backend:backend()});assert.equal(first.status,'completed');
+  assert.deepEqual(first.workers.map(worker=>worker.status),['completed','completed'],
+    'Both writers must complete before replay is tested: '+JSON.stringify(first.workers.map(worker=>({
+      position:worker.position,status:worker.status,notStarted:worker.notStarted,noProcessStarted:worker.noProcessStarted,
+      errorCode:worker.error?.code,workspaceErrorCode:worker.workspaceError?.code,captureStage:worker.workspaceError?.capture?.stage,
+      captureCauseCode:worker.workspaceError?.capture?.cause?.code,cleanup:worker.evidence?.cleanup&&{
+        serverExited:worker.evidence.cleanup.serverExited,jobEmpty:worker.evidence.cleanup.jobEmpty,errorCode:worker.evidence.cleanup.error?.code,
+        ownershipScope:worker.evidence.cleanup.ownershipScope,nativeInventoryEmpty:worker.evidence.cleanup.nativeTerminals?.inventoryEmpty}
+    }))));
+  assert.equal(calls,2);assert.notEqual(first.workers[0].workspace.cwd,first.workers[1].workspace.cwd);
   assert.equal(await readFile(join(source,'note.txt'),'utf8'),'base\n');assert.match(await readFile(first.workers[0].workspace.patchPath,'utf8'),/\+A/);
   await writeFile(join(source,'local.txt'),'source changes do not rewrite captured inputs');
   const replay=await runWorkflow({...input,resume:true,backend:backend()});assert.equal(replay.coverage.cached,2);assert.equal(calls,2);assert.deepEqual(replay.workspaceInputs,first.workspaceInputs);

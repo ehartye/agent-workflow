@@ -18,6 +18,7 @@ import * as workspacePolicy from './workspace-policy.mjs';
 import {assertLifecycleReplay} from './run-lifecycle.mjs';
 import { fault, diagnostic } from '../foundation/client.mjs';
 import {freezeCapabilities,selectCapabilities} from './worker-capabilities.mjs';
+import {validateAccessPolicy} from './access-policy.mjs';
 export {requestControl,readControl} from './controls.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -39,7 +40,7 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','notifications.mjs','run-lifecycle.mjs','deadlines.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','worker-session.mjs','worker-capabilities.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/tool-observation.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  const files = ['controller.mjs','notifications.mjs','run-lifecycle.mjs','deadlines.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','access-policy.mjs','parent-capabilities.mjs','worker-session.mjs','worker-capabilities.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/tool-observation.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/native/job-host-policy.json','../foundation/native/win32-x64/manifest.json','../foundation/native/win32-x64/workflow-job-host.exe','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
   return hash(process.version + files.map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
@@ -62,7 +63,7 @@ export async function readRun(runDir) {
   try { return snapshot(db); } finally { db.close(); }
 }
 
-export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, restart, capturePolicy,workerCapabilities,workerCapabilitiesHash, concurrency = 2, maxAgents = 1000, timeoutMs, workerTimeoutMs, drainTimeoutMs=20000, onReady, launch=null }) {
+export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, restart, accessPolicy,capturePolicy,workerCapabilities,workerCapabilitiesHash, concurrency = 2, maxAgents = 1000, timeoutMs, workerTimeoutMs, drainTimeoutMs=20000, onReady, launch=null }) {
   let db, lease, state, primary;
   let leaseOwned = false;
   let stopped = false;
@@ -137,6 +138,11 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if(!Number.isFinite(drainTimeoutMs)||drainTimeoutMs<=0)throw fault('RUN_INPUT','A positive drain deadline is required');
     if (!isAbsolute(runDir ?? '') || typeof sessionId !== 'string' || !sessionId || sessionId.length > 256 || !backend || typeof backend.execute !== 'function' || typeof backend.close !== 'function' || typeof backend.identity !== 'string' || !backend.identity || !Number.isInteger(concurrency) || concurrency < 1 || concurrency > 256 || !Number.isInteger(maxAgents) || maxAgents < 1 || maxAgents > 1000) throw fault('RUN_INPUT', 'Invalid workflow identity, backend or limits');
     json(args);
+    if(resume&&accessPolicy!==undefined)throw fault('ACCESS_OVERRIDE','Resume/restart retain their original access policy');
+    const checkedAccess=value=>value===undefined?undefined:validateAccessPolicy(value,{sessionId});
+    const inputAccess=checkedAccess(accessPolicy),launchAccess=checkedAccess(launch?.accessPolicy),backendAccess=checkedAccess(backend.accessPolicy);
+    if(inputAccess&&launchAccess&&inputAccess.fingerprint!==launchAccess.fingerprint)throw fault('ACCESS_POLICY','Input and launch access policies disagree');
+    let normalizedAccess=inputAccess??launchAccess;
     await mkdir(runDir, { recursive: true });
     if (!(await lstat(runDir)).isDirectory()) throw fault('RUN_PATH', 'Run directory must not be a symlink');
     try { lease = await open(lock, 'wx'); leaseOwned = true; await lease.writeFile(token); await lease.sync(); }
@@ -156,6 +162,22 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if (!previous && resume) throw fault('REPLAY_MISSING', 'No saved run exists to replay');
     if (previous && (previous.version !== 1 || !Number.isInteger(previous.generation) || !Number.isInteger(previous.workerCount) || previous.workerCount !== previous.workers.length || previous.workers.some((worker, index) => worker.position !== index || !['queued','running','completed','failed','unknown'].includes(worker.status) || worker.status === 'completed' && (!Object.hasOwn(worker,'result') || hash(json(worker.result)) !== worker.resultHash)))) throw fault('REPLAY_CORRUPT', 'Saved run or worker evidence is missing or corrupt');
     if (previous?.sessionId && previous.sessionId !== sessionId) throw fault('REPLAY_SESSION', 'Saved results belong to a different session');
+    if(previous){
+      const savedAccess=checkedAccess(previous.accessPolicy),savedLaunchAccess=checkedAccess(previous.launch?.accessPolicy);
+      if(savedAccess?.fingerprint!==savedLaunchAccess?.fingerprint)throw fault('ACCESS_POLICY','Saved header and launch access policies disagree');
+      if(launchAccess&&launchAccess.fingerprint!==savedAccess?.fingerprint)throw fault('ACCESS_OVERRIDE','Resume/restart retain their original access policy');
+      normalizedAccess=savedAccess;
+      launch??=previous.launch;
+    }
+    if(normalizedAccess?.fingerprint!==backendAccess?.fingerprint)throw fault('ACCESS_POLICY','Backend did not confirm the admitted access policy');
+    if(normalizedAccess)launch={...launch,accessPolicy:normalizedAccess};
+    // Catalog drift is an authority/source change, not a model-default cache miss.
+    // Take its identity only from the admitted backend, before any new generation.
+    let parentCapabilitiesHash;
+    if(normalizedAccess?.policy.access==='parent'){
+      parentCapabilitiesHash=backend.parentCapabilities?.fingerprint;
+      if(typeof parentCapabilitiesHash!=='string'||!/^[a-f0-9]{64}$/.test(parentCapabilitiesHash)||backend.parentCapabilities?.coverage?.complete!==true||previous&&previous.parentCapabilitiesHash!==parentCapabilitiesHash)throw fault('PARENT_CAPABILITIES_CHANGED','Parent native catalog identity is missing, incomplete or changed; start a new admitted run');
+    }else if(previous?.parentCapabilitiesHash!==undefined)throw fault('PARENT_CAPABILITIES_CHANGED','Saved parent native catalog requires its original parent access');
     if(previous&&(workerCapabilities!==undefined||launch?.workerCapabilities!==undefined&&canonical(launch.workerCapabilities)!==canonical(previous.workerCapabilities??null)))throw fault('CAPABILITY_OVERRIDE','Resume/restart retain their original worker capability bundle');
     const capabilityValue=previous?previous.workerCapabilities:workerCapabilities??launch?.workerCapabilities;
     const capabilities=capabilityValue===undefined?null:await freezeCapabilities(capabilityValue);
@@ -184,13 +206,15 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if(previous?.workspaceInputs)await loadInputs(previous.workspaceInputs);
     if(reuse)for(const worker of oldWorkers){
       if(worker.status!=='completed'||restartAdmission&&worker.position>=restartAdmission.position)break;
-      if(worker.options?.permissions?.sandbox==='workspace-write'&&!worker.workspace)throw fault('WORKSPACE_ARTIFACT','Completed writer workspace is missing');
+      if((worker.options?.permissions?.sandbox==='workspace-write'||worker.options?.workspace==='isolated')&&!worker.workspace)throw fault('WORKSPACE_ARTIFACT','Completed writer workspace is missing');
       if(worker.workspace)await verifyWorkspace(worker.workspace);
     }
     admitNotifications(db,{previous,maxAgents});
     state = { version: 1, sessionId, generation: (previous?.generation ?? 0) + 1, runtimeIdentity, backendIdentity: backend.identity,
       status: 'running', acceptingControls:true, meta, script, args, launch, concurrency, maxAgents, timeoutMs, workerTimeoutMs, workerCount: 0, attempts: previous?.attempts ?? 0, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString() };
     if(previous?.workspaceInputs)state.workspaceInputs=previous.workspaceInputs;
+    if(normalizedAccess)state.accessPolicy=normalizedAccess;
+    if(parentCapabilitiesHash)state.parentCapabilitiesHash=parentCapabilitiesHash;
     if(capabilities){state.workerCapabilities=capabilities.manifest;state.workerCapabilitiesHash=capabilities.fingerprint;state.workerCapabilitySources=capabilities.toolSources;}
     if(normalizedPolicy){state.capturePolicy=normalizedPolicy.policy;state.capturePolicyHash=normalizedPolicy.policyHash;}
     const workspaces=runWorkspaces({runDir,source:launch?.cwd,inputs:state.workspaceInputs,...(normalizedPolicy?{capturePolicy:normalizedPolicy.policy}:{}),onInputs:record=>{if(retiredWrites)throw fault('RUN_RETIRED','Run no longer owns workspace admission');if(normalizedPolicy&&(record.version!==2||record.policyHash!==normalizedPolicy.policyHash))throw fault('CAPTURE_POLICY_IDENTITY','Workspace inputs did not confirm the frozen policy');state.workspaceInputs=record;saveHeader();}});
@@ -263,7 +287,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     };
     controlTimer=setInterval(()=>{try{applyControls();}catch(error){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();for(const resolve of waiters.splice(0))resolve();}},25);
     const dispatch = async ({ prompt, options = {} }) => {
-      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['id','dependsOn','label','phase','timeoutMs','schema','model','effort','maxAttempts','permissions','skills','requireTools'].includes(key)) || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > MAX_WORKER_TIMEOUT_MS)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
+      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['id','dependsOn','label','phase','timeoutMs','schema','model','effort','maxAttempts','permissions','workspace','skills','requireTools'].includes(key)) || options.workspace!==undefined&&options.workspace!=='isolated' || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > MAX_WORKER_TIMEOUT_MS)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
       const capabilitySelection=selectCapabilities(capabilities?.manifest,options);
       options={...options,timeoutMs:options.timeoutMs??workerTimeoutMs};
       const compiled=Object.hasOwn(options,'schema')?compileSchema(options.schema):null;
@@ -274,7 +298,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       if (sequence >= maxAgents) throw fault('AGENT_LIMIT', 'Workflow agent limit reached');
       const position = sequence++;
       const dependencies=(options.dependsOn??[]).map(id=>workerIds.get(id));
-      chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs, dependencies, schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null,...(normalizedPolicy?{capturePolicyHash:normalizedPolicy.policyHash}:{}),...(capabilitySelection?{workerCapabilitiesHash:capabilities.fingerprint,capabilitySelectionHash:capabilitySelection.fingerprint}:{}) }));
+      chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs, dependencies, schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null,...(options.workspace?{workspace:options.workspace}:{}),...(normalizedPolicy?{capturePolicyHash:normalizedPolicy.policyHash}:{}),...(capabilitySelection?{workerCapabilitiesHash:capabilities.fingerprint,capabilitySelectionHash:capabilitySelection.fingerprint}:{}) }));
       const prior = oldWorkers[position];
       if(restartAdmission&&position<=restartAdmission.position&&prior?.key!==chain)throw fault('RESTART_CHANGED','Saved worker invocation changed before the restart target');
       const worker = { position, key: chain, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
@@ -321,7 +345,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         await acquire(signal); acquired = true;
         if(workerAbort.signal.aborted)throw Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
         if (state.attempts >= maxAgents) throw Object.assign(fault('AGENT_LIMIT', 'Lifetime agent attempt limit reached'), { notStarted: true });
-        if(options.permissions?.sandbox==='workspace-write'){
+        if(options.permissions?.sandbox==='workspace-write'||options.workspace==='isolated'){
           const workspace=await workspaces.prepare({generation:state.generation,position});
           if(retiredWrites)throw fault('RUN_RETIRED','Late workspace admission cannot change terminal evidence');
           if(normalizedPolicy&&(workspace.version!==2||workspace.policyHash!==normalizedPolicy.policyHash))throw fault('CAPTURE_POLICY_IDENTITY','Writer workspace did not confirm the frozen policy');

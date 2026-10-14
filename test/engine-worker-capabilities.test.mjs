@@ -95,16 +95,16 @@ test('valid oversized capability commands are rejected before process dispatch',
 
 async function toolFixture(t){
   const f=await fixture(t),launcher=join(f.source,'scripts','run-managed.mjs');
-  await writeFile(launcher,'process.stdout.write(process.argv[2]==="fail"?"PRIVATE_DIAGNOSTIC":"READY\\n");process.exitCode=process.argv[2]==="fail"?7:0;');
+  await writeFile(launcher,'const mode=process.argv[2];process.stdout.write(mode==="emit"?Buffer.from(process.argv[3],"base64").toString("utf8"):mode==="capped-json"?JSON.stringify({ready:true,padding:"x".repeat(8165)}):mode==="fail"?"PRIVATE_DIAGNOSTIC":"READY\\n");process.exitCode=mode==="emit"?Number(process.argv[4]??0):mode==="fail"?7:0;');
   await writeFile(join(f.source,'receipt.json'),'{}');
   const receipt={path:'receipt.json',sha256:digest(await readFile(join(f.source,'receipt.json')))};
   const tool={id:'compose-tool',skills:['compose'],node:{path:process.execPath,version:process.version,sha256:digest(await readFile(process.execPath))},launcher:{root:f.source,path:launcher,sha256:digest(await readFile(launcher))},runtime:{root:f.source,files:[{path:'scripts/run-managed.mjs',sha256:digest(await readFile(launcher))}],receipt},dependencies:{root:f.source,files:[receipt],receipt},environment:{AGENT_BEEPS_HOME:f.source},readiness:[{id:'capabilities',args:['ready'],marker:'READY',timeoutMs:1000}],guidance:'Use the managed tool from the native skill instructions.'};
   return {...f,tool};
 }
-function commandClient(seen,env){
+function commandClient(seen,env,expectedPolicy={type:'readOnly',networkAccess:false}){
   return{async request(method,params){
     assert.equal(method,'command/exec');seen.push(params);
-    assert.deepEqual(params.sandboxPolicy,{type:'readOnly',networkAccess:false});
+    assert.deepEqual(params.sandboxPolicy,expectedPolicy);
     assert.equal(params.streamStdoutStderr,false);
     try{const result=await promisify(execFile)(params.command[0],params.command.slice(1),{cwd:params.cwd,env,timeout:params.timeoutMs,windowsHide:true,maxBuffer:8192});return{exitCode:0,...result};}
     catch(error){if(Number.isInteger(error.code))return{exitCode:error.code,stdout:error.stdout,stderr:error.stderr};throw error;}
@@ -124,6 +124,7 @@ test('required managed readiness executes real processes; optional tools retain 
   const admitted=await admitWorkerCapabilities(commandClient(seen,env),{cwd:source,selection:selectCapabilities(bundle.manifest,{skills:['compose'],requireTools:['compose-tool']})});
   assert.equal(admitted.tools[0].status,'passed');assert.equal(admitted.tools[0].stages.at(-1).exitCode,0);
   assert.equal(admitted.tools[0].stages.at(-1).start,'observed');assert.equal(admitted.native.catalog,'notObserved');
+  assert.equal(admitted.tools[0].stages.at(-1).expectation,'marker');assert.equal(admitted.tools[0].stages.at(-1).matched,true);
   assert.doesNotMatch(JSON.stringify(admitted),/PRIVATE_DIAGNOSTIC/);
   const {runWorkerSession}=await import('../engine/worker-session.mjs');
   let taskPrompt;
@@ -133,6 +134,48 @@ test('required managed readiness executes real processes; optional tools retain 
   const metadata={id:tool.id,node:{path:tool.node.path,version:tool.node.version},launcher:tool.launcher.path,environment:tool.environment,readiness:tool.readiness};
   assert.ok(taskPrompt.includes(JSON.stringify(metadata)),'initial model task receives exact verified invocation paths, environment and checked stages');
   assert.doesNotMatch(taskPrompt,/Native content; no manual injection/,'skill bodies are not copied into task prompts');
+});
+
+test('required native tool readiness uses the admitted parent policy for source and executable checks',async t=>{
+ const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,tool,source}=await toolFixture(t);
+ const bundle=await freezeCapabilities({version:1,skills:[skill],tools:[tool]}),seen=[],sandboxPolicy={type:'dangerFullAccess'};
+ const result=await admitWorkerCapabilities(commandClient(seen,{...process.env,...tool.environment},sandboxPolicy),{cwd:source,selection:selectCapabilities(bundle.manifest,{skills:['compose'],requireTools:['compose-tool']}),sandboxPolicy});
+ assert.equal(result.tools[0].status,'passed');assert.equal(seen.length,3);
+ assert.equal(seen.at(-1).command[1],tool.launcher.path);
+ assert.equal(result.native.catalog,'notObserved','readiness does not claim genuine skill invocation');
+});
+
+test('readiness JSON expectations are bounded own scalar fields and exclusive with text markers',async t=>{
+  const {validateCapabilities}=await resolver(),{skill,tool}=await toolFixture(t);
+  const stage={id:'ready',args:[],json:{ready:true,count:2,version:'',missing:null},timeoutMs:1000};
+  const validate=value=>validateCapabilities({version:1,skills:[skill],tools:[{...tool,readiness:[value]}]});
+  assert.deepEqual(validate(stage).tools[0].readiness[0],stage);
+  const inherited=Object.create({ready:true});inherited.count=1;
+  const accessor={};Object.defineProperty(accessor,'ready',{enumerable:true,get(){throw Error('expectation getter executed');}});
+  for(const json of [{},[],null,{ready:[]},{ready:{}},{ready:undefined},{ready:Infinity},{ready:NaN},{ready:'x'.repeat(201)},Object.fromEntries(Array.from({length:17},(_,i)=>['k'+i,true])),JSON.parse('{"__proto__":true}'),{constructor:true},{prototype:true},{'bad\nkey':true},{'a.b':true},{['x'.repeat(101)]:true},inherited,accessor]){
+    assert.throws(()=>validate({...stage,json}),{code:'CAPABILITY_MANIFEST'});
+  }
+  assert.throws(()=>validate({...stage,marker:'READY'}),{code:'CAPABILITY_MANIFEST'});
+  const {json,...neither}=stage;assert.throws(()=>validate(neither),{code:'CAPABILITY_MANIFEST'});
+});
+
+test('readiness JSON checks entire bounded stdout, exact own fields and executed failure without retaining output',async t=>{
+  const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,tool,source}=await toolFixture(t);
+  const run=async({stdout,exit=0,json={ready:true},mode='emit'})=>{
+    tool.readiness=[{id:'json-ready',args:mode==='emit'?['emit',Buffer.from(stdout).toString('base64'),String(exit)]:[mode],json,timeoutMs:1000}];
+    const bundle=await freezeCapabilities({version:1,skills:[skill],tools:[tool]}),seen=[];
+    try{const evidence=await admitWorkerCapabilities(commandClient(seen,{...process.env,...tool.environment}),{cwd:source,selection:selectCapabilities(bundle.manifest,{skills:['compose'],requireTools:['compose-tool']})});return{evidence,stage:evidence.tools[0].stages.at(-1),seen};}
+    catch(error){assert.equal(error.code,'CAPABILITY_READINESS');assert.equal(error.noInference,true);assert.notEqual(error.executionUnknown,true);return{error,evidence:error.capabilities,stage:error.capabilities.tools[0].stages.at(-1),seen};}
+  };
+  const passed=await run({stdout:' \n'+JSON.stringify({ready:true,count:2,version:'',missing:null,unasserted:{secret:'PRIVATE_JSON_OUTPUT'}})+'\n',json:{ready:true,count:2,version:'',missing:null}});
+  assert.equal(passed.error,undefined);assert.equal(passed.stage.status,'passed');assert.equal(passed.stage.expectation,'json');assert.equal(passed.stage.matched,true);assert.equal(passed.stage.markerObserved,undefined);
+  assert.doesNotMatch(JSON.stringify(passed.evidence),/PRIVATE_JSON_OUTPUT/);
+  for(const value of [{stdout:'{"ready":"true"}'},{stdout:'{}'},{stdout:'null'},{stdout:'[{"ready":true}]'},{stdout:'{"ready":true}\nextra'},{stdout:'prefix {"ready":true}'},{stdout:'{"ready":true}',exit:7},{mode:'capped-json'}]){
+    const failed=await run(value);assert.ok(failed.error);assert.equal(failed.stage.status,'failed');assert.equal(failed.stage.start,'observed');assert.equal(failed.stage.expectation,'json');assert.equal(failed.seen.length,3,'one source and tool check, one readiness command; no retry');
+    if(value.mode==='capped-json')assert.equal(failed.stage.outputTruncated,true);
+    else if(value.exit)assert.equal(failed.stage.exitCode,7);
+    else assert.equal(failed.stage.matched,false);
+  }
 });
 test('nonzero executed readiness and unknown transport failures never certify no startup or retry',async t=>{
   const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,tool,source}=await toolFixture(t);
@@ -181,6 +224,39 @@ test('native skills observation excludes payloads foreign namespaces and ambiguo
  assert.equal(evidence.catalog,'notObserved');assert.equal(evidence.read,'notObserved');
  assert.doesNotMatch(JSON.stringify(evidence),/PRIVATE_PAYLOAD/);
  assert.equal(evidence.observations.some(entry=>entry.callId==='foreign'),false);
+});
+
+test('required activation identifies each original main read and excludes failed partial or mismatched reads',async t=>{
+  const {observeNativeSkills}=await resolver(),f=await fixture(t);
+  const skills=[f.skill,{...f.skill,id:'other',path:join(f.source,'skills','other','SKILL.md')}];
+  const exercise=items=>{
+    let listener;const evidence={catalog:'notObserved',read:'notObserved'};
+    const observer=observeNativeSkills({onNotification(fn){listener=fn;return()=>{};}},'owned',evidence,{skills});
+    for(const item of items)listener({method:'rawResponseItem/completed',params:{threadId:'owned',turnId:'initial',item}});
+    observer.confirm('initial');observer.finish();return evidence;
+  };
+  const pair=(id,root,{cursor,resource=`skill://${id}/${root.replaceAll('\\','/')}/SKILL.md`,output}={})=>[
+    {type:'function_call',call_id:id,namespace:'skills',name:'read',arguments:JSON.stringify({package:`skill://${id}/${root}`,...(cursor?{cursor}:{}),resource})},
+    {type:'function_call_output',call_id:id,output:output??JSON.stringify({resource,skill_root:root,contents:'PRIVATE_SKILL_CONTENTS',next_cursor:null})},
+  ];
+  const compose=dirname(f.skill.path),other=dirname(skills[1].path);
+  const passed=exercise([...pair('compose',compose),...pair('other',other)]);
+  assert.deepEqual(passed.activation,{status:'complete',required:['compose','other'],observed:['compose','other'],missing:[],body:'notVerified'});
+  assert.equal(passed.readRootMatch,'observedForSelectedMainReads');
+  for(const rejected of [[],pair('other',other,{output:'skill package is not available'}),pair('other',other,{cursor:'continuation'}),
+    pair('other',compose),pair('other',other,{resource:`skill://other/${other.replaceAll('\\','/')}/references.md`}),
+    pair('other',other,{output:JSON.stringify({resource:`skill://other/${other.replaceAll('\\','/')}/SKILL.md`,skill_root:other,contents:'PRIVATE_SKILL_CONTENTS',next_cursor:null,extra:'PRIVATE_OUTPUT'})})]){
+    const evidence=exercise([...pair('compose',compose),...rejected]);
+    assert.equal(evidence.activation.status,'incomplete');assert.deepEqual(evidence.activation.missing,['other']);
+    assert.doesNotMatch(JSON.stringify(evidence),/PRIVATE_|skill package|skill:\/\/|SKILL.md|contents/);
+  }
+  const conflicting=pair('compose',compose);
+  conflicting.push({...conflicting[1],output:JSON.stringify({resource:`skill://compose/${other.replaceAll('\\','/')}/SKILL.md`,skill_root:other,contents:'PRIVATE_SKILL_CONTENTS',next_cursor:null})});
+  assert.deepEqual(exercise(conflicting).activation.missing,['compose','other'],'conflicting resource identity cannot certify activation');
+  const reused=pair('compose',compose);
+  reused.splice(1,0,{...reused[0],arguments:JSON.stringify({package:'skill://different-package'})});
+  assert.deepEqual(exercise(reused).activation.missing,['compose','other'],'duplicate call identities cannot conceal different package requests');
+  assert.doesNotMatch(JSON.stringify(passed),/PRIVATE_|skill:\/\/|SKILL.md|contents/);
 });
 
 test('native skill proof stays incomplete when early coverage drops a conflicting identity',async()=>{

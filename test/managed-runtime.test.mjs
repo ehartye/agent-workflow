@@ -4,7 +4,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm,symlink,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {sourceDigest,installRuntime,selectRuntime,bindRun,resolveRun,paths,defaultDataDir} from '../bin/managed-runtime.mjs';
@@ -114,4 +114,38 @@ test('session adapters retain exact runtime controls and isolate navigation, vis
  await writeFile(join(first.path,'engine','controls.mjs'),control('tampered'));
  await assert.rejects(services.controlRun({target,action:'stop'}),/digest|integrity|changed/i);
  assert.equal(await readFile(join(one.runDir,'controls-observed.jsonl'),'utf8'),before);
+});
+
+test('session monitor opens an owned startup container without a database and preserves unavailable evidence without controls',async t=>{
+ const {createSessionServices}=await import('../engine/monitor-adapters.mjs');
+ const {startMonitor}=await import('../engine/monitor-launch.mjs');
+ const {runWorkflow}=await import('../engine/controller.mjs');
+ const f=await fixture(t);
+ await writeFile(join(f.pluginRoot,'engine','monitor-data.mjs'),`export {monitorData} from ${JSON.stringify(new URL('../engine/monitor-data.mjs',import.meta.url).href)};`);
+ const runtime=await installRuntime(f),failed=await bindRun({dataDir:f.dataDir,runtime,sessionId:'origin'}),healthy=await bindRun({dataDir:f.dataDir,runtime,sessionId:'origin'}),foreign=await bindRun({dataDir:f.dataDir,runtime,sessionId:'other'});
+ await writeFile(join(failed.runDir,'finish-fixture.json'),JSON.stringify({status:'failed',inferenceRequests:0,cleanup:{serverExited:true}}));
+ await runWorkflow({runDir:healthy.runDir,sessionId:'origin',script:'export const meta={name:"Healthy",description:"Fixture"};return 1;',backend:{identity:'fixture',execute:async()=>{throw Error('No workers');},close:async()=>({serverExited:true})}});
+ const before=new Map(await Promise.all((await readdir(failed.runDir)).map(async name=>[name,await readFile(join(failed.runDir,name))])));
+ await assert.rejects(createSessionServices({dataDir:f.dataDir,sessionId:'other',pinnedRunId:failed.id}),/session/i);
+ const {binding}=await createSessionServices({dataDir:f.dataDir,sessionId:'origin',pinnedRunId:failed.id});
+ const monitor=await startMonitor(failed.runDir,{binding}),url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token'),headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+ try{
+  assert.equal((await fetch(url.origin+'/api/run')).status,401);
+  const state=await(await fetch(url.origin+'/api/run',{headers})).json();
+  assert.equal(state.status,'unavailable');assert.equal(state.generation,null);assert.equal(state.availability.status,'unavailable');
+  assert.deepEqual(state.workers,[]);assert.equal(state.coverage,undefined);assert.equal(state.cleanup,undefined);assert.equal(state.inferenceRequests,undefined);
+  assert.equal(state.monitor.capabilities.sessionNavigation,true);assert.equal(state.monitor.capabilities.scopedControls,false);assert.equal(state.monitor.capabilities.lifecycle,false);
+  const page=await(await fetch(url.origin+'/api/session/runs',{headers})).json();assert.equal(page.unavailableCount,1);assert.deepEqual(new Set(page.items.map(item=>item.ref.runId)),new Set([failed.id,healthy.id]));
+  assert.equal((await(await fetch(url.origin+`/api/runs/${healthy.id}/run`,{headers})).json()).status,'completed');
+  assert.equal((await fetch(url.origin+`/api/runs/${foreign.id}/run`,{headers})).ok,false);
+  const target={dataInstanceId:binding.dataInstanceId,runId:failed.id,runtimeId:runtime.id,generation:1};
+  for(const [path,body] of [['control',{action:'stop',generation:1,target}],['resume',{generation:1,target}],['lifecycle',{action:'hide',generation:1,runTarget:target,expectedRevision:0,target:{kind:'run'},requestId:'no-hide'}]])assert.equal((await fetch(url.origin+`/api/${path}`,{method:'POST',headers,body:JSON.stringify(body)})).status,503);
+  assert.equal((await fetch(url.origin+'/api/script?generation=1',{headers})).ok,false);
+  assert.deepEqual(await readdir(failed.runDir),[...before.keys()]);for(const [name,bytes]of before)assert.deepEqual(await readFile(join(failed.runDir,name)),bytes);
+  await writeFile(join(failed.runDir,'run.sqlite'),'invalid database bytes');
+  const corrupt=await(await fetch(url.origin+'/api/run',{headers})).json();assert.equal(corrupt.status,'unavailable');assert.equal(corrupt.generation,null);
+  assert.equal(await readFile(join(failed.runDir,'run.sqlite'),'utf8'),'invalid database bytes');
+  const owner=JSON.parse(before.get('runtime.json'));await writeFile(join(failed.runDir,'runtime.json'),JSON.stringify({...owner,sessionId:'other'}));
+  assert.equal((await fetch(url.origin+'/api/run',{headers})).ok,false,'ownership mismatch never becomes a readable placeholder');
+ }finally{await fetch(url.origin+'/api/close',{method:'POST',headers,body:'{}'});}
 });

@@ -3,12 +3,13 @@
 const stages=new Set(['authentication','windows-readiness','buffered-command','streamed-command','pty-command','cancellation']);
 const codes=new Set([
  'CHECK_FAILED','ADMISSION_FAILED','AUTH_UNSUPPORTED','CONFIG_UNSUPPORTED','VERSION_UNSUPPORTED',
- 'SESSION0_DESKTOP_SCOPE','LAUNCH_INVALID','JOB_BUILD','JOB_PLATFORM','SANDBOX_NOT_READY','COMMAND_FAILED',
+ 'SESSION0_DESKTOP_SCOPE','LAUNCH_INVALID','JOB_BUILD','JOB_PLATFORM','JOB_PACKAGE','JOB_SIGNATURE','JOB_SIGNATURE_CHECK','SANDBOX_NOT_READY','COMMAND_FAILED',
  'CANCEL_NOT_STARTED','CANCEL_EARLY_EXIT','CANCEL_UNVERIFIED','CLIENT_CLOSED',
  'SERVER_START','SERVER_EXIT','TRANSPORT_ERROR','PROTOCOL_ERROR','PROTOCOL_LIMIT',
  'REQUEST_LIMIT','REQUEST_TIMEOUT','RPC_ERROR','NOTIFICATION_ERROR','MODEL_CATALOG',
  'DISCOVERY_CLEANUP','ADMISSION_CLEANUP','SETUP_CLEANUP','WORKER_CAPABILITIES','WORKER_SETTINGS','WORKER_DRAIN','WORKER_CLEANUP',
  'WORKSPACE_BACKEND','WORKSPACE_POLICY',
+ 'ACCESS_POLICY','ACCESS_OVERRIDE','PARENT_ACCESS_REQUIRED','PARENT_ACCESS_INVALID','PARENT_CAPABILITIES',
 ]);
 function field(source,key){
  if(!source||typeof source!=='object')return undefined;
@@ -37,6 +38,16 @@ function startupSummary(source){
   if(['discovery','admission','setup'].includes(stage))boundaries.push({stage,cleanup:cleanupSummary(field(entry,'cleanup'))});
  }
  return{boundaries,truncated:length>3};
+}
+function constructionSummary(error){
+ const source=field(field(error,'evidence'),'startup'),stage=field(source,'stage');
+ if(!['launch','version','authentication','discovery','admission','setup'].includes(stage))return undefined;
+ const command=field(source,'command');
+ if(!record(command)||!['version','authentication'].includes(stage))return{stage};
+ const exitCode=field(command,'exitCode'),killed=field(command,'killed'),signal=field(command,'signal');
+ const bytes=key=>{const count=field(command,key);return Number.isSafeInteger(count)&&count>=0&&count<=1048576?count:null;};
+ return{stage,command:{exitCode:Number.isInteger(exitCode)&&exitCode>=-2147483648&&exitCode<=4294967295?exitCode:null,killed:typeof killed==='boolean'?killed:null,
+  signal:['none','termination','other','unknown'].includes(signal)?signal:'unknown',stdoutBytes:bytes('stdoutBytes'),stderrBytes:bytes('stderrBytes')}};
 }
 function evidenceSummary(source,name){
  const summary={};
@@ -119,12 +130,14 @@ export function doctorFailure(error,{stage='backend',backend,admission,cleanup,h
  // boundary; its ownership cannot be established from the probe receipt.
  const ownedCleanup=cleanup!==undefined?cleanup:field(error,'cleanup')!==undefined?field(error,'cleanup'):phase==='cleanup'?undefined:field(source,'cleanup');
  const startup=startupSummary(ownedCleanup);
+ const construction=constructionSummary(error);
  let failedStage=phase;
  if(phase==='backend'&&summary?.status==='failed'){
   failedStage=summary.stages.find(item=>item.status==='failed')?.name??(!summary.error&&summary.cleanup.serverExited===false?'cleanup':'admission');
- }else if(phase==='backend'&&startup?.boundaries.length)failedStage=startup.boundaries.at(-1).stage;
+ }else if(phase==='backend'&&construction)failedStage=construction.stage;
+ else if(phase==='backend'&&startup?.boundaries.length)failedStage=startup.boundaries.at(-1).stage;
  const context=doctorHostContext(hostContext);
  const failedCommand=phase==='backend'&&summary?.status==='failed'?summary.stages.find(item=>item.status==='failed'):undefined;
  const dllFailure=context?.platform==='win32'&&['buffered-command','streamed-command','pty-command'].includes(failedCommand?.name)&&[-1073741502,3221225794].includes(failedCommand?.evidence?.exitCode);
- return {status:'failed',inferenceRequests:0,...(['mxc','configured'].includes(backend)?{backend}:{}),stage:failedStage,error:errorSummary(error),...(context?{hostContext:context}:{}),...(dllFailure?{diagnosis:{kind:'windows-dll-initialization-failed',ntstatus:'0xC0000142',cause:'notDetermined'}}:{}),...(summary?{admission:summary}:{}),cleanup:cleanupSummary(ownedCleanup),...(startup?{startup:startup.boundaries,...(startup.truncated?{startupTruncated:true}:{})}:{})};
+ return {status:'failed',inferenceRequests:0,...(['mxc','configured'].includes(backend)?{backend}:{}),stage:failedStage,error:errorSummary(error),...(construction?{construction}:{}),...(context?{hostContext:context}:{}),...(dllFailure?{diagnosis:{kind:'windows-dll-initialization-failed',ntstatus:'0xC0000142',cause:'notDetermined'}}:{}),...(summary?{admission:summary}:{}),cleanup:cleanupSummary(ownedCleanup),...(startup?{startup:startup.boundaries,...(startup.truncated?{startupTruncated:true}:{})}:{})};
 }

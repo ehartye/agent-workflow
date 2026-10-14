@@ -1,6 +1,35 @@
 import { createHash } from 'node:crypto';
 import { fault } from '../foundation/client.mjs';
 
+
+export function parentLaunch(launch){
+  return{...launch,args:[...launch.args,'-c','features.multi_agent=false','-c','features.multi_agent_v2=false','-c','agents.enabled=false']};
+}
+export function assertNoDelegation(config){
+  if(config?.features?.multi_agent!==false||config?.features?.multi_agent_v2!==false||config?.agents?.enabled!==false)throw fault('WORKER_CAPABILITIES','Worker delegation must remain disabled');
+}
+
+export function integrationFacts(config,inventory){
+  const fail=()=>{throw fault('WORKER_CAPABILITIES','Native integration inventory exceeded its safe observation contract');};
+  const name=value=>{if(typeof value!=='string'||!value||value.length>256||/[\u0000-\u001f\u007f]/.test(value))fail();return value;};
+  const configured={};
+  for(const key of ['plugins','mcp_servers','apps']){
+    const table=config?.[key]??{};if(typeof table!=='object'||Array.isArray(table)||Object.keys(table).length>256)fail();
+    configured[key]=Object.entries(table).map(([id,value])=>({name:name(id),enabled:value?.enabled!==false})).sort((a,b)=>a.name.localeCompare(b.name));
+  }
+  const servers=[];
+  if(inventory!==undefined){
+    if(!Array.isArray(inventory?.data)||inventory.data.length>100||inventory.nextCursor!=null)fail();
+    for(const server of inventory.data){
+      const tools=server.tools??{};if(!tools||typeof tools!=='object'||Array.isArray(tools)||Object.keys(tools).length>2000)fail();
+      servers.push({name:name(server.name),status:['ready','starting','failed','disabled','stopped','notReady'].includes(server.runtimeStatus)?server.runtimeStatus:'unknown',toolCount:Object.keys(tools).length});
+    }
+    servers.sort((a,b)=>a.name.localeCompare(b.name));if(new Set(servers.map(server=>server.name)).size!==servers.length)fail();
+  }
+  const observation={configured,servers,inventory:inventory===undefined?'notObserved':'observed',invocation:'notVerified',hostConnections:'notVerified'};
+  return{...observation,fingerprint:fingerprint(observation)};
+}
+
 const disabledFeatures = ['apps','hooks','codex_hooks','remote_plugin','multi_agent','browser_use','browser_use_external','browser_use_full_cdp_access','computer_use'];
 
 // Empty TOML tables merge with inherited tables; disable each actual entry.

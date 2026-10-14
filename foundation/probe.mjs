@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { stripVTControlCharacters } from 'node:util';
 import { fault, diagnostic } from './client.mjs';
 
-export function assertManagedChatgpt(account, snapshot) {
+export function assertManagedChatgpt(account, snapshot, expectedSandbox='read-only') {
+  if(!['read-only','workspace-write','danger-full-access'].includes(expectedSandbox))throw fault('CONFIG_UNSUPPORTED','Unsupported expected execution policy');
   if (account?.account?.type !== 'chatgpt') throw fault('AUTH_UNSUPPORTED', 'A managed ChatGPT login is required; no billing fallback is allowed');
   const config = snapshot?.config;
   if (!config || !Array.isArray(snapshot.layers) ||
       config.model_provider !== 'openai' || config.forced_login_method !== 'chatgpt' ||
-      config.approval_policy !== 'never' || config.sandbox_mode !== 'read-only') {
+      config.approval_policy !== 'never' || config.sandbox_mode !== expectedSandbox) {
     throw fault('CONFIG_UNSUPPORTED', 'Effective provider, login and sandbox restrictions did not match the probe contract');
   }
   // Config/read includes raw layers: reject custom built-in provider routing even
@@ -26,7 +27,7 @@ function errorRecord(error) {
   return diagnostic(error);
 }
 
-export async function probe(client, { cwd, command, cancelCommand, platform = process.platform, timeoutMs = 20000, cancelTimeoutMs = 2000 }) {
+export async function probe(client, { cwd, command, cancelCommand, platform = process.platform, timeoutMs = 20000, cancelTimeoutMs = 2000,expectedSandbox='read-only',sandboxPolicy={type:'readOnly',networkAccess:false} }) {
   const report = { status: 'running', inferenceRequests: 0, stages: [], runnerEquivalence: 'notVerified' };
   const executeStage = async (name, run) => {
     const stage = { name, status: 'running' };
@@ -34,7 +35,7 @@ export async function probe(client, { cwd, command, cancelCommand, platform = pr
     try { stage.evidence = await run(stage); stage.status = 'passed'; }
     catch (error) { stage.status = 'failed'; stage.error = errorRecord(error); throw error; }
   };
-  const policy = { type: 'readOnly', networkAccess: false };
+  const policy = sandboxPolicy;
   const execParams = argv => ({ command: argv, cwd, sandboxPolicy: policy, timeoutMs, outputBytesCap: 8192 });
   async function runCommand(kind, stage) {
     const processId = `${kind}-${randomUUID()}`;
@@ -122,9 +123,9 @@ export async function probe(client, { cwd, command, cancelCommand, platform = pr
     await executeStage('authentication', async () => {
       const account = await client.request('account/read', { refreshToken: false });
       const config = await client.request('config/read', { cwd, includeLayers: true });
-      return assertManagedChatgpt(account, config);
+      return assertManagedChatgpt(account, config,expectedSandbox);
     });
-    if (platform === 'win32') await executeStage('windows-readiness', async () => {
+    if (platform === 'win32'&&expectedSandbox!=='danger-full-access') await executeStage('windows-readiness', async () => {
       const result = await client.request('windowsSandbox/readiness', {});
       if (result.status !== 'ready') throw fault('SANDBOX_NOT_READY', 'Windows sandbox did not report ready');
       return { status: result.status, commandProven: false };

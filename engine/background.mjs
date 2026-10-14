@@ -7,16 +7,24 @@ import {runWorkflow,readRun} from './controller.mjs';
 import {parseScript} from './script.mjs';
 import {createLaunch} from '../foundation/launch.mjs';
 import {fault,diagnostic} from '../foundation/client.mjs';
+import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
 import {restartPlan} from './restart.mjs';
 import {resolveDeadlines} from './deadlines.mjs';
 import {validateCapturePolicy} from './workspace-policy.mjs';
 import {freezeCapabilities} from './worker-capabilities.mjs';
-import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
+import {validateAccessPolicy} from './access-policy.mjs';
 
 export async function startBackground(input,{runnerPath=fileURLToPath(new URL('./background-child.mjs',import.meta.url)),startupMs=60000}={}){
   if(!isAbsolute(input.runDir??'')||typeof input.sessionId!=='string'||!input.sessionId||!Number.isFinite(startupMs)||startupMs<=0)throw fault('BACKGROUND_INPUT','Provide an absolute run directory and originating session');
   const previous=input.resume?await readRun(input.runDir):null;
   if(previous&&previous.sessionId!==input.sessionId)throw fault('REPLAY_SESSION','Run belongs to another originating session');
+  if(previous&&input.accessPolicy!==undefined)throw fault('ACCESS_OVERRIDE','Saved runs retain their original access policy; start a new run to change it');
+  const accessValue=previous?.launch?.accessPolicy??input.accessPolicy;
+  const accessPolicy=accessValue===undefined?null:validateAccessPolicy(accessValue,{sessionId:input.sessionId});
+  if(previous){
+    const savedAccess=previous.accessPolicy===undefined?undefined:validateAccessPolicy(previous.accessPolicy,{sessionId:input.sessionId});
+    if(savedAccess?.fingerprint!==accessPolicy?.fingerprint)throw fault('ACCESS_POLICY','Saved access policy identity is inconsistent');
+  }
   if(previous&&input.workerCapabilities!==undefined)throw fault('CAPABILITY_OVERRIDE','Saved runs retain the original worker capability bundle');
   const capabilityValue=previous?.workerCapabilities??input.workerCapabilities;
   const capabilities=capabilityValue===undefined?null:await freezeCapabilities(capabilityValue);
@@ -36,6 +44,7 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   if(previous&&input.session0Desktop!==undefined)throw fault('LAUNCH_INVALID','Saved runs retain their original desktop selection');
   const session0Desktop=previous?.launch?.session0Desktop??input.session0Desktop??'inherit';
   const launch={...(session0Desktop==='shared'?{session0Desktop}:{}),codex:input.codex??previous?.launch.codex,cwd:input.cwd??previous?.launch.cwd,backend:input.backend??previous?.launch.backend??'configured',defaults:{...previous?.launch.defaults,...input.defaults}};
+  if(accessPolicy)launch.accessPolicy=accessPolicy;
   if(capabilities)Object.assign(launch,{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint});
   if(frozenPolicy)Object.assign(launch,{capturePolicy:frozenPolicy.policy,capturePolicyHash:frozenPolicy.policyHash});
   const native=createLaunch({executable:launch.codex,cwd:launch.cwd,backend:launch.backend,session0Desktop});
@@ -87,12 +96,13 @@ export async function serveBackground(requestPath,createBackend){
     if(!process.connected)return reject(fault('BACKGROUND_ABANDONED','Launcher connection is closed'));
     process.send(message,error=>error?reject(fault('BACKGROUND_ABANDONED','Launcher acknowledgement failed')):resolveSend());
   });
-  let result,admitting=false,backendName;
+  let result,request,admitting=false;
   try{
-    const request=JSON.parse(await readFile(requestPath,'utf8'));
+    request=JSON.parse(await readFile(requestPath,'utf8'));
     parseScript(request.script);
-    admitting=true;backendName=request.launch.backend;
-    const backend=await createBackend({executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,session0Desktop:request.launch.session0Desktop??'inherit',defaults:request.launch.defaults??{},...(request.launch.workerCapabilities?{workerCapabilities:request.launch.workerCapabilities,workerCapabilitiesHash:request.launch.workerCapabilitiesHash}:{})});
+    if(request.launch?.accessPolicy!==undefined)request.launch.accessPolicy=validateAccessPolicy(request.launch.accessPolicy,{sessionId:request.sessionId});
+    admitting=true;
+    const backend=await createBackend({executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,session0Desktop:request.launch.session0Desktop??'inherit',defaults:request.launch.defaults??{},...(request.launch.accessPolicy?{accessPolicy:request.launch.accessPolicy}:{}),...(request.launch.workerCapabilities?{workerCapabilities:request.launch.workerCapabilities,workerCapabilitiesHash:request.launch.workerCapabilitiesHash}:{})});
     admitting=false;
     const run=await runWorkflow({...request,backend,onReady:async({generation})=>{
       await send({kind:'ready',generation});await permission;
@@ -100,7 +110,10 @@ export async function serveBackground(requestPath,createBackend){
       process.removeListener('disconnect',onDisconnect);if(process.connected)process.disconnect();
     }});
     result={status:run.status,generation:run.generation,coverage:run.coverage,error:run.error??null,cleanup:run.cleanup};
-  }catch(error){result={status:'failed',error:diagnostic(error),...(admitting?{admissionFailure:doctorFailure(error,{backend:backendName})}:{})};}
+  }catch(error){
+    const failure=admitting||!committed?doctorFailure(error,{backend:request?.launch?.backend}):null;
+    result={status:'failed',error:diagnostic(error),...(admitting?{admissionFailure:failure}:{}),...(!committed?{startupDiagnostics:failure}:{})};
+  }
   finally{process.removeListener('message',onMessage);process.removeListener('disconnect',onDisconnect);}
   const name=basename(requestPath);
   if(!/^launch-[0-9a-f-]+\.json$/.test(name))throw fault('BACKGROUND_INPUT','Invalid launch receipt name');

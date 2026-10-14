@@ -87,6 +87,20 @@ test('delivery, cleanup and dashboard health remain separate and a healthy faile
   unreadable=true;await view.refresh();assert.match(view.get('connection').textContent,/Dashboard connected; run data unavailable/);assert.equal(view.get('stop').disabled,true);assert.equal(view.get('run-status').textContent,'failed');
 });
 
+test('unavailable startup stays navigable without invented generation, counts or execution controls',async()=>{
+ const ref={dataInstanceId:'data',runId:'startup',runtimeId:'retained'};
+ const view=await monitor({run:{status:'unavailable',generation:null,availability:{status:'unavailable',reason:'Saved execution data is unavailable. Original records were preserved.'},workers:[],coverage:undefined,attempts:undefined,cleanup:undefined,monitor:{run:ref,pinnedRunId:'startup',capabilities:{sessionNavigation:true,scopedControls:false,lifecycle:false}},lifecycle:{available:false,visibilityKnown:false}},response:path=>path.startsWith('/api/session/runs')?{ok:true,json:async()=>({items:[{ref,title:'Startup',executionStatus:'unavailable',disposition:'visible'}],nextCursor:null,unavailableCount:1,hiddenCount:0,unknownCount:0})}:undefined});
+ assert.equal(view.get('run-status').textContent,'unavailable');assert.match(view.get('generation').textContent,/unavailable/i);
+ assert.doesNotMatch(view.get('generation').textContent,/Generation (null|0|1)/);
+ for(const id of ['completed','attempts','cached'])assert.equal(view.get(id).textContent,'Unavailable');
+ assert.match(view.get('flow-progress').textContent,/execution.*unavailable/i);assert.doesNotMatch(view.get('flow-progress').textContent,/0 failed|0 unknown/);
+ assert.match(view.get('worker-count').textContent,/unavailable/i);assert.match(view.get('empty').textContent,/unavailable/i);
+ assert.doesNotMatch(view.get('workflow-map').textContent,/Generation null/);assert.doesNotMatch(view.get('visibility-count').textContent,/0 unknown/);
+ assert.match(view.get('session-counts').textContent,/1 unavailable/);assert.match(view.get('run-picker').textContent,/unavailable/);
+ assert.equal(view.get('run-picker').disabled,false);assert.equal(view.get('close-monitor').disabled,false);
+ for(const id of ['pause','stop','resume','arm-control','load-script','hide-run','archive-run','review-prune'])assert.equal(view.get(id).disabled,true,id);
+});
+
 test('visibility filtering preserves counts and discloses hidden prerequisites; missing lifecycle is unavailable',async()=>{
   const view=await monitor({run:{workers:[worker(0,'unknown',{dependencies:[],attempts:1}),worker(1,'queued',{dependencies:[0]})],lifecycle:{schema:1,revision:2,workers:[{target:{kind:'worker',generation:4,position:0,attempt:1},visibility:'hidden'}]}}});
   assert.equal(view.get('worker-list').children.length,1);assert.match(view.get('visibility-count').textContent,/1 hidden.*1 unknown/);

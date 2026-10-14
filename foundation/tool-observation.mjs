@@ -1,5 +1,7 @@
 // Pinned raw Responses items are an experimental observation source. These
 // projections report tool status, never artifact acceptance or reconciled effects.
+import {createHash} from 'node:crypto';
+import {isAbsolute,resolve} from 'node:path';
 export const TOOL_METHOD='rawResponseItem/completed';
 export const TOOL_LIMIT=256;
 export const EARLY_TOOL_LIMIT=512;
@@ -16,6 +18,35 @@ const skillTools=new Set(['skills.list','skills.read']);
 const supportedTools=new Set([...plainTools,...skillTools]);
 const OUTPUT_LIMIT=1024*1024;
 export const boundedToolId=value=>typeof value==='string'&&value.length>0&&Buffer.byteLength(value)<=200;
+
+const boundedHandle=value=>typeof value==='string'&&value.length>0&&Buffer.byteLength(value)<=8192&&!/[\u0000-\u001f\u007f]/.test(value);
+function sourcePath(value){
+  if(!boundedHandle(value)||value.length>4096||!isAbsolute(value)||/^[/\\]{2}/.test(value)||value.replaceAll('\\','/').split('/').some(part=>part==='.'||part==='..'))return null;
+  const path=resolve(value).replaceAll('\\','/');return process.platform==='win32'?path.toLowerCase():path;
+}
+// Only original resource metadata is fingerprinted. Skill bodies/arguments and
+// their hashes are never retained. A native response is reported read evidence,
+// not certification that every page was read or its instructions followed.
+export function skillRootIdentity(value){const path=sourcePath(value);return path?createHash('sha256').update(path).digest('hex'):null;}
+function boundedJson(value){
+  if(typeof value!=='string'||Buffer.byteLength(value)>OUTPUT_LIMIT)return null;
+  try{const parsed=JSON.parse(value);return parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:null;}catch{return null;}
+}
+function skillStart(value){
+  const args=boundedJson(value);
+  if(!args||Object.keys(args).some(key=>!['package','resource','cursor'].includes(key))||!boundedHandle(args.package)||!args.package.startsWith('skill://')||
+    args.resource!=null&&(!boundedHandle(args.resource)||!args.resource.startsWith('skill://'))||args.cursor!=null&&!boundedHandle(args.cursor))return null;
+  return args.cursor==null;
+}
+function skillResponse(value){
+  const output=boundedJson(value);
+  if(!output||Object.keys(output).some(key=>!['resource','contents','skill_root','next_cursor'].includes(key))||!Object.hasOwn(output,'next_cursor')||
+    typeof output.contents!=='string'||!boundedHandle(output.resource)||output.next_cursor!==null&&!boundedHandle(output.next_cursor))return null;
+  const root=sourcePath(output.skill_root),resource=/^skill:\/\/[^/]+\/(.+)$/.exec(output.resource);
+  if(!root||!resource)return null;
+  const path=sourcePath(resource[1]);if(!path)return null;
+  return{root:skillRootIdentity(output.skill_root),main:path===sourcePath(`${root}/SKILL.md`)};
+}
 
 function reportedOutcome(output){
   // Pinned core/src/tools/code_mode/output.rs inserts a header-only first part;
@@ -52,9 +83,12 @@ export function projectToolEvent(message){
     side==='call'&&(typeof item.name!=='string'||typeof (family==='custom'?item.input:item.arguments)!=='string')||
     side==='output'&&typeof item.output!=='string'&&!Array.isArray(item.output)||
     item.name!=null&&typeof item.name!=='string';
+  const readStart=skill&&item.name==='read'&&side==='call'?skillStart(item.arguments):null;
+  const readResponse=family==='function'&&side==='output'?skillResponse(item.output):null;
   return{threadId:boundedToolId(params.threadId)?params.threadId:null,turnId:boundedToolId(params.turnId)?params.turnId:null,
     callId:boundedToolId(item.call_id)?item.call_id:null,side,family,name,namespace,malformed,
-    outcome:side==='output'&&family==='custom'?reportedOutcome(item.output):'unknown'};
+    outcome:side==='output'&&family==='custom'?reportedOutcome(item.output):'unknown',
+    ...(readStart!==null?{skillReadStart:readStart}:{}),...(readResponse?{skillReadRoot:readResponse.root,skillReadMain:readResponse.main}:{})};
 }
 
 // Copy only allowlisted facts again at the persistence boundary. Never spread a
@@ -66,8 +100,13 @@ export function copyToolObservation(value){
     ['callObserved','outputObserved','ambiguous'].some(key=>typeof value[key]!=='boolean')||
     !value.callObserved&&!value.outputObserved||
     (!codeModeTools.has(value.tool)||value.family!=='custom'||value.ambiguous||value.namespace==='unverified'||!value.callObserved||!value.outputObserved)&&value.outcome!=='unknown')return null;
+  const read=value.skillRead;
+  if(read!==undefined&&(value.tool!=='skills.read'||value.family!=='function'||value.namespace!=='skills'||value.ambiguous||
+    !read||Object.keys(read).sort().join(',')!=='main,root,start'||!['start','main'].every(key=>read[key]===null||typeof read[key]==='boolean')||
+    !(read.root===null||typeof read.root==='string'&&/^[a-f0-9]{64}$/.test(read.root))))return null;
   return{tool:value.tool,callId:value.callId,family:value.family,namespace:value.namespace,
-    callObserved:value.callObserved,outputObserved:value.outputObserved,outcome:value.outcome,ambiguous:value.ambiguous};
+    callObserved:value.callObserved,outputObserved:value.outputObserved,outcome:value.outcome,ambiguous:value.ambiguous,
+    ...(read?{skillRead:{start:read.start,root:read.root,main:read.main}}:{})};
 }
 export function copyToolSummary(value){
   if(!value||value.source!==TOOL_METHOD||value.capability!=='unverified'||value.limit!==TOOL_LIMIT||
@@ -92,7 +131,9 @@ export function createToolObserver(){
     const namespace=entry.unverifiedNamespace||entry.skillsNamespace&&!skillTools.has(tool)?'unverified':entry.skillsNamespace?'skills':'absent';
     return{tool,callId:entry.callId,family,namespace,callObserved:entry.allowedCallObserved===true,outputObserved:Boolean(output),
       outcome:!entry.ambiguous&&namespace==='absent'&&family==='custom'&&codeModeTools.has(call?.name)&&output&&!output.malformed&&
-        (output.name==='absent'||output.name===call.name)?output.outcome:'unknown',ambiguous:entry.ambiguous};
+        (output.name==='absent'||output.name===call.name)?output.outcome:'unknown',ambiguous:entry.ambiguous,
+      ...(tool==='skills.read'&&!entry.ambiguous&&family==='function'&&namespace==='skills'&&(call?.skillReadStart!=null||output?.skillReadRoot!=null)?
+        {skillRead:{start:call?.skillReadStart??null,root:output?.skillReadRoot??null,main:output?.skillReadMain??null}}:{})};
   };
   const summary=()=>{
     const states=[...entries.values()],values=states.map(observation).filter(Boolean);
@@ -102,8 +143,9 @@ export function createToolObserver(){
   };
   const publish=entry=>{
     const value=observation(entry);
-    if(!value||entry.published&&Object.keys(value).every(key=>value[key]===entry.published[key]))return null;
-    entry.published={...value};return value;
+    const serialized=value?JSON.stringify(value):null;
+    if(!value||serialized===entry.published)return null;
+    entry.published=serialized;return value;
   };
   return{
     discardUnconfirmed(){if(closed)return;increment('unconfirmedDiscarded');increment('overflow');increment('discarded');},
@@ -124,12 +166,16 @@ export function createToolObserver(){
         if(entries.size>=TOOL_LIMIT){increment('overflow');increment('discarded');return null;}
         entry={callId:projected.callId,tool:null,ambiguous:false,unverifiedNamespace:false};entries.set(projected.callId,entry);
       }
-      const fact={family:projected.family,name:projected.name,namespace:projected.namespace,malformed:projected.malformed,outcome:projected.outcome};
+      const fact={family:projected.family,name:projected.name,namespace:projected.namespace,malformed:projected.malformed,outcome:projected.outcome,
+        skillReadStart:projected.skillReadStart??null,skillReadRoot:projected.skillReadRoot??null,skillReadMain:projected.skillReadMain??null};
       const prior=entry[projected.side];
       if(prior){
         // Deduplication compares only projected facts, not secret-bearing bytes.
         increment('duplicate');
-        if(Object.keys(fact).every(key=>fact[key]===prior[key]))return null;
+        // Request bodies are not retained, so identical projected read facts
+        // cannot prove two occurrences requested the same package/resource.
+        const repeatedRead=projected.side==='call'&&projected.name==='skills.read'&&(prior.skillReadStart!==null||fact.skillReadStart!==null);
+        if(!repeatedRead&&Object.keys(fact).every(key=>fact[key]===prior[key]))return null;
         increment('conflicting');entry.ambiguous=true;
         if(fact.family!==prior.family)entry.familyConflict=true;
       }else entry[projected.side]=fact;
