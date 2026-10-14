@@ -1,6 +1,6 @@
 # Live worker skill grants: native boundary
 
-The owner's requirement is to grant a previously unavailable skill to an already-running worker, with genuine native `skills.list` / `skills.read`. **This capability is not implemented or supported by the inspected public native contract.** No successful grant probe, worker restart, global config change or inference was performed during this investigation.
+The owner asked about granting a previously unavailable skill to an already-running worker, with genuine native `skills.list` / `skills.read`. **This capability is not implemented or supported by the inspected public native contract.** After reviewing the limitation, the owner selected publication of completed fixes, explicit startup skill selection in workflow-authoring, and no tracked live-grant work. This is retained boundary research, not a planned deliverable. No successful grant probe, worker restart, global config change or inference was performed during this investigation.
 
 The pinned Codex release is `rust-v0.162.1`, commit `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`. GitHub's primary release API also reported it as the latest published release at inspection, published October 9, 2026. [Release](https://github.com/openai/codex/releases/tag/rust-v0.162.1).
 
@@ -15,8 +15,8 @@ Internal Rust environment-readiness methods exist, but there is no corresponding
 
 Selecting another skill ID inside Workflow's frozen bundle still requires adding that worker's native root. New ceiling entries additionally require separately authorized, append-only manifests and hashes. Preselecting every root and later authorizing it in prose does not prove an actual grant of a previously unavailable skill. Steering an existing worker does not alter its selected roots.
 
-## Required future implementation and acceptance
+## What a native contract would need
 
 The control must have a caller-generated request ID, exact session/generation/position/attempt/thread/turn target, base effective-selection hash, serialized source/readiness admission, and a durable receipt before applying the native effect. Record an effective grant only after the native acknowledgement; lost or ambiguous outcomes remain unknown and are not automatically retried. Keep the original ceiling immutable and retain separately authorized extensions without rebinding IDs.
 
-A positive acceptance must establish that marker skill B is initially unavailable, grant it while the same turn remains active, then observe genuine native list/read pairs and independently match B's hidden marker. Verify unchanged worker/thread/turn identity, unchanged sibling permissions, no restart or manual file substitute, and positive owned cleanup. Cover stale targets, source drift, cancellation races, denied ceiling expansions, and lost responses. These are proposed tests, not completed evidence.
+A positive acceptance would have to establish that marker skill B is initially unavailable, grant it while the same turn remains active, then observe genuine native list/read pairs and independently match B's hidden marker. It would need unchanged worker/thread/turn identity, unchanged sibling permissions, no restart or manual file substitute, and positive owned cleanup, plus stale-target, source-drift, cancellation, ceiling and lost-response cases. These are explanatory conditions, not a worklist or completed evidence.
