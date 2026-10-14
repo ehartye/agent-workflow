@@ -1,6 +1,8 @@
 # Verification record
 
-The 0.3.4 dashboard case study records reviewed clean-writer capture, fresh independent verification, five meaningful failing regression checks before fixes, 42 affected monitor checks and 81 final painted-browser checks. See [the bounded delivery evidence](../reports/map-inspector-034.md) and [browser report](../reports/map-inspector-browser-034.json). Full release gates and installed verification remain separate from those observations.
+The 0.3.5 candidate carries forward the reviewed 0.3.4 dashboard source. The 0.3.4 tag gate passed 505/506 tests and timed out in the existing PowerShell/COM short-alias fixture before catalog assertions. The corrected fixture uses native CMD expansion with the same deadline and identity/junction assertions; the failed tag was not moved or retried. Fresh release gates remain required for 0.3.5.
+
+The dashboard case study records reviewed clean-writer capture, fresh independent verification, five meaningful failing regression checks before fixes, 42 affected monitor checks and 81 final painted-browser checks. See [the bounded delivery evidence](../reports/map-inspector-034.md) and [browser report](../reports/map-inspector-browser-034.json). Full release gates and installed verification remain separate from those observations.
 
 Version 0.3.3 was published after 485/485 local tests, package checks, smoke, clean production installation, a zero-vulnerability production audit and Windows PR/tag verification. Its installed command-only parent-policy doctor passed with zero inference requests and confirmed owned-job cleanup. Earlier Windows runner failures produced verified short-path and PowerShell module-discovery fixes. The [PlanetForge friction report](../reports/planetforge-friction-033.md) records its scopes, earlier failures, native skill evidence and the unaccepted authoring drafts/game objectives.
 
