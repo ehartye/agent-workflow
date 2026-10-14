@@ -1,6 +1,6 @@
 # Agent Workflow
 
-The owner authorized replacing the old architecture. The 0.2.0 candidate uses the native Codex App Server through `foundation/`, the isolated SQLite-backed `engine/`, and public CLI/skills. Existing 0.1.1 installations/data remain separate. Managed ChatGPT subscription authentication is required; no API-key billing fallback. `docs/codex-parity.md` records acceptance evidence and remaining host/parity boundaries. SSH verification is deferred.
+The owner authorized replacing the old architecture. The 0.2.0 candidate uses the native Codex App Server through `foundation/`, the isolated SQLite-backed `engine/`, and public CLI/skills. Existing 0.1.1 installations/data remain separate. Managed ChatGPT subscription authentication is required; no API-key billing fallback. `docs/codex-parity.md` records acceptance evidence and remaining host/parity boundaries. Windows Session 0 compatibility is explicit; see docs/verification.md for tested SSH scope and remaining limits.
 
 The owner selected no custom MCP server. Use the CLI and authenticated dashboard as workflow surfaces. Do not reintroduce the removed `src/` runtime or MCP server. Prior runtime files remain in existing installations, not this package.
 

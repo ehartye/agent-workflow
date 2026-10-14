@@ -2,9 +2,11 @@ import {serveBackground} from '../../engine/background.mjs';
 import {basename,join} from 'node:path';
 import {writeFile,stat} from 'node:fs/promises';
 import {setTimeout as delay} from 'node:timers/promises';
-await serveBackground(process.argv[2],async({cwd,defaults})=>{
+await serveBackground(process.argv[2],async({cwd,defaults,session0Desktop})=>{
+  await writeFile(join(cwd,'backend-desktop.json'),JSON.stringify(session0Desktop??null));
   await writeFile(join(cwd,'backend-defaults.json'),JSON.stringify(defaults??null));
-  if(basename(cwd)==='fail')throw new Error('REVIEW_SECRET_SENTINEL private@example.invalid');
+  if(basename(cwd)==='fail')throw Object.assign(new Error('REVIEW_SECRET_SENTINEL private@example.invalid'),{cleanup:{serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members',desktopCompatibility:{requested:'shared',applied:false},secret:'REVIEW_SECRET_SENTINEL',startup:[{stage:'discovery',cleanup:{serverExited:true,jobEmpty:true,desktopCompatibility:{requested:'shared',applied:false}}}]}});
+  if(basename(cwd)==='unknown')throw Object.assign(new Error('REVIEW_SECRET_SENTINEL'),{cleanup:{serverExited:false,jobEmpty:false,desktopCompatibility:{requested:'shared',applied:null}}});
   if(basename(cwd)==='slow')await new Promise(resolve=>setTimeout(resolve,200));
   return {
   identity:'background-fixture-v1',

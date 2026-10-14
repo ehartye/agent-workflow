@@ -1,6 +1,6 @@
 {
   "name": "agent-workflow",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Durable scripted Codex workflows and a local control desk.",
   "skills": "./skills/",
   "hooks": "./hooks/hooks.json",

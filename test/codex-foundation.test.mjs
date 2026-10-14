@@ -11,6 +11,18 @@ import { promisify } from 'node:util';
 
 const fixture = fileURLToPath(new URL('./fixtures/foundation-server.mjs', import.meta.url));
 
+test('shared Session 0 desktop requires explicit Windows MXC selection and preserves sandbox arguments',async()=>{
+ const {createLaunch}=await import('../foundation/launch.mjs');
+ const options={executable:process.execPath,cwd:process.cwd(),platform:'win32',backend:'mxc'};
+ const normal=createLaunch(options),shared=createLaunch({...options,session0Desktop:'shared'});
+ assert.equal(normal.session0Desktop,undefined);
+ assert.equal(shared.session0Desktop,'shared');
+ assert.deepEqual(shared.args,normal.args);assert.deepEqual(shared.env,normal.env);
+ for(const override of [{backend:'configured'},{platform:'linux'},{session0Desktop:'WinSta0\\Other'}])assert.throws(()=>createLaunch({...options,session0Desktop:'shared',...override}),{code:'LAUNCH_INVALID'});
+ const {AppServer}=await import('../foundation/client.mjs');
+ assert.throws(()=>new AppServer({command:process.execPath,args:[fixture],session0Desktop:'shared'}),{code:'LAUNCH_INVALID'});
+});
+
 test('managed capability homes are explicit named values and cannot widen launch environment',async()=>{
  const {createLaunch}=await import('../foundation/launch.mjs');
  const options={executable:process.execPath,cwd:process.cwd(),env:{AGENT_BEEPS_HOME:'parent-is-not-inherited',AGENT_SPRITES_HOME:'parent-is-not-inherited',OPENAI_API_KEY:'secret'}};

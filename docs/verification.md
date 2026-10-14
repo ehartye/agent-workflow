@@ -69,10 +69,18 @@ npm audit --omit=dev
 
 The suite and smoke use deterministic offline fixtures and actual process/persistence boundaries. Native installation starts no inference and needs npm network access or cache. Managed-ChatGPT acceptance is separate, explicit and consumes subscription usage. Required Windows PR/tag verification gates publication. Do not replace current results with historical test counts.
 
-Before claiming release complete, record the final full suite/check/smoke, clean package installation, production audit, required CI, published tag/version and installation of that exact version. The local native reports above remain useful but do not substitute for those gates. SSH is deferred.
+Before claiming release complete, record the final full suite/check/smoke, clean package installation, production audit, required CI, published tag/version and installation of that exact version. The local native reports above remain useful but do not substitute for those gates. SSH acceptance is scoped in the Session 0 section below.
 
 ## Historical 0.1.x evidence
 
 Earlier releases used RuntimeManager, a supervisor JSON journal and MCP surfaces. Their authenticated exec/app-server tests, MCP bootstrap/onboarding, 123/139-test counts, old dashboard observations and prior skill audit established behavior of that implementation at those checkpoints. They are **not fresh-engine verification**. Historical documentation remains available through repository history and [the earlier skill audit](skill-audit.md).
 
 Existing 0.1.1 user data and matching runtime directories are preserved on disk; the new source package removes the custom MCP surface and does not migrate old runs automatically. Do not interpret preservation as a successful fresh-engine resume of a legacy run.
+
+## Windows Session 0 compatibility
+
+The 0.3.2 implementation adds explicit `--session0-desktop shared` to Windows MXC doctor and new runs. Omission preserves inherited desktop behavior. Native session lookup rejects nonzero or unavailable sessions before child creation. The fixed selection changes no token, desktop ACL, Codex binary or sandbox filesystem/network arguments. Saved runs retain the setting; the host application receipt is separate from command admission and real execution.
+
+On HAL9000, Windows 26200.9711 x64, Node 24.21.0, the isolated candidate 0.3.1-5404faa80ae1e60b-node24.21.0 passed all six doctor admission stages under elevated OpenSSH Session 0. Real managed-subscription run dfae1f97-d03b-46ac-bc98-afd08fe06060 executed a Node marker, completed with one worker and no failed/unknown slots, recorded application on the worker, and confirmed empty owned jobs. The regular desktop Session 1 doctor passed with inherited selection. Detached writer run 4d7860a0-5fe5-43cf-882a-ec1a241588d1 also completed over SSH, created proof.txt only in its isolated worktree, consumed attached/terminal watch records and resumed with one cached worker and no new inference. Owned jobs drained in both generations. These are candidate receipts; final released-package acceptance is recorded separately.
+
+Measured UI caveat: same-session owned window-process and global-atom lookup succeeded; the tested custom window message was denied. This is not UI isolation equivalence or a comprehensive security assessment. Non-admin tokens, other Windows builds and other service accounts remain unverified. Operational guidance is in [Session 0 compatibility](../skills/workflow-setup/references/session0-compatibility.md); architectural rationale and investigation evidence live in the owner wiki.

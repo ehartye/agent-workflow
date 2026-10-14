@@ -1,7 +1,8 @@
 import { isAbsolute, resolve } from 'node:path';
 import { fault } from './client.mjs';
 
-export function createLaunch({ executable, cwd, backend = 'configured', platform = process.platform, env = process.env, capabilityEnvironment }) {
+export function createLaunch({ executable, cwd, backend = 'configured', platform = process.platform, env = process.env, capabilityEnvironment, session0Desktop = 'inherit' }) {
+  if(!['inherit','shared'].includes(session0Desktop)||session0Desktop==='shared'&&(platform!=='win32'||backend!=='mxc'))throw fault('LAUNCH_INVALID','Shared Session 0 desktop requires the Windows MXC backend');
   if (!executable || !isAbsolute(executable) || !cwd || !['configured', 'mxc'].includes(backend) || (backend === 'mxc' && platform !== 'win32')) {
     throw fault('LAUNCH_INVALID', 'Provide an absolute native executable, cwd and supported backend');
   }
@@ -23,7 +24,7 @@ export function createLaunch({ executable, cwd, backend = 'configured', platform
     '-c', 'approval_policy="never"', '-c', 'sandbox_mode="read-only"',
   ];
   if (backend === 'mxc') args.push('-c', 'windows.sandbox="mxc"');
-  return { command: executable, cwd: resolve(cwd), env: filtered, args };
+  return { command: executable, cwd: resolve(cwd), env: filtered, args,...(session0Desktop==='shared'?{session0Desktop}:{}) };
 }
 
 export function assertChatgptLogin({ stdout, stderr }) {

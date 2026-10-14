@@ -47,6 +47,11 @@ export class AppServer {
   #jobOwned;
   #jobReceipt='';
   #exitCode;
+  #session0Desktop;
+
+  get desktopCompatibility(){
+    return this.#session0Desktop==='shared'?{requested:'shared',applied:this.#jobReceipt.startsWith('WORKFLOW_SESSION0_DESKTOP_APPLIED\n')?true:this.#jobReceipt==='WORKFLOW_SESSION0_DESKTOP_REJECTED\n'?false:null}:undefined;
+  }
 
   static async connect(options) {
     const client = new AppServer(options);
@@ -58,17 +63,21 @@ export class AppServer {
       client.#write({ method: 'initialized', params: {} });
       return client;
     } catch (error) {
-      error.cleanup = await client.close();
+      const cleanup=await client.close();
+      if(client.#jobReceipt==='WORKFLOW_SESSION0_DESKTOP_REJECTED\n')error=fault('SESSION0_DESKTOP_SCOPE','Shared desktop compatibility requires native Windows Session 0; session was different or unavailable');
+      error.cleanup = cleanup;
       throw error;
     }
   }
 
-  constructor({ command, args = [], cwd, env, jobHost, requestTimeoutMs = 15000, shutdownMs = jobHost ? 13000 : 2000, maxMessageBytes = 1024 * 1024 }) {
+  constructor({ command, args = [], cwd, env, jobHost, session0Desktop = 'inherit', requestTimeoutMs = 15000, shutdownMs = jobHost ? 13000 : 2000, maxMessageBytes = 1024 * 1024 }) {
+    if(!['inherit','shared'].includes(session0Desktop)||session0Desktop==='shared'&&(!jobHost||process.platform!=='win32'))throw fault('LAUNCH_INVALID','Shared desktop launch requires a Windows ownership host');
+    this.#session0Desktop=session0Desktop;
     this.#timeout = requestTimeoutMs;
     this.#shutdownMs = shutdownMs;
     this.#maxBytes = maxMessageBytes;
     this.#jobOwned=Boolean(jobHost);
-    this.#child = spawn(jobHost??command, jobHost?[command,...args]:args, { cwd, env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    this.#child = spawn(jobHost??command, jobHost?[...(session0Desktop==='shared'?['--session0-desktop']:[]),command,...args]:args, { cwd, env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.#exited = new Promise(resolve => {
       this.#child.once('close', code => {
         this.#exitCode=code;
@@ -199,7 +208,9 @@ export class AppServer {
       this.#child.unref();
     }
     this.#listeners.clear();
-    const jobEmpty=this.#jobOwned&&this.#closed&&this.#exitCode===0&&this.#jobReceipt==='WORKFLOW_JOB_READY\nWORKFLOW_JOB_DRAINED\n';
-    return { serverExited: this.#jobOwned?jobEmpty:this.#closed && Boolean(this.#child.pid), forced, descendants:'notVerified',...(this.#jobOwned?{jobEmpty,ownershipScope:'windows-job-members'}: {}) };
+    const expected=(this.#session0Desktop==='shared'?'WORKFLOW_SESSION0_DESKTOP_APPLIED\n':'')+'WORKFLOW_JOB_READY\nWORKFLOW_JOB_DRAINED\n';
+    const rejectedBeforeSpawn=this.#session0Desktop==='shared'&&this.#exitCode===2&&this.#jobReceipt==='WORKFLOW_SESSION0_DESKTOP_REJECTED\n';
+    const jobEmpty=this.#jobOwned&&this.#closed&&(this.#exitCode===0&&this.#jobReceipt===expected||rejectedBeforeSpawn);
+    return { serverExited: this.#jobOwned?jobEmpty:this.#closed && Boolean(this.#child.pid), forced, descendants:'notVerified',...(this.#jobOwned?{jobEmpty,ownershipScope:'windows-job-members'}: {}),...(this.desktopCompatibility?{desktopCompatibility:this.desktopCompatibility}:{}) };
   }
 }

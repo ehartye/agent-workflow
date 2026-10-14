@@ -11,6 +11,7 @@ import {restartPlan} from './restart.mjs';
 import {resolveDeadlines} from './deadlines.mjs';
 import {validateCapturePolicy} from './workspace-policy.mjs';
 import {freezeCapabilities} from './worker-capabilities.mjs';
+import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
 
 export async function startBackground(input,{runnerPath=fileURLToPath(new URL('./background-child.mjs',import.meta.url)),startupMs=60000}={}){
   if(!isAbsolute(input.runDir??'')||typeof input.sessionId!=='string'||!input.sessionId||!Number.isFinite(startupMs)||startupMs<=0)throw fault('BACKGROUND_INPUT','Provide an absolute run directory and originating session');
@@ -32,10 +33,12 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   }
   if(previous&&(!previous.launch||input.restart===undefined&&(previous.cleanup?.serverExited!==true||['running','pausing','stopping','finishing'].includes(previous.status)||previous.workers.some(worker=>['running','unknown'].includes(worker.status)))))throw fault('REPLAY_UNKNOWN','Run launch context or completed execution is not verified');
   if(input.defaults!==undefined&&(!input.defaults||typeof input.defaults!=='object'||Array.isArray(input.defaults)))throw fault('BACKGROUND_INPUT','Worker defaults must be an object');
-  const launch={codex:input.codex??previous?.launch.codex,cwd:input.cwd??previous?.launch.cwd,backend:input.backend??previous?.launch.backend??'configured',defaults:{...previous?.launch.defaults,...input.defaults}};
+  if(previous&&input.session0Desktop!==undefined)throw fault('LAUNCH_INVALID','Saved runs retain their original desktop selection');
+  const session0Desktop=previous?.launch?.session0Desktop??input.session0Desktop??'inherit';
+  const launch={...(session0Desktop==='shared'?{session0Desktop}:{}),codex:input.codex??previous?.launch.codex,cwd:input.cwd??previous?.launch.cwd,backend:input.backend??previous?.launch.backend??'configured',defaults:{...previous?.launch.defaults,...input.defaults}};
   if(capabilities)Object.assign(launch,{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint});
   if(frozenPolicy)Object.assign(launch,{capturePolicy:frozenPolicy.policy,capturePolicyHash:frozenPolicy.policyHash});
-  const native=createLaunch({executable:launch.codex,cwd:launch.cwd,backend:launch.backend});
+  const native=createLaunch({executable:launch.codex,cwd:launch.cwd,backend:launch.backend,session0Desktop});
   launch.cwd=native.cwd;
   const request={runDir:input.runDir,sessionId:input.sessionId,script:input.script??previous?.script,
     args:Object.hasOwn(input,'args')?input.args:previous?.args??null,concurrency:input.concurrency??previous?.concurrency??2,
@@ -84,18 +87,20 @@ export async function serveBackground(requestPath,createBackend){
     if(!process.connected)return reject(fault('BACKGROUND_ABANDONED','Launcher connection is closed'));
     process.send(message,error=>error?reject(fault('BACKGROUND_ABANDONED','Launcher acknowledgement failed')):resolveSend());
   });
-  let result;
+  let result,admitting=false,backendName;
   try{
     const request=JSON.parse(await readFile(requestPath,'utf8'));
     parseScript(request.script);
-    const backend=await createBackend({executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,defaults:request.launch.defaults??{},...(request.launch.workerCapabilities?{workerCapabilities:request.launch.workerCapabilities,workerCapabilitiesHash:request.launch.workerCapabilitiesHash}:{})});
+    admitting=true;backendName=request.launch.backend;
+    const backend=await createBackend({executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,session0Desktop:request.launch.session0Desktop??'inherit',defaults:request.launch.defaults??{},...(request.launch.workerCapabilities?{workerCapabilities:request.launch.workerCapabilities,workerCapabilitiesHash:request.launch.workerCapabilitiesHash}:{})});
+    admitting=false;
     const run=await runWorkflow({...request,backend,onReady:async({generation})=>{
       await send({kind:'ready',generation});await permission;
       await send({kind:'started',generation});
       process.removeListener('disconnect',onDisconnect);if(process.connected)process.disconnect();
     }});
     result={status:run.status,generation:run.generation,coverage:run.coverage,error:run.error??null,cleanup:run.cleanup};
-  }catch(error){result={status:'failed',error:diagnostic(error)};}
+  }catch(error){result={status:'failed',error:diagnostic(error),...(admitting?{admissionFailure:doctorFailure(error,{backend:backendName})}:{})};}
   finally{process.removeListener('message',onMessage);process.removeListener('disconnect',onDisconnect);}
   const name=basename(requestPath);
   if(!/^launch-[0-9a-f-]+\.json$/.test(name))throw fault('BACKGROUND_INPUT','Invalid launch receipt name');

@@ -4,7 +4,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {spawn,execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -12,6 +13,26 @@ import {fileURLToPath} from 'node:url';
 
 const windows=process.platform==='win32';
 const alive=pid=>{try{process.kill(pid,0);return true;}catch(error){if(error.code==='ESRCH')return false;throw error;}};
+test('Windows host context reports bounded local facts without starting a job', {skip:!windows,timeout:25000},async t=>{
+  const {buildJobHost}=await import('../foundation/windows-job.mjs');
+  const dir=await mkdtemp(join(tmpdir(),'workflow-context-test-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const host=await buildJobHost(dir);
+  const {stdout,stderr}=await promisify(execFile)(host,['--context'],{windowsHide:true,timeout:5000,maxBuffer:2048});
+  assert.equal(stderr,'');assert.ok(Buffer.byteLength(stdout)<2048);
+  const context=JSON.parse(stdout);
+  if(context.sessionId!==0){
+    await assert.rejects(promisify(execFile)(host,['--session0-desktop',process.execPath,'-e','console.log("UNEXPECTED_CHILD")'],{windowsHide:true,timeout:5000,maxBuffer:2048}),error=>error.code===2&&error.stdout===''&&error.stderr==='WORKFLOW_SESSION0_DESKTOP_REJECTED\n');
+    const {AppServer}=await import('../foundation/client.mjs');
+    await assert.rejects(AppServer.connect({command:process.execPath,args:['-e','console.log("UNEXPECTED_CHILD")'],jobHost:host,session0Desktop:'shared'}),error=>error.code==='SESSION0_DESKTOP_SCOPE'&&error.cleanup.serverExited===true&&error.cleanup.jobEmpty===true&&error.cleanup.desktopCompatibility.applied===false);
+  }
+  assert.equal(context.status,'observed');
+  assert.deepEqual(Object.keys(context).sort(),['buildNumber','displayVersion','elevated','interactive','revision','sessionId','status']);
+  assert.ok(Number.isInteger(context.sessionId)&&context.sessionId>=0);
+  assert.equal(typeof context.elevated,'boolean');assert.equal(typeof context.interactive,'boolean');
+  assert.match(context.buildNumber,/^\d{1,10}$/);assert.ok(Number.isInteger(context.revision)&&context.revision>=0);
+  assert.match(context.displayVersion,/^[A-Za-z0-9 ._-]{0,32}$/);
+  await assert.rejects(promisify(execFile)(host,['--context',process.execPath,'-e','console.log("UNEXPECTED_CHILD")'],{windowsHide:true,timeout:5000,maxBuffer:2048}),error=>error.code===2&&error.stdout===''&&error.stderr==='');
+});
 test('Windows owned job drains detached descendants on root exit and stdin cancellation', {skip:!windows,timeout:30000},async t=>{
   const {buildJobHost}=await import('../foundation/windows-job.mjs');
   const dir=await mkdtemp(join(tmpdir(),'workflow-job-test-'));t.after(()=>rm(dir,{recursive:true,force:true}));

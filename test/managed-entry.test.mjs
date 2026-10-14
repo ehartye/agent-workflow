@@ -15,7 +15,47 @@ import {promisify} from 'node:util';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {installRuntime,bindRun} from '../bin/managed-runtime.mjs';
 import {parseCommand} from '../bin/arguments.mjs';
+import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
 const execute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
+
+test('Session 0 desktop selection is explicit, enumerated and frozen for saved runs',()=>{
+ for(const command of ['doctor','run'])for(const mode of ['inherit','shared']){
+  const args=command==='run'?['run','demo','--session','s']:['doctor'];
+  assert.equal(parseCommand([...args,'--session0-desktop',mode],{}).values['session0-desktop'],mode);
+ }
+ assert.throws(()=>parseCommand(['doctor','--session0-desktop','arbitrary'],{}),/inherit or shared/);
+ for(const command of ['resume','restart-worker','mode'])assert.throws(()=>parseCommand([command,command==='mode'?'status':'demo','--session','s','--session0-desktop','shared'],{}),/not valid/);
+});
+
+const hostContext={node:'v24.21.0',platform:'win32',arch:'x64',osRelease:'10.0.26200',sshEnvironmentPresent:true,windows:{status:'observed',sessionId:0,elevated:true,interactive:false,buildNumber:'26200',revision:9457,displayVersion:'25H2'}};
+test('doctor classifies supplied Windows DLL startup status without claiming a DLL, cause or repair',()=>{
+ for(const exitCode of [-1073741502,3221225794]){
+  const admission=failedAdmission();admission.stages[2].evidence={exitCode,markerObserved:false,outputTruncated:false};
+  const report=doctorFailure({code:'ADMISSION_FAILED',admission},{backend:'mxc',hostContext});
+  assert.deepEqual(report.diagnosis,{kind:'windows-dll-initialization-failed',ntstatus:'0xC0000142',cause:'notDetermined'});
+  assert.deepEqual(report.hostContext,hostContext);
+  assert.equal(report.status,'failed');assert.equal(report.inferenceRequests,0);assert.equal(report.error.code,'ADMISSION_FAILED');assert.equal(report.stage,'buffered-command');
+  assert.equal(report.admission.stages[2].evidence.exitCode,exitCode);assert.deepEqual(report.cleanup,doctorCleanup);
+  assert.doesNotMatch(JSON.stringify(report),/user32|fixed|repair|retry|fallback|password|email/);
+ }
+});
+test('doctor does not infer DLL startup failure from missing facts, another platform, or cancellation',()=>{
+ for(const [exitCode,context,name,status] of [[undefined,hostContext,'buffered-command','failed'],[1,hostContext,'buffered-command','failed'],[-1073741502,{...hostContext,platform:'linux'},'buffered-command','failed'],[-1073741502,hostContext,'cancellation','failed'],[-1073741502,hostContext,'buffered-command','passed']]){
+  const admission=failedAdmission();admission.stages[2].name=name;admission.stages[2].status=status;if(exitCode!==undefined)admission.stages[2].evidence={exitCode};
+  const report=doctorFailure({code:'ADMISSION_FAILED',admission},{backend:'mxc',hostContext:context});
+  assert.equal(report.diagnosis,undefined);assert.equal(report.status,'failed');
+ }
+});
+test('doctor host context is bounded and allowlisted without invoking untrusted accessors',()=>{
+ const context={...hostContext,secret:doctorSecret,windows:{...hostContext.windows,username:doctorSecret,command:doctorSecret}};
+ Object.defineProperty(context,'stack',{get(){throw Error('must not invoke host accessors');}});
+ const report=doctorFailure({code:'ADMISSION_FAILED'},{backend:'mxc',hostContext:context});
+ assert.deepEqual(report.hostContext,hostContext);assert.doesNotMatch(JSON.stringify(report),/DOCTOR_SECRET_SENTINEL|private@example|username|command|stack/);
+ const unavailable=doctorFailure({code:'ADMISSION_FAILED'},{hostContext:{...hostContext,windows:{status:'unavailable',reason:doctorSecret}}});
+ assert.deepEqual(unavailable.hostContext.windows,{status:'unavailable'});
+ const invalid=doctorFailure({code:'ADMISSION_FAILED'},{hostContext:{...hostContext,windows:{...hostContext.windows,sessionId:-1}}});
+ assert.deepEqual(invalid.hostContext.windows,{status:'unavailable'});
+});
 
 test('worker capability manifests are a new-run-only public option',()=>{
  const parsed=parseCommand(['run','demo','--session','s','--worker-capabilities','bundle.json'],{});
@@ -72,10 +112,11 @@ async function invokeDoctor(t,scenario){
  const unused=`function unused(){throw Error('Doctor used an unrelated engine operation');}
  export {unused as readCapabilities,unused as readMode,unused as setMode,unused as parseScript,unused as listWorkflows,unused as resolveWorkflow,unused as saveWorkflow,unused as readRun,unused as runWorkflow,unused as requestControl,unused as readControl,unused as startBackground,unused as startMonitor,unused as monitorData,unused as readLifecycle,unused as readLifecycleReceipt,unused as requestLifecycle,unused as planPrune,unused as applyPrune,unused as createSessionServices};
  export const MAX_RUN_TIMEOUT_MS=86400000,MAX_WORKER_TIMEOUT_MS=1800000;`;
+ const context=`export async function readHostContext(){${scenario.contextFailure?`throw Error(${JSON.stringify(doctorSecret)});`:`return ${JSON.stringify(scenario.hostContext??hostContext)};`}}`;
  await writeFile(hook,`import {registerHooks} from 'node:module';
- const base=${JSON.stringify(new URL('../',import.meta.url).href)},backend=${JSON.stringify(backend)},runtime=${JSON.stringify(runtime)},unused=${JSON.stringify(unused)};
+ const base=${JSON.stringify(new URL('../',import.meta.url).href)},backend=${JSON.stringify(backend)},runtime=${JSON.stringify(runtime)},unused=${JSON.stringify(unused)},hostContext=${JSON.stringify(context)};
  registerHooks({load(url,context,nextLoad){
-  const source=url===new URL('bin/managed-runtime.mjs',base).href?runtime:url===new URL('engine/backend.mjs',base).href?backend:url.startsWith(new URL('engine/',base).href)?unused:undefined;
+  const source=url===new URL('foundation/host-context.mjs',base).href?hostContext:url===new URL('bin/managed-runtime.mjs',base).href?runtime:url===new URL('engine/backend.mjs',base).href?backend:url.startsWith(new URL('engine/',base).href)?unused:undefined;
   return source===undefined?nextLoad(url,context):{format:'module',source,shortCircuit:true};
  }});`);
  const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
@@ -93,6 +134,26 @@ function assertDoctorFailure(result,stage,code){
  assert.doesNotMatch(result.stdout,/DOCTOR_SECRET_SENTINEL|private@example|C:[/\\]|stdout|stderr|stack|account|config|command\":|authToken/);
  assert.ok(Buffer.byteLength(result.stdout)<8192,'doctor diagnostics must stay bounded');
 }
+
+test('public doctor includes safe host context on pass and classifies supplied DLL failures',async t=>{
+ const admission=failedAdmission();admission.stages[2].evidence={exitCode:-1073741502};
+ const failure=await invokeDoctor(t,{admission});
+ assertDoctorFailure(failure,'buffered-command','ADMISSION_FAILED');
+ assert.deepEqual(failure.report.hostContext,hostContext);
+ assert.equal(failure.report.diagnosis.ntstatus,'0xC0000142');
+ const passed={...admission,status:'passed',stages:admission.stages.slice(0,2)};delete passed.error;
+ const success=await invokeDoctor(t,{failure:false,admission:passed,cleanup:doctorCleanup,hostContext:{...hostContext,secret:doctorSecret,windows:{...hostContext.windows,username:doctorSecret}}});
+ assert.equal(success.code,0);assert.equal(success.report.status,'passed');assert.equal(success.report.inferenceRequests,0);
+ assert.deepEqual(success.report.hostContext,hostContext);assert.equal(success.report.diagnosis,undefined);
+ assert.doesNotMatch(success.stdout,/DOCTOR_SECRET_SENTINEL|private@example|username/);
+});
+
+test('unavailable doctor host collection preserves the original admission result and cleanup',async t=>{
+ const result=await invokeDoctor(t,{admission:failedAdmission(),contextFailure:true});
+ assertDoctorFailure(result,'buffered-command','ADMISSION_FAILED');
+ assert.equal(result.report.hostContext,undefined);assert.equal(result.report.diagnosis,undefined);
+ assert.deepEqual(result.report.cleanup,doctorCleanup);assert.equal(result.trace,'select\nnative\ncreate\n');
+});
 
 test('doctor retains failed command admission stages and owned cleanup without inventing command facts',async t=>{
  const result=await invokeDoctor(t,{admission:failedAdmission()});
@@ -186,7 +247,7 @@ test('doctor preserves successful zero-inference output and owned cleanup',async
  const admission={...failedAdmission(),status:'passed',stages:failedAdmission().stages.slice(0,2)};delete admission.error;
  const result=await invokeDoctor(t,{failure:false,admission,cleanup:doctorCleanup});
  assert.equal(result.code,0);
- assert.deepEqual(result.report,{status:'passed',inferenceRequests:0,node:process.version,codex:'C:/private/native/codex.exe',backend:'mxc',admission,cleanup:doctorCleanup});
+ assert.deepEqual(result.report,{status:'passed',inferenceRequests:0,node:process.version,codex:'C:/private/native/codex.exe',backend:'mxc',hostContext,admission,cleanup:doctorCleanup});
  assert.match(result.trace,/^select\nnative\ncreate\nclose\n(?:close\n)?$/);
 });
 

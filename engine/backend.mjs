@@ -29,8 +29,9 @@ function aggregateCleanup(records,requiresJob,startup){
   return{serverExited:records.every(record=>ownershipVerified(record,requiresJob)),forced:records.some(record=>record?.forced===true),descendants:'notVerified',...(requiresJob?{jobEmpty:records.every(record=>record?.jobEmpty===true),ownershipScope:'windows-job-members'}:{}),startup};
 }
 
-export async function createManagedBackend({ executable, cwd, backend = 'configured', defaults={},workerCapabilities,workerCapabilitiesHash }) {
+export async function createManagedBackend({ executable, cwd, backend = 'configured', defaults={},workerCapabilities,workerCapabilitiesHash,session0Desktop='inherit' }) {
   if(defaults.permissions?.sandbox==='workspace-write'&&(process.platform!=='win32'||backend!=='mxc'))throw fault('WORKSPACE_BACKEND','Writers require the verified Windows MXC backend; select --backend mxc');
+  createLaunch({executable,cwd,backend,session0Desktop});
   let directory;
   const startup={attempted:false,records:[]};
   try{
@@ -38,7 +39,7 @@ export async function createManagedBackend({ executable, cwd, backend = 'configu
     if(workerCapabilitiesHash!==undefined&&bundle?.fingerprint!==workerCapabilitiesHash)throw fault('CAPABILITY_IDENTITY','Worker capability ceiling identity changed');
     let jobHost;
     if(process.platform==='win32'){directory=await mkdtemp(join(tmpdir(),'workflow-job-host-'));jobHost=await buildJobHost(directory);}
-    const managed=await createBackend({executable,cwd,backend,defaults,jobHost,startup,bundle});
+    const managed=await createBackend({executable,cwd,backend,defaults,jobHost,startup,bundle,session0Desktop});
     let closing;
     return{...managed,close:()=>closing??=(async()=>{const result=await managed.close();if(directory&&ownershipVerified(result,true))await rm(directory,{recursive:true,force:true});return result;})()};
   }catch(error){
@@ -52,12 +53,12 @@ export async function createManagedBackend({ executable, cwd, backend = 'configu
   }
 }
 
-async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bundle}){
+async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bundle,session0Desktop}){
   const requiresJob=Boolean(jobHost);
   const retainCleanup=(stage,receipt)=>{
     // Only fixed ownership facts and public diagnostics enter retained startup
     // evidence; never spread transport errors or server-supplied details.
-    const cleanup={serverExited:receipt?.serverExited===true,forced:receipt?.forced===true,descendants:'notVerified',...(requiresJob?{jobEmpty:receipt?.jobEmpty===true,ownershipScope:'windows-job-members'}:{}),...(receipt?.error?{error:diagnostic(receipt.error)}:{})};
+    const cleanup={serverExited:receipt?.serverExited===true,forced:receipt?.forced===true,descendants:'notVerified',...(requiresJob?{jobEmpty:receipt?.jobEmpty===true,ownershipScope:'windows-job-members'}:{}),...(receipt?.desktopCompatibility?{desktopCompatibility:receipt.desktopCompatibility}:{}),...(receipt?.error?{error:diagnostic(receipt.error)}:{})};
     startup.records.push({stage,cleanup});return cleanup;
   };
   const connectStartup=async(stage,options)=>{
@@ -73,7 +74,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
   };
   const requireCleanup=(receipt,code,message)=>{if(!ownershipVerified(receipt,requiresJob))throw fault(code,message);};
   try{
-  let launch = {...restrictLaunch(createLaunch({ executable, cwd, backend })),...(jobHost?{jobHost}:{})};
+  let launch = {...restrictLaunch(createLaunch({ executable, cwd, backend, session0Desktop })),...(jobHost?{jobHost}:{})};
   const exec = promisify(execFile);
   const options = { cwd: launch.cwd, env: launch.env, windowsHide: true, timeout: 5000, maxBuffer: 8192 };
   const version = (await exec(executable, ['--version'], options)).stdout.trim();
@@ -136,12 +137,12 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
     const settings=createSettings({catalog,config:config.config,defaults,workerCapabilities:bundle?.manifest});
     const activeWorkers=new Map();
     const connections=new Set(),cleanupHistory=[];let closing=false,closePromise;
-    const identity = fingerprint({ version, cwd: launch.cwd, backend, account, config: config.config, defaults:settings.resolve(),playwrightBrowsersPath:launch.env.PLAYWRIGHT_BROWSERS_PATH??null,...(bundle?{workerCapabilitiesHash:bundle.fingerprint,directSkills:DIRECT_SKILLS}:{}), layers: config.layers.filter(layer => !layer.disabledReason).map(layer => layer.config) });
+    const identity = fingerprint({ version, cwd: launch.cwd, backend,...(session0Desktop==='shared'?{session0Desktop}:{}), account, config: config.config, defaults:settings.resolve(),playwrightBrowsersPath:launch.env.PLAYWRIGHT_BROWSERS_PATH??null,...(bundle?{workerCapabilitiesHash:bundle.fingerprint,directSkills:DIRECT_SKILLS}:{}), layers: config.layers.filter(layer => !layer.disabledReason).map(layer => layer.config) });
     setupClosed=true;
     const setupCleanup=await closeStartup('setup',client);
     requireCleanup(setupCleanup,'SETUP_CLEANUP','Configuration server did not confirm ownership termination');
     return {
-      identity, admission, ...(bundle?{workerCapabilitiesHash:bundle.fingerprint}:{}),resolveOptions:settings.resolve,
+      identity, admission,...(session0Desktop==='shared'?{desktopCompatibility:admission.cleanup.desktopCompatibility}:{}), ...(bundle?{workerCapabilitiesHash:bundle.fingerprint}:{}),resolveOptions:settings.resolve,
       async steer({position,turnId,text}){
         const identity=activeWorkers.get(position);
         if(!identity||identity.turnId!==turnId)throw fault('CONTROL_TURN','Worker no longer owns that active turn');
