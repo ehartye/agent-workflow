@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import {mkdtemp,rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {tmpdir,homedir} from 'node:os';
+import {join,resolve} from 'node:path';
 import { promisify } from 'node:util';
+import {randomUUID} from 'node:crypto';
 import { AppServer, fault, diagnostic } from '../foundation/client.mjs';
 import {cleanupTerminals} from '../foundation/terminals.mjs';
 import {buildJobHost} from '../foundation/windows-job.mjs';
@@ -12,7 +13,9 @@ import { runWorkerSession } from './worker-session.mjs';
 import {DEFAULT_WORKER_TIMEOUT_MS} from './deadlines.mjs';
 import { createSettings } from './settings.mjs';
 import {steerTurn} from '../foundation/turn.mjs';
-import { restrictLaunch, assertRestricted, assertDisabledInventory, fingerprint } from './policy.mjs';
+import { restrictLaunch, assertRestricted, assertDisabledInventory, fingerprint,parentLaunch,assertNoDelegation,integrationFacts } from './policy.mjs';
+import {validateAccessPolicy} from './access-policy.mjs';
+import {discoverParentCapabilities} from './parent-capabilities.mjs';
 import {writerPolicy,assertWriterThread} from './workspace-policy.mjs';
 import {assertWorkspaceReady} from './workspaces.mjs';
 import {freezeCapabilities,selectCapabilities,admitWorkerCapabilities,DIRECT_SKILLS,assertDirectSkills,observeNativeSkills} from './worker-capabilities.mjs';
@@ -29,7 +32,39 @@ function aggregateCleanup(records,requiresJob,startup){
   return{serverExited:records.every(record=>ownershipVerified(record,requiresJob)),forced:records.some(record=>record?.forced===true),descendants:'notVerified',...(requiresJob?{jobEmpty:records.every(record=>record?.jobEmpty===true),ownershipScope:'windows-job-members'}:{}),startup};
 }
 
-export async function createManagedBackend({ executable, cwd, backend = 'configured', defaults={},workerCapabilities,workerCapabilitiesHash,session0Desktop='inherit' }) {
+function commandFailureFacts(error){
+  const field=key=>{try{return Object.getOwnPropertyDescriptor(error,key)?.value;}catch{return undefined;}};
+  const code=field('code'),killed=field('killed'),signal=field('signal');
+  const bytes=key=>{const value=field(key);return typeof value==='string'?Buffer.byteLength(value):Buffer.isBuffer(value)?value.length:null;};
+  return{exitCode:Number.isInteger(code)&&code>=-2147483648&&code<=4294967295?code:null,killed:typeof killed==='boolean'?killed:null,
+    signal:signal===null?'none':['SIGTERM','SIGKILL','SIGINT'].includes(signal)?'termination':typeof signal==='string'?'other':'unknown',stdoutBytes:bytes('stdout'),stderrBytes:bytes('stderr')};
+}
+
+const completionSourceCommand=skills=>[process.execPath,'--input-type=module','-e',`try{const m=await import(${JSON.stringify(new URL('./worker-capabilities.mjs',import.meta.url).href)});await m.verifySkillSources(JSON.parse(process.argv[1]));process.stdout.write("WORKER_SKILL_COMPLETION_OK\\n");}catch(e){const changed=e?.code==="SKILL_SOURCE";process.stdout.write(changed?"WORKER_SKILL_COMPLETION_CHANGED\\n":"WORKER_SKILL_COMPLETION_UNKNOWN\\n");process.exitCode=changed?12:13;}`,JSON.stringify(skills)];
+
+async function checkCompletionSources(client,{command,cwd,sandboxPolicy,selection,deadline,signal}){
+  const fact={scope:'selected-skills',skillCount:selection.skills.length,selectionFingerprint:selection.fingerprint,status:'failed',start:'unknown',exitCode:null,sourceStatus:'unverified',outputTruncated:false};
+  try{
+    if(signal?.aborted){fact.start='notStarted';throw fault('RUN_STOPPED','Completion source check was cancelled');}
+    const remaining=Math.floor(deadline-performance.now());
+    if(remaining<=0){fact.start='notStarted';throw fault('TURN_TIMEOUT','Worker deadline elapsed before source completion check');}
+    const timeoutMs=Math.min(20000,remaining);
+    const response=await client.request('command/exec',{processId:`capability-completion-${randomUUID()}`,command,cwd,sandboxPolicy,streamStdoutStderr:false,timeoutMs,outputBytesCap:8192},{timeoutMs:Math.min(timeoutMs+1000,remaining)});
+    if(Number.isSafeInteger(response?.exitCode)&&response.exitCode>=-2147483648&&response.exitCode<=4294967295){fact.start='observed';fact.exitCode=response.exitCode;}
+    const valid=typeof response?.stdout==='string'&&typeof response?.stderr==='string';
+    fact.outputTruncated=!valid||Buffer.byteLength(response.stdout+response.stderr)>=8192;
+    if(valid&&!fact.outputTruncated&&response.stderr===''){
+      if(fact.exitCode===0&&response.stdout.trim()==='WORKER_SKILL_COMPLETION_OK')fact.sourceStatus='verified';
+      else if(fact.exitCode===12&&response.stdout.trim()==='WORKER_SKILL_COMPLETION_CHANGED')fact.sourceStatus='changedOrUnavailable';
+    }
+    if(performance.now()>=deadline)throw fault('TURN_TIMEOUT','Worker deadline elapsed during source completion check');
+    if(fact.sourceStatus==='verified')fact.status='passed';
+  }catch(error){fact.error={code:['RUN_STOPPED','TURN_TIMEOUT','REQUEST_TIMEOUT'].includes(error?.code)?error.code:'COMPLETION_CHECK_FAILED'};}
+  return fact;
+}
+
+export async function createManagedBackend({ executable, cwd, backend = 'configured', defaults={},workerCapabilities,workerCapabilitiesHash,session0Desktop='inherit',accessPolicy }) {
+  accessPolicy=accessPolicy===undefined?undefined:validateAccessPolicy(accessPolicy);
   if(defaults.permissions?.sandbox==='workspace-write'&&(process.platform!=='win32'||backend!=='mxc'))throw fault('WORKSPACE_BACKEND','Writers require the verified Windows MXC backend; select --backend mxc');
   createLaunch({executable,cwd,backend,session0Desktop});
   let directory;
@@ -39,7 +74,7 @@ export async function createManagedBackend({ executable, cwd, backend = 'configu
     if(workerCapabilitiesHash!==undefined&&bundle?.fingerprint!==workerCapabilitiesHash)throw fault('CAPABILITY_IDENTITY','Worker capability ceiling identity changed');
     let jobHost;
     if(process.platform==='win32'){directory=await mkdtemp(join(tmpdir(),'workflow-job-host-'));jobHost=await buildJobHost(directory);}
-    const managed=await createBackend({executable,cwd,backend,defaults,jobHost,startup,bundle,session0Desktop});
+    const managed=await createBackend({executable,cwd,backend,defaults,jobHost,startup,bundle,session0Desktop,accessPolicy});
     let closing;
     return{...managed,close:()=>closing??=(async()=>{const result=await managed.close();if(directory&&ownershipVerified(result,true))await rm(directory,{recursive:true,force:true});return result;})()};
   }catch(error){
@@ -53,8 +88,11 @@ export async function createManagedBackend({ executable, cwd, backend = 'configu
   }
 }
 
-async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bundle,session0Desktop}){
+async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bundle,session0Desktop,accessPolicy}){
+  const parent=accessPolicy?.policy.access==='parent',expectedSandbox=parent?'danger-full-access':'read-only';
+  const assertIntegrations=parent?assertNoDelegation:assertRestricted;
   const requiresJob=Boolean(jobHost);
+  let constructionStage='launch',commandFailure;
   const retainCleanup=(stage,receipt)=>{
     // Only fixed ownership facts and public diagnostics enter retained startup
     // evidence; never spread transport errors or server-supplied details.
@@ -74,13 +112,16 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
   };
   const requireCleanup=(receipt,code,message)=>{if(!ownershipVerified(receipt,requiresJob))throw fault(code,message);};
   try{
-  let launch = {...restrictLaunch(createLaunch({ executable, cwd, backend, session0Desktop })),...(jobHost?{jobHost}:{})};
+  let launch = {...(parent?parentLaunch:restrictLaunch)(createLaunch({ executable, cwd, backend, session0Desktop,sandboxMode:expectedSandbox })),...(jobHost?{jobHost}:{})};
   const exec = promisify(execFile);
   const options = { cwd: launch.cwd, env: launch.env, windowsHide: true, timeout: 5000, maxBuffer: 8192 };
-  const version = (await exec(executable, ['--version'], options)).stdout.trim();
+  const preflight=async args=>{try{return await exec(executable,args,options);}catch(error){commandFailure=commandFailureFacts(error);throw error;}};
+  constructionStage='version';
+  const version = (await preflight(['--version'])).stdout.trim();
   if (version !== 'codex-cli 0.162.1') throw fault('VERSION_UNSUPPORTED', 'Workflow engine requires the reviewed Codex 0.162.1 protocol');
+  constructionStage='authentication';
   let login;
-  try{login=await exec(executable,['login','status'],options);}
+  try{login=await preflight(['login','status']);}
   catch(error){
     // Native absent-login status uses exit 1. Only that settled, known response
     // enters authentication classification; startup/timeout/unknown failures
@@ -91,21 +132,25 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
   try{assertChatgptLogin(login);}
   catch(error){error.admission={status:'failed',inferenceRequests:0,runnerEquivalence:'notVerified',stages:[{name:'authentication',status:'failed',error:diagnostic(error)}],error:diagnostic(error)};throw error;}
   // Configuration discovery starts no threads and dispatches no model turns.
+  constructionStage='discovery';
   const discovery = await connectStartup('discovery',launch);
   let discoveryFailure;
   try {
     const config = await discovery.request('config/read', { cwd: launch.cwd, includeLayers: true });
-    launch = restrictLaunch(launch, config.config);
+    launch = parent?parentLaunch(launch):restrictLaunch(launch, config.config);
+    if(parent)integrationFacts(config.config);
   } catch(error){discoveryFailure=error;}
   const discoveryCleanup=await closeStartup('discovery',discovery);
   if(discoveryFailure)throw discoveryFailure;
   requireCleanup(discoveryCleanup,'DISCOVERY_CLEANUP','Configuration discovery did not confirm ownership termination');
+  constructionStage='admission';
   const admissionClient = await connectStartup('admission',launch);
-  try { assertRestricted((await admissionClient.request('config/read', {cwd:launch.cwd})).config); }
+  try { assertIntegrations((await admissionClient.request('config/read', {cwd:launch.cwd})).config); }
   catch(error) { await closeStartup('admission',admissionClient); throw error; }
   let admission;
   try{admission = await probe(admissionClient, {
     cwd: launch.cwd,
+    expectedSandbox,...(parent?{sandboxPolicy:accessPolicy.native.command.sandboxPolicy}:{}),
     command: [process.execPath, '-e', 'process.stdout.write("FOUNDATION_OK\\n")'],
     cancelCommand: [process.execPath, '-e', 'process.stdout.write("READY\\n");setInterval(() => {},1000)'],
   });}catch(error){
@@ -119,13 +164,14 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
     admission.status='failed';
     throw Object.assign(fault('ADMISSION_CLEANUP','Command admission did not confirm ownership termination'),{admission});
   }
+  constructionStage='setup';
   const client = await connectStartup('setup',{ ...launch, experimentalApi:true, env: { ...launch.env, AGENT_WORKFLOW_WORKER: '1' } });
   let setupClosed=false;
   try {
     const account = await client.request('account/read', { refreshToken: false });
     const config = await client.request('config/read', { cwd: launch.cwd, includeLayers: true });
-    assertManagedChatgpt(account, config);
-    assertRestricted(config.config);
+    assertManagedChatgpt(account, config,expectedSandbox);
+    assertIntegrations(config.config);
     const catalog=[];let cursor;
     for(let page=0;page<10;page++){
       const models=await client.request('model/list',{includeHidden:true,limit:100,...(cursor?{cursor}:{})});
@@ -134,15 +180,23 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
       if(cursor==null)break;
       if(typeof cursor!=='string'||!cursor||page===9)throw fault('MODEL_CATALOG','Codex model catalog exceeded its page limit');
     }
-    const settings=createSettings({catalog,config:config.config,defaults,workerCapabilities:bundle?.manifest});
+    const settings=createSettings({catalog,config:config.config,defaults,workerCapabilities:bundle?.manifest,accessPolicy});
+    const nativeIntegrations=parent?integrationFacts(config.config):undefined;
+    let parentCapabilities;
+    if(parent){
+      const homes=Object.entries(launch.env).filter(([key])=>key.toUpperCase()==='CODEX_HOME').map(([,value])=>value);
+      if(new Set(homes).size>1)throw fault('PARENT_CAPABILITIES','Native home configuration is ambiguous');
+      parentCapabilities=await discoverParentCapabilities(client,{cwd:launch.cwd,codexHome:homes[0]??join(homedir(),'.codex')});
+      if(!parentCapabilities.coverage.complete)throw Object.assign(fault('PARENT_CAPABILITIES','Parent native catalog is incomplete; no model was admitted'),{evidence:{parentCapabilities:structuredClone(parentCapabilities)}});
+    }
     const activeWorkers=new Map();
     const connections=new Set(),cleanupHistory=[];let closing=false,closePromise;
-    const identity = fingerprint({ version, cwd: launch.cwd, backend,...(session0Desktop==='shared'?{session0Desktop}:{}), account, config: config.config, defaults:settings.resolve(),playwrightBrowsersPath:launch.env.PLAYWRIGHT_BROWSERS_PATH??null,...(bundle?{workerCapabilitiesHash:bundle.fingerprint,directSkills:DIRECT_SKILLS}:{}), layers: config.layers.filter(layer => !layer.disabledReason).map(layer => layer.config) });
+    const identity = fingerprint({ version, cwd: launch.cwd, backend,...(accessPolicy?{accessPolicyHash:accessPolicy.fingerprint}:{}),...(parentCapabilities?{parentCapabilitiesHash:parentCapabilities.fingerprint,parentDirectSkills:DIRECT_SKILLS}:{}),...(session0Desktop==='shared'?{session0Desktop}:{}), account, config: config.config, defaults:settings.resolve(),playwrightBrowsersPath:launch.env.PLAYWRIGHT_BROWSERS_PATH??null,...(bundle?{workerCapabilitiesHash:bundle.fingerprint,directSkills:DIRECT_SKILLS}:{}), layers: config.layers.filter(layer => !layer.disabledReason).map(layer => layer.config) });
     setupClosed=true;
     const setupCleanup=await closeStartup('setup',client);
     requireCleanup(setupCleanup,'SETUP_CLEANUP','Configuration server did not confirm ownership termination');
     return {
-      identity, admission,...(session0Desktop==='shared'?{desktopCompatibility:admission.cleanup.desktopCompatibility}:{}), ...(bundle?{workerCapabilitiesHash:bundle.fingerprint}:{}),resolveOptions:settings.resolve,
+      identity, admission,...(accessPolicy?{accessPolicy}:{}),...(parentCapabilities?{parentCapabilities:structuredClone(parentCapabilities)}:{}),...(nativeIntegrations?{nativeIntegrations}:{}),...(session0Desktop==='shared'?{desktopCompatibility:admission.cleanup.desktopCompatibility}:{}), ...(bundle?{workerCapabilitiesHash:bundle.fingerprint}:{}),resolveOptions:settings.resolve,
       async steer({position,turnId,text}){
         const identity=activeWorkers.get(position);
         if(!identity||identity.turnId!==turnId)throw fault('CONTROL_TURN','Worker no longer owns that active turn');
@@ -150,70 +204,118 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
       },
       async execute({ prompt, options = {}, signal, reserveRetry, position, onActive,onEvent,workspace }) {
         if (closing||signal?.aborted) throw Object.assign(fault('RUN_STOPPED', 'Workflow admission is closed'), { notStarted: true,noProcessStarted:true });
-        const effective=settings.resolve(options),writing=effective.permissions.sandbox==='workspace-write';
+        const effective=settings.resolve(options),restrictedWriter=effective.permissions.sandbox==='workspace-write',writing=restrictedWriter||effective.workspace==='isolated';
+        if(restrictedWriter&&(process.platform!=='win32'||backend!=='mxc'))throw Object.assign(fault('WORKSPACE_BACKEND','Restricted writers require the Windows MXC backend'),{notStarted:true,noProcessStarted:true});
         const selection=selectCapabilities(bundle?.manifest,options);
+        const completionCommand=selection?.skills.length?completionSourceCommand(selection.skills):null;
+        if(completionCommand&&completionCommand.reduce((size,arg)=>size+2*arg.length+3,0)>30000)throw Object.assign(fault('CAPABILITY_SELECTION','Selected completion check exceeds the Windows command-line budget'),{notStarted:true,noProcessStarted:true});
+        const rootKey=path=>process.platform==='win32'?resolve(path).toLowerCase():resolve(path);
+        const rootsByPath=new Map((parentCapabilities?.roots??[]).map(root=>[rootKey(root.location.path),root]));
+        // Exact role roots keep their stable declared IDs when the native
+        // catalog already exposed the same original directory.
+        for(const root of selection?.roots??[])rootsByPath.set(rootKey(root.location.path),root);
+        const roots=[...rootsByPath.values()];
+        if(roots.length>128||new Set(roots.map(root=>root.id)).size!==roots.length)throw Object.assign(fault('PARENT_CAPABILITIES','Native selected roots exceed their bound or have conflicting identities'),{notStarted:true,noProcessStarted:true});
+        const directSkills=roots.length>0;
+        const parentGuidance=parentCapabilities&&directSkills?`Original parent native capability roots are available: ${JSON.stringify(roots)}. When your task uses skills, call genuine skills.list with authority {kind:"executor"}, then skills.read using the returned package and main_resource. Resolve same-name packages using their original root and native catalog metadata. Discovery is availability evidence, not proof of invocation. Do not substitute a manual SKILL.md read or copied skill body for native activation.`:'';
+        if(Buffer.byteLength(parentGuidance)>65536)throw Object.assign(fault('PARENT_CAPABILITIES','Parent native root guidance exceeded its bound'),{notStarted:true,noProcessStarted:true});
         if(writing){
           if(!jobHost||!workspace)throw Object.assign(fault('WORKSPACE_REQUIRED','Writer execution requires an owned Windows job and isolated workspace'),{notStarted:true,noProcessStarted:true});
           try{await assertWorkspaceReady(workspace);}catch(error){error.notStarted=true;error.noProcessStarted=true;throw error;}
         }else if(workspace)throw Object.assign(fault('WORKSPACE_POLICY','Read-only workers cannot receive writable workspaces'),{notStarted:true,noProcessStarted:true});
-        const workerCwd=writing?workspace.cwd:launch.cwd,policy=writing?writerPolicy(workerCwd):null;
+        const workerCwd=writing?workspace.cwd:launch.cwd;
+        let policy=restrictedWriter?writerPolicy(workerCwd):{launchArgs:[],thread:{sandbox:effective.permissions.sandbox,approvalPolicy:'never'},turn:{sandboxPolicy:effective.permissions.sandbox==='danger-full-access'?{type:'dangerFullAccess'}:{type:'readOnly',networkAccess:effective.permissions.networkAccess}}};
+        if(parent){
+          policy.launchArgs=[...policy.launchArgs,'-c',`sandbox_mode="${effective.permissions.sandbox}"`];
+          if(writing&&!restrictedWriter){
+            const ownership=writerPolicy(workerCwd);
+            policy.launchArgs.push(...ownership.launchArgs);
+            const common={cwd:workerCwd,runtimeWorkspaceRoots:[workerCwd]};
+            policy.thread={...policy.thread,...common};policy.turn={...policy.turn,...common};
+          }
+        }
         if(closing||signal?.aborted)throw Object.assign(fault('RUN_STOPPED','Worker admission is closed'),{notStarted:true,noProcessStarted:true});
         let started = false;
-        let ownedThread,result,primary,workerClient,capabilities,nativeSkills;
+        let ownedThread,result,primary,workerClient,capabilities,nativeSkills,observedIntegrations;
+        const parentNative=parentCapabilities?{catalog:'notObserved',read:'notObserved',exposure:directSkills?'effectiveDirectModelOnly':'notSelected'}:undefined;
+        const finishNative=()=>{nativeSkills?.finish();if(capabilities&&parentNative)Object.assign(capabilities.native,parentNative);};
         const workerEnv=createLaunch({executable:launch.command,cwd:workerCwd,backend,env:launch.env,capabilityEnvironment:selection?.environment}).env;
-        const connection=AppServer.connect({...launch,args:[...launch.args,...(policy?.launchArgs??[]),...(selection?.skills.length?['-c',DIRECT_SKILLS]:[])],cwd:workerCwd,experimentalApi:true,env:{...workerEnv,AGENT_WORKFLOW_WORKER:'1'}});
+        const connection=AppServer.connect({...launch,args:[...launch.args,...(policy?.launchArgs??[]),...(directSkills?['-c',DIRECT_SKILLS]:[])],cwd:workerCwd,experimentalApi:true,env:{...workerEnv,AGENT_WORKFLOW_WORKER:'1'}});
         connections.add(connection);
         try {
           workerClient=await connection;
           if(closing||signal?.aborted)throw fault('RUN_STOPPED','Workflow admission is closed');
           const workerConfig=await workerClient.request('config/read',{cwd:workerCwd,includeLayers:true});
-          assertRestricted(workerConfig.config);
-          assertManagedChatgpt(await workerClient.request('account/read',{refreshToken:false}),workerConfig);
-          if(selection?.skills.length)assertDirectSkills(workerConfig.config);
+          assertIntegrations(workerConfig.config);
+          assertManagedChatgpt(await workerClient.request('account/read',{refreshToken:false}),workerConfig,parent?effective.permissions.sandbox:'read-only');
+          if(directSkills)assertDirectSkills(workerConfig.config);
           const thread = await workerClient.request('thread/start', {
             cwd:workerCwd,approvalPolicy:'never',sandbox:'read-only',...policy?.thread,ephemeral:true,modelProvider:'openai',experimentalRawEvents:true,
             model:effective.model,config:{...policy?.thread.config,model_reasoning_effort:effective.effort},
-            ...(selection?.roots.length?{selectedCapabilityRoots:selection.roots}:{}),
-            developerInstructions: `${writing?'You are an isolated writer. Edit and validate only inside your assigned worktree. Do not commit, merge, change Git metadata or create filesystem links. Your changes will be retained for review.':'You are a read-only workflow worker.'} Complete only your assigned task. Do not launch another agent-workflow runtime. Do not delegate. If a command cannot start or a prerequisite check fails, report the blocked command, executable or cache path, and observed evidence. Pause only work that depends on that prerequisite; continue independent authorized authoring or review within your assigned scope. A command that launched and exited nonzero was executed and may have changed files; describe it as notStarted only when tool evidence explicitly confirms no process began. Never automatically retry or use a fallback after uncertain or potentially mutating effects; the coordinator must reconcile them first. Do not weaken sandbox or execution policy, change global configuration, or automatically install missing prerequisites. Use only explicitly authorized installation steps and coordinator-verified executable/cache paths; otherwise leave dependent build, test or rendering to the coordinator and disclose missing verification. The workflow coordinator owns orchestration.`,
+            ...(roots.length?{selectedCapabilityRoots:roots}:{}),
+            developerInstructions: `${writing?`You own an assigned worktree${parent&&!restrictedWriter?' for organization and review; full parent access does not enforce filesystem isolation':''}. Edit and validate only inside your assigned worktree. Do not commit, merge, change Git metadata or create filesystem links. Your changes will be retained for review.`:effective.permissions.sandbox==='read-only'?'You are a read-only workflow worker.':'You have the admitted parent execution access; stay within your assigned task scope.'} Complete only your assigned task. Do not launch another agent-workflow runtime. Do not delegate. If a command cannot start or a prerequisite check fails, report the blocked command, executable or cache path, and observed evidence. Pause only work that depends on that prerequisite; continue independent authorized authoring or review within your assigned scope. A command that launched and exited nonzero was executed and may have changed files; describe it as notStarted only when tool evidence explicitly confirms no process began. Never automatically retry or use a fallback after uncertain or potentially mutating effects; the coordinator must reconcile them first. Do not weaken sandbox or execution policy, change global configuration, or automatically install missing prerequisites. Use only explicitly authorized installation steps and coordinator-verified executable/cache paths; otherwise leave dependent build, test or rendering to the coordinator and disclose missing verification. The workflow coordinator owns orchestration.`,
           });
-          if(writing)assertWriterThread(thread,workerCwd);
-          if (thread.modelProvider !== 'openai' || thread.approvalPolicy !== 'never' || !writing&&(thread.sandbox?.type !== 'readOnly'||thread.sandbox.networkAccess!==false) || typeof thread.thread?.id !== 'string') throw fault('THREAD_POLICY', 'Worker thread did not confirm the required provider and permissions');
+          if(restrictedWriter)assertWriterThread(thread,workerCwd);
+          if(writing&&!restrictedWriter){const same=path=>typeof path==='string'&&resolve(path).toLowerCase()===resolve(workerCwd).toLowerCase();if(!same(thread.cwd)||!Array.isArray(thread.runtimeWorkspaceRoots)||thread.runtimeWorkspaceRoots.length!==1||!same(thread.runtimeWorkspaceRoots[0]))throw fault('THREAD_POLICY','Worker did not confirm its assigned worktree');}
+          if (thread.modelProvider !== 'openai' || thread.approvalPolicy !== 'never' || !restrictedWriter&&fingerprint(thread.sandbox)!==fingerprint(policy.turn.sandboxPolicy) || typeof thread.thread?.id !== 'string') throw fault('THREAD_POLICY', 'Worker thread did not confirm the required provider and permissions');
           if(thread.model!==effective.model||thread.reasoningEffort!==effective.effort)throw fault('THREAD_SETTINGS','Worker thread did not confirm its model and reasoning settings');
           ownedThread=thread.thread.id;
           // Readiness executes commands but no model turn. Own the thread first
           // so even rejected readiness retains native inventory cleanup proof.
           const timeoutMs=options.timeoutMs??DEFAULT_WORKER_TIMEOUT_MS,deadline=performance.now()+timeoutMs;
           const remaining=()=>{const ms=Math.floor(deadline-performance.now());if(ms<=0)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');return ms;};
-          capabilities=await admitWorkerCapabilities(workerClient,{cwd:workerCwd,selection,signal,deadline});
-          if(capabilities){capabilities.native.exposure=selection.skills.length?'effectiveDirectModelOnly':'notSelected';nativeSkills=observeNativeSkills(workerClient,ownedThread,capabilities.native);}
+          capabilities=await admitWorkerCapabilities(workerClient,{cwd:workerCwd,selection,signal,deadline,...(parent?{sandboxPolicy:policy.turn.sandboxPolicy}:{})});
+          if(capabilities)capabilities.native.exposure=directSkills?'effectiveDirectModelOnly':'notSelected';
+          if(parentNative||capabilities)nativeSkills=observeNativeSkills(workerClient,ownedThread,parentNative??capabilities.native,{skills:selection?.skills??[]});
           const tools = await workerClient.request('mcpServerStatus/list', {threadId:thread.thread.id,detail:'toolsAndAuthOnly',limit:100},{timeoutMs:Math.min(15000,remaining())});
-          assertDisabledInventory(tools);
+          if(parent){
+            observedIntegrations=integrationFacts(workerConfig.config,tools);
+            observedIntegrations.authentication=observedIntegrations.servers.map(server=>({name:server.name,status:['unknown','unsupported','notLoggedIn','bearerToken','oAuth'].includes(tools.data.find(item=>item.name===server.name)?.authStatus)?tools.data.find(item=>item.name===server.name).authStatus:'unknown'}));
+            const {fingerprint:priorFingerprint,...facts}=observedIntegrations;
+            observedIntegrations.fingerprint=fingerprint(facts);
+          }
+          if(!parent)assertDisabledInventory(tools);
           if (signal?.aborted) throw fault('RUN_STOPPED', 'Workflow admission is closed');
           remaining();
           started = true;
-          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt, timeoutMs,deadline, signal, schema:options.schema,settings:effective,execution:policy?.turn,capabilities,reserveRetry,onEvent,onActive:identity=>{nativeSkills?.confirm(identity.turnId);activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
+          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt:[prompt,parentGuidance].filter(Boolean).join('\n\n'), timeoutMs,deadline, signal, schema:options.schema,settings:effective,execution:policy?.turn,capabilities,reserveRetry,onEvent,onActive:identity=>{nativeSkills?.confirm(identity.turnId);activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
+          finishNative();
+          if(parentCapabilities)result.evidence.parentCapabilities={...structuredClone(parentCapabilities),selectedRoots:structuredClone(roots),native:{...parentNative}};
           if(capabilities){
-            nativeSkills?.finish();result.evidence.capabilities.native={...capabilities.native};
+            result.evidence.capabilities.native={...capabilities.native};
             if(selection.skills.length){
+              capabilities.completionSources=await checkCompletionSources(workerClient,{command:completionCommand,cwd:workerCwd,sandboxPolicy:policy.turn.sandboxPolicy,selection,deadline,signal});
+              result.evidence.capabilities.completionSources={...capabilities.completionSources};
+              if(capabilities.completionSources.status!=='passed'){
+                const changed=capabilities.completionSources.sourceStatus==='changedOrUnavailable';
+                throw Object.assign(fault(changed?'CAPABILITY_SOURCE_CHANGED':'CAPABILITY_SOURCE_UNVERIFIED',changed?'Assigned skill source changed or became unavailable before completion':'Assigned skill source could not be verified before completion'),{evidence:result.evidence,terminalObserved:result.terminalObserved,...(capabilities.completionSources.start==='unknown'?{executionUnknown:true}:{})});
+              }
               const missing=[['catalog','skills.list'],['read','skills.read']].filter(([key])=>capabilities.native[key]!=='callAndOutputObserved').map(([,tool])=>tool);
-              if(missing.length){
+              const activation=capabilities.native.activation;
+              const missingSkills=activation?.status==='complete'?[]:activation?.missing?.length?activation.missing:selection.skills.map(skill=>skill.id);
+              if(missing.length||missingSkills.length){
                 capabilities.native.missing=missing;
+                capabilities.native.missingSkills=missingSkills;
                 result.evidence.capabilities.native.missing=missing;
-                throw Object.assign(fault('CAPABILITY_NATIVE_SKILLS','Selected skills require paired native skill-tool invocations; completion claims cannot substitute'),{evidence:result.evidence,terminalObserved:result.terminalObserved});
+                result.evidence.capabilities.native.missingSkills=missingSkills;
+                throw Object.assign(fault('CAPABILITY_NATIVE_SKILLS','Selected skills require paired catalog calls and successful initial native reads of every assigned main resource'),{evidence:result.evidence,terminalObserved:result.terminalObserved});
               }
             }
           }
           result.evidence.settings=effective;
+          if(observedIntegrations)result.evidence.nativeIntegrations=observedIntegrations;
           return result;
         } catch (error) {
           primary=error;if (!started) error.noInference = true;
-          nativeSkills?.finish();error.evidence??={commands:[],attempts:[]};
+          finishNative();error.evidence??={commands:[],attempts:[]};
+          if(parentCapabilities)error.evidence.parentCapabilities={...structuredClone(parentCapabilities),selectedRoots:structuredClone(roots),native:{...parentNative}};
+          if(observedIntegrations)error.evidence.nativeIntegrations=observedIntegrations;
           if(error.capabilities)error.evidence.capabilities=error.capabilities;
           else if(capabilities)error.evidence.capabilities={...(error.evidence.capabilities??capabilities),native:{...capabilities.native}};
           throw error;
         }
         finally{
-          nativeSkills?.finish();
+          finishNative();
           activeWorkers.delete(position);
           let nativeTerminals;
           if(ownedThread){try{nativeTerminals=await cleanupTerminals(workerClient,ownedThread);}catch(error){nativeTerminals={error:diagnostic(error),descendants:'notVerified'};}}
@@ -235,9 +337,9 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
   }catch(error){
     if(startup.attempted){
       error.cleanup=aggregateCleanup(startup.records.map(record=>record.cleanup),requiresJob,startup.records);
-      error.evidence??={};
-      error.evidence.startup={primary:diagnostic(error),cleanup:error.cleanup};
     }
+    error.evidence??={};
+    error.evidence.startup={primary:diagnostic(error),stage:constructionStage,...(commandFailure?{command:commandFailure}:{}),...(error.cleanup?{cleanup:error.cleanup}:{})};
     throw error;
   }
 }

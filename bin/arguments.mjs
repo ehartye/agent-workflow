@@ -3,6 +3,8 @@ import {resolve} from 'node:path';
 import {defaultDataDir} from './managed-runtime.mjs';
 const lifecycleOptions=['session','generation','revision','target','worker-generation','position','attempt','reason'];
 const commands={mode:['cwd','scope','session'],help:[],setup:[],doctor:['cwd','backend','session0-desktop'],workflows:['cwd'],read:['cwd'],save:['cwd','script','command','overwrite'],validate:['script'],run:['cwd','session','script','args','concurrency','model','effort','max-attempts','writable','foreground','backend','run-timeout-ms','worker-timeout-ms','capture-policy','worker-capabilities','session0-desktop'],list:['show-hidden'],status:[],result:[],watch:['session','generation','after','jsonl','idle-ms','poll-ms'],worker:['position','generation','source-generation'],events:['position','generation','source-generation','after','limit'],patch:['position','generation','source-generation','basis'],exclusions:['position','generation','source-generation','stage','after','limit'],dashboard:['session','current-ui'],resume:['session','script','generation','run-timeout-ms','worker-timeout-ms'],pause:['session','generation'],stop:['session','generation'],steer:['session','generation','position','attempt','turn','text'],'cancel-worker':['session','generation','position','attempt','turn'],'restart-worker':['session','generation','position','attempt','reconcile'],control:['receipt'],lifecycle:[],'lifecycle-receipt':['receipt'],hide:[...lifecycleOptions,'request'],archive:[...lifecycleOptions,'request'],restore:[...lifecycleOptions,'request'],'prune-plan':lifecycleOptions,prune:['session','plan','approved-plan-hash']};
+commands.run.push('access','parent-access');
+commands.doctor.push('access','parent-access','session');
 const booleans=new Set(['help','command','overwrite','writable','foreground','show-hidden','current-ui','jsonl']);
 const runCommands=new Set(['status','result','watch','worker','events','patch','exclusions','dashboard','resume','pause','stop','steer','cancel-worker','restart-worker','control','lifecycle','lifecycle-receipt','hide','archive','restore','prune-plan','prune']);
 const mutations=new Set(['dashboard','run','resume','pause','stop','steer','cancel-worker','restart-worker','hide','archive','restore','prune-plan','prune']);
@@ -10,11 +12,16 @@ export function parseCommand(tokens=process.argv.slice(2),env=process.env){
  const options=Object.fromEntries(['data-dir','help',...new Set(Object.values(commands).flat())].map(key=>[key,{type:booleans.has(key)?'boolean':'string'}]));
  const{values,positionals}=parseArgs({args:tokens,options,allowPositionals:true});const command=positionals.shift()??'help';if(!Object.hasOwn(commands,command))throw Error(`Unknown command: ${command}`);
  for(const key of Object.keys(values))if(!['data-dir','help',...commands[command]].includes(key))throw Error(`Option --${key} is not valid for ${command}`);
+ if(['run','doctor'].includes(command)){
+  values.access??=command==='run'?'parent':'restricted';
+  if(!['parent','restricted'].includes(values.access))throw Error('--access requires parent or restricted');
+  if(values['parent-access']!==undefined&&values.access!=='parent')throw Error('--parent-access requires --access parent');
+ }
  if(values['session0-desktop']!==undefined&&!['inherit','shared'].includes(values['session0-desktop']))throw Error('--session0-desktop requires inherit or shared');
  const count=['mode','read','save','run','validate',...runCommands].includes(command)?1:0;if(positionals.length>count)throw Error('Too many command arguments');
  const id=positionals[0];if((runCommands.has(command)&&command!=='dashboard'||['read','save'].includes(command))&&!id&&!values.help)throw Error(`${command} requires an identifier`);
  const sessionId=values.session??env.CODEX_THREAD_ID;
- if(!values.help&&(mutations.has(command)||command==='watch')&&(!sessionId?.trim()||sessionId.length>256))throw Error('An originating Codex session is required: --session or CODEX_THREAD_ID');
+ if(!values.help&&(mutations.has(command)||command==='watch'||command==='doctor'&&values.access==='parent')&&(!sessionId?.trim()||sessionId.length>256))throw Error('An originating Codex session is required: --session or CODEX_THREAD_ID');
  if(command==='mode'&&!['on','off','status'].includes(id))throw Error('mode requires on, off or status');
  if(env.AGENT_WORKFLOW_WORKER==='1'&&!['help','workflows','read','validate','list','status','result','worker','events','patch','exclusions','control','lifecycle','lifecycle-receipt'].includes(command)&&!(command==='mode'&&id==='status'))throw Error('Worker processes cannot launch recursive workflows or mutate workflow state');
  return{command,id,values,sessionId,dataDir:resolve(values['data-dir']??defaultDataDir(env)),cwd:resolve(values.cwd??process.cwd()),runCommand:runCommands.has(command),mutation:mutations.has(command)};
@@ -25,6 +32,7 @@ mode on|off|status [--scope session|project] [--session ID] [--cwd path]
 setup | doctor [--cwd path]
 workflows | read [scope:]name | save [scope:]name --script file [--command] [--overwrite]
 validate file | run [scope:]name [--script file] [--args JSON] [--writable]
+run ... --parent-access context.json [--access parent] | run ... --access restricted
 list [--show-hidden] | status ID | result ID | dashboard [ID]
 watch ID --session ID --generation N --jsonl [--after N] [--idle-ms N] [--poll-ms N]
 worker ID --position N --generation N
@@ -55,15 +63,27 @@ Windows MXC doctor/new starts accept --session0-desktop inherit|shared (default 
 Shared requires native Session 0 and explicit owner authorization for shared UI visibility.
 Saved runs retain the selection on resume/restart; routing mode does not enable it.
 
+New runs default to --access parent and require --parent-access file containing the
+originating session's explicit permission snapshot. Missing authority fails closed.
+Use --access restricted for read-only/no-network execution. Doctor defaults restricted;
+parent doctor requires --access parent, --parent-access file and an originating session.
+Saved runs retain their exact access policy; resume/restart reject access overrides.
+Parent --writable assigns independent worktrees for review while retaining parent
+execution access. These worktrees do not enforce filesystem security isolation.
+Restricted --writable uses the existing Windows MXC workspace-write ceiling.
+
 New starts accept --capture-policy file with version 2 capture. The policy is persisted
 before writer admission and resume/restart reject overrides.
 New starts accept --worker-capabilities file with a version 1 skill/tool manifest.
 Workers select declared IDs using skills and requireTools. Saved bundles are immutable.
-Native skills.list/read use exact selected executor roots; no host tool grants are added.
+Parent mode provisions enabled original native plugin/skill roots automatically.
+Explicit bundles remain supported for role selection and required readiness.
+Native skills.list/read use genuine selected executor roots; host-only connections
+are not manufactured or assumed available.
 Run/resume deadlines: --worker-timeout-ms 1..1800000 (default 600000); --run-timeout-ms 0..86400000 (default 0, completion/manual Stop). Saved deadlines persist on resume.
 
 Use --data-dir path for explicit managed state. Controls, lifecycle mutations and starts
 require the originating --session (defaults to CODEX_THREAD_ID). Workers use the installed
-pinned Codex and existing ChatGPT login. Writes require --writable and remain in isolated
-worktrees for review.
+pinned Codex and existing ChatGPT login. Use --writable for reviewed writer workspaces;
+worker workspace:'isolated' also requests an assigned captured worktree.
 `;

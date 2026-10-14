@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "platform": "win32",
+  "arch": "x64",
+  "sourceSha256": "076561e6f46fda37c9ca03f85023f251e9cfc6411bf24a11e782973a48d9b824",
+  "binarySha256": "53205a2bc75ab2d20e3f9fdfdf8acac50f6f040cd604c3a2060c02317348c71b",
+  "profileEku": "1.3.6.1.4.1.311.97.235037501.729607520.655030113.154310503"
+}

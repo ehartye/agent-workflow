@@ -122,14 +122,14 @@ function updateButtons() {
   $('stop').disabled = !accepts || !['running', 'pausing'].includes(snapshot.status);
   $('resume').disabled = !enabled || snapshot.resumable !== true;
   $('refresh').disabled = polling || busy || !authenticated;
-  $('load-script').disabled = !authenticated || busy || !snapshot;
+  $('load-script').disabled = !authenticated || busy || !snapshot || snapshot.availability?.status==='unavailable';
   const worker=snapshot?.workers.find(worker=>worker.position===selected);
   const workerEnabled=accepts&&snapshot.status!=='stopping'&&worker&&!worker.cancelRequested&&['queued','running'].includes(worker.status);
   if($('worker-cancel'))$('worker-cancel').disabled=!workerEnabled;
   if($('worker-steer'))$('worker-steer').disabled=!workerEnabled||!worker.activeTurn?.turnId||!$('steer-text')?.value.trim();
   if($('worker-restart'))$('worker-restart').disabled=!enabled||!snapshot.restartPreview?.eligible||snapshot.restartPreview.position!==selected||!$('reconcile-text')?.value.trim();
   $('close-monitor').disabled=closed||busy||!authenticated;
-  $('arm-control').disabled=closed||!authenticated||busy||stale||!snapshot?.monitor?.run;
+  $('arm-control').disabled=closed||!authenticated||busy||stale||!snapshot?.monitor?.run||snapshot.availability?.status==='unavailable';
   $('run-picker').disabled=busy||!snapshot?.monitor?.capabilities?.sessionNavigation;
   $('follow-run').disabled=$('run-picker').disabled;
   const lifecycle=Boolean(authenticated&&!busy&&!stale&&!lifecycleUncertain&&snapshot?.monitor?.capabilities?.lifecycle&&snapshot.lifecycle?.available!==false&&Number.isInteger(snapshot.lifecycle?.revision));
@@ -174,9 +174,9 @@ function renderWorkers() {
     $('worker-list').replaceChildren(...children);
     if (focusPosition !== undefined) [...$('worker-list').querySelectorAll('button')].find(button => button.dataset.position === focusPosition)?.focus({ preventScroll: true });
   }
-  $('worker-count').textContent = `${filtered.length} of ${workers.length} recorded`;
+  $('worker-count').textContent = snapshot.availability?.status==='unavailable'?'Worker counts unavailable':`${filtered.length} of ${workers.length} recorded`;
   $('empty').hidden = filtered.length !== 0;
-  $('empty').textContent = workers.length ? 'No workers match these filters.' : 'Workers appear here when the workflow requests them.';
+  $('empty').textContent = snapshot.availability?.status==='unavailable'?'Worker execution records are unavailable.':workers.length ? 'No workers match these filters.' : 'Workers appear here when the workflow requests them.';
 }
 function renderWorkspace(container, worker, sourceGeneration) {
   if (!worker.workspace && !worker.workspaceError) return;
@@ -279,7 +279,7 @@ function renderDetail() {
   const detail = $('detail'); detail.replaceChildren();
   $('detail-status').hidden = !worker;
   $('detail-heading').textContent = worker ? worker.options?.label || `Worker ${worker.position + 1}` : 'Worker details';
-  if (!worker) { detail.append(node('p', 'Select a worker to read its prompt, result and execution evidence.', 'empty')); return; }
+  if (!worker) { detail.append(node('p', snapshot.availability?.status==='unavailable'?'Worker evidence is unavailable. Original records were preserved.':'Select a worker to read its prompt, result and execution evidence.', 'empty')); return; }
   badge($('detail-status'), worker.status);
   const meta = node('div', undefined, 'detail-meta');
   meta.append(node('span', `Slot ${worker.position + 1}`), node('span', worker.cached ? 'Result reused from saved evidence' : worker.status === 'queued' ? 'Awaiting dispatch' : 'Result not reused'));
@@ -476,6 +476,7 @@ function renderMap() {
   const active = ['running', 'pausing', 'stopping', 'finishing'].includes(snapshot.status);
   const missing = `${workers.filter(worker => worker.status === 'running').length} active · ${workers.filter(worker => worker.status === 'queued').length} queued · ${coverage.failed ?? 0} failed · ${coverage.unknown ?? 0} unknown`;
   $('flow-progress').textContent = `${percent === null ? 'No workers discovered yet' : `${percent}% of discovered workers complete · ${complete} / ${count} executions complete`} · ${missing}${active ? '. The workflow can still discover more workers.' : ''}`;
+  if(snapshot.availability?.status==='unavailable')$('flow-progress').textContent='Execution data unavailable; worker counts and progress are not known.';
   $('progress-fill').style.width = `${percent ?? 0}%`;
   if (percent === null) $('progress').removeAttribute('aria-valuenow');
   else $('progress').setAttribute('aria-valuenow', String(percent));
@@ -507,7 +508,7 @@ function renderMap() {
   marker.append(svgNode('path', { d: 'M 0 0 L 10 5 L 0 10 z', class: 'arrow-head' })); defs.append(marker); svg.append(defs);
   svg.append(svgNode('rect', { x: 24, y: 20, width: 240, height: 62, rx: 6, class: 'map-run' }),
     svgNode('text', { x: 40, y: 45, class: 'map-title' }, 'Workflow'),
-    svgNode('text', { x: 40, y: 65, class: 'map-caption', 'data-status': snapshot.status }, `Generation ${snapshot.generation} · ${snapshot.status}`));
+    svgNode('text', { x: 40, y: 65, class: 'map-caption', 'data-status': snapshot.status }, snapshot.availability?.status==='unavailable'?'Execution data unavailable':`Generation ${snapshot.generation} · ${snapshot.status}`));
   for (const group of groupLayouts) {
     const allMembers = workers.filter(worker => workerPhaseKey(worker)===group.key);
     const phaseDone = allMembers.filter(worker => worker.status === 'completed').length;
@@ -553,23 +554,24 @@ function renderMap() {
     card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(); } });
     svg.append(card);
   }
-  if (!workers.length) svg.append(svgNode('text', { x: 290, y: 60, class: 'map-caption' }, 'Worker components appear as the workflow discovers them.'));
+  if (!workers.length) svg.append(svgNode('text', { x: 290, y: 60, class: 'map-caption' }, snapshot.availability?.status==='unavailable'?'Worker execution data unavailable.':'Worker components appear as the workflow discovers them.'));
   const focusPosition = document.activeElement?.closest?.('.map-worker')?.dataset.position;
   $('workflow-map').replaceChildren(svg);
   if (focusPosition !== undefined) [...svg.querySelectorAll('.map-worker')].find(card => card.dataset.position === focusPosition)?.focus({ preventScroll: true });
 }
 function render() {
+  const unavailable=snapshot.availability?.status==='unavailable';
   $('run-title').textContent = snapshot.meta?.name || snapshot.meta?.title || 'Workflow run';
   $('description').textContent = snapshot.meta?.description || 'Inspect worker results and control this saved workflow.';
-  $('generation').textContent = `Generation ${snapshot.generation} · ${snapshot.concurrency} worker slots`;
+  $('generation').textContent = unavailable?'Generation and worker slots unavailable':`Generation ${snapshot.generation} · ${snapshot.concurrency} worker slots`;
   badge($('run-status'), snapshot.status);
   const coverage = snapshot.coverage ?? {};
-  $('completed').textContent = `${coverage.completed ?? 0} / ${coverage.requested ?? 0}`;
-  $('cached').textContent = coverage.cached ?? 0;
-  $('attempts').textContent = snapshot.attempts ?? 0;
+  $('completed').textContent = unavailable?'Unavailable':`${coverage.completed ?? 0} / ${coverage.requested ?? 0}`;
+  $('cached').textContent = unavailable?'Unavailable':coverage.cached ?? 0;
+  $('attempts').textContent = unavailable?'Unavailable':snapshot.attempts ?? 0;
   const cleanup = snapshot.cleanup;
   $('cleanup').textContent = cleanup ? `${cleanup.serverExited === true ? 'Owned worker App Server exited' : 'Owned worker App Server exit unverified'}${cleanup.forced ? ' · forced' : ''}. ${cleanup.jobEmpty===true?'Owned Windows job empty; external effects unverified.':`Descendant processes ${cleanup.descendants === 'notVerified' ? 'not verified' : 'not reported'}.`}` : 'Awaiting owned worker cleanup evidence';
-  $('updated').textContent = `Run updated ${dateText(snapshot.updatedAt)}`;
+  $('updated').textContent = unavailable?snapshot.availability.reason:`Run updated ${dateText(snapshot.updatedAt)}`;
   renderWorkers(); renderDetail(); renderMap(); renderReceipts();
   renderExperienceControls();
   const key = JSON.stringify([snapshot.generation, snapshot.result, snapshot.error, snapshot.truncations]);
@@ -606,16 +608,17 @@ function renderExperienceControls(){
   $('run-permalink').href=ref?`/runs/${encodeURIComponent(ref.runId)}`:'/';
   const navigationAvailable=snapshot.monitor?.capabilities?.sessionNavigation;
   $('navigation-reason').textContent=navigationAvailable?'Viewing and controlling are separate.':'Originating-session navigation adapter unavailable.';
-  $('session-counts').textContent=navigationAvailable?`${navigationCounts?.hiddenCount??'Unavailable'} hidden runs · ${navigationCounts?.unknownCount??'unavailable'} unknown runs`:'Session counts unavailable';
+  $('session-counts').textContent=navigationAvailable?`${navigationCounts?.hiddenCount??'Unavailable'} hidden runs · ${navigationCounts?.unknownCount??'unavailable'} unknown runs · ${navigationCounts?.unavailableCount??'unavailable'} unavailable runs`:'Session counts unavailable';
   if(!navigationAvailable){$('run-picker').replaceChildren(new Option(snapshot.meta?.name??'This run',''));}
   else{
     const entries=[...navigation];if(ref&&!entries.some(item=>item.ref.runId===ref.runId))entries.unshift({ref,title:snapshot.meta?.name??ref.runId,disposition:snapshot.lifecycle?.run?.visibility??'visible'});
-    $('run-picker').replaceChildren(...entries.map(item=>new Option(`${item.title} · ${item.disposition} · ${item.ref.runId}`,item.ref.runId)));
+    $('run-picker').replaceChildren(...entries.map(item=>new Option(`${item.title} · ${item.executionStatus??'status unavailable'} · ${item.disposition} · ${item.ref.runId}`,item.ref.runId)));
     $('run-picker').value=ref?.runId??viewRun??'';
   }
   $('more-runs').hidden=!nextRunCursor;
   const workers=snapshot.workers??[],hidden=workers.filter(worker=>visibilityFor(worker)==='hidden').length,archived=workers.filter(worker=>visibilityFor(worker)==='archived').length;
   $('visibility-count').textContent=snapshot.lifecycle?.visibilityKnown===false?`Visibility unavailable · ${workers.filter(worker=>worker.status==='unknown').length} unknown executions`:`${hidden} hidden · ${archived} archived · ${workers.filter(worker=>worker.status==='unknown').length} unknown · run ${snapshot.lifecycle?.run?.visibility??'visible'}`;
+  if(snapshot.availability?.status==='unavailable')$('visibility-count').textContent='Visibility and execution counts unavailable';
   $('lifecycle-reason').textContent=lifecycleUncertain?'Lifecycle confirmation is unknown. Inspect the receipt; this request will not be retried.':snapshot.monitor?.capabilities?.lifecycle&&snapshot.lifecycle?.available!==false?'Visibility preserves outcomes. Prune requires a separate reviewed storage plan.':snapshot.lifecycle?.reason??'Lifecycle adapter for engine/run-lifecycle.mjs unavailable.';
   const panel=$('lifecycle-preview');panel.replaceChildren();panel.hidden=!pruneReview;
   if(pruneReview){
@@ -680,13 +683,14 @@ async function poll() {
     if(viewed!==viewRun)return;
     if(results[0].status!=='fulfilled')throw results[0].reason;
     const next=results[0].value;
-    if (!next || !Array.isArray(next.workers) || !Number.isInteger(next.generation)) throw new Error('The monitor received an invalid run snapshot. Refresh to try again.');
+    const unavailable=next?.availability?.status==='unavailable'&&next.status==='unavailable'&&next.generation===null&&next.workers?.length===0;
+    if (!next || !Array.isArray(next.workers) || !Number.isInteger(next.generation)&&!unavailable) throw new Error('The monitor received an invalid run snapshot. Refresh to try again.');
     if (snapshot?.generation !== next.generation || snapshot?.updatedAt !== next.updatedAt) extendedWorker = undefined;
     if (extendedWorker && extendedWorker.previewKey !== JSON.stringify(next.workers.find(worker => worker.position === extendedWorker.position))) extendedWorker = undefined;
     if (snapshot?.generation !== next.generation) { $('script').hidden = true; $('script').textContent = ''; activityHistory=undefined; patchEvidence.clear(); patchLoading.clear(); }
     snapshot = next; lastGood = Date.now(); stale = false;
-    if(!autoArmed&&snapshot.monitor?.run&&snapshot.monitor.run.runId===snapshot.monitor.pinnedRunId){controlTarget={...snapshot.monitor.run,generation:snapshot.generation};autoArmed=true;}
-    $('connection').textContent = health?'Dashboard connected · run snapshot fresh':'Dashboard health unavailable · run snapshot fresh';
+    if(!unavailable&&!autoArmed&&snapshot.monitor?.run&&snapshot.monitor.run.runId===snapshot.monitor.pinnedRunId){controlTarget={...snapshot.monitor.run,generation:snapshot.generation};autoArmed=true;}
+    $('connection').textContent = unavailable?health?'Dashboard connected; execution data unavailable':'Dashboard health and execution data unavailable':health?'Dashboard connected · run snapshot fresh':'Dashboard health unavailable · run snapshot fresh';
     if(!health)stale=true;
     notice(actionNotice); render();
     void loadNavigation();

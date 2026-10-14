@@ -6,7 +6,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,writeFile,rm,mkdir,readFile,link} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -32,6 +33,55 @@ test('Windows host context reports bounded local facts without starting a job', 
   assert.match(context.buildNumber,/^\d{1,10}$/);assert.ok(Number.isInteger(context.revision)&&context.revision>=0);
   assert.match(context.displayVersion,/^[A-Za-z0-9 ._-]{0,32}$/);
   await assert.rejects(promisify(execFile)(host,['--context',process.execPath,'-e','console.log("UNEXPECTED_CHILD")'],{windowsHide:true,timeout:5000,maxBuffer:2048}),error=>error.code===2&&error.stdout===''&&error.stderr==='');
+});
+
+const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
+const profileEku='1.3.6.1.4.1.311.97.1234.5678.9012.3456';
+async function packaged(t){
+ const root=await mkdtemp(join(tmpdir(),'workflow-signed-package-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const nativeRoot=join(root,'native'),folder=join(nativeRoot,'win32-x64');await mkdir(folder,{recursive:true});
+ const source='reviewed source\n',binary=Buffer.alloc(256);binary.write('MZ');binary.writeUInt32LE(128,60);binary.write('PE\0\0',128);binary.writeUInt16LE(0x8664,132);
+ await writeFile(join(nativeRoot,'JobHost.cs'),source);const executable=join(folder,'workflow-job-host.exe');await writeFile(executable,binary);
+ const manifest={version:1,platform:'win32',arch:'x64',sourceSha256:digest(source),binarySha256:digest(binary),profileEku};
+ const manifestPath=join(folder,'manifest.json');await writeFile(manifestPath,JSON.stringify(manifest));
+ const policy={version:1,profileEku};let checks=0;
+ const signatureCheck=async()=>{checks++;return{status:'Valid',signerEkus:['1.3.6.1.5.5.7.3.3',profileEku],timestampEkus:['1.3.6.1.5.5.7.3.8'],timestampPresent:true};};
+ const {verifyJobHostPackage}=await import('../foundation/windows-job.mjs');
+ assert.equal(typeof verifyJobHostPackage,'function','Packaged helpers need a nonexecuting trust verifier');
+ return{nativeRoot,executable,manifest,manifestPath,binary,policy,signatureCheck,checks:()=>checks,verify:overrides=>verifyJobHostPackage({nativeRoot,policy,platform:'win32',arch:'x64',signatureCheck,...overrides})};
+}
+
+test('packaged helper refuses absent, changed or wrong-architecture bytes before signature admission',async t=>{
+ const f=await packaged(t);
+ assert.equal(await f.verify(),f.executable);assert.equal(f.checks(),1);
+ await writeFile(f.executable,Buffer.from('tampered'));await assert.rejects(f.verify(),{code:'JOB_PACKAGE'});assert.equal(f.checks(),1);
+ await writeFile(f.executable,f.binary);await writeFile(join(f.nativeRoot,'JobHost.cs'),'different source');await assert.rejects(f.verify(),{code:'JOB_PACKAGE'});assert.equal(f.checks(),1);
+ await assert.rejects(f.verify({arch:'arm64'}),{code:'JOB_PLATFORM'});
+  await writeFile(join(f.nativeRoot,'JobHost.cs'),'reviewed source\n');
+  const wrongMachine=Buffer.from(f.binary);wrongMachine.writeUInt16LE(0x14c,132);await writeFile(f.executable,wrongMachine);
+  await writeFile(f.manifestPath,JSON.stringify({...f.manifest,binarySha256:digest(wrongMachine)}));
+  await assert.rejects(f.verify(),{code:'JOB_PACKAGE'});assert.equal(f.checks(),1);
+  await writeFile(f.executable,f.binary);await writeFile(f.manifestPath,JSON.stringify(f.manifest));
+  const alias=join(f.nativeRoot,'alias.exe');await link(f.executable,alias);
+  await assert.rejects(f.verify(),{code:'JOB_PACKAGE'});assert.equal(f.checks(),1);await rm(alias);
+ await rm(f.manifestPath);await assert.rejects(f.verify(),{code:'JOB_PACKAGE'});assert.equal(f.checks(),1);
+});
+
+test('packaged helper requires approved profile, valid timestamped code signing and unchanged verified bytes',async t=>{
+ const f=await packaged(t);
+  await assert.rejects(f.verify({policy:{version:1,profileEku:'1.3.6.1.5.5.7.3.3'}}),{code:'JOB_PACKAGE'});
+  await assert.rejects(f.verify({policy:{version:1,get profileEku(){throw new Error('must not invoke a policy accessor');}}}),{code:'JOB_PACKAGE'});
+ for(const signature of [{status:'NotSigned'},{status:'UnknownError'},{status:'Valid',signerEkus:['1.3.6.1.5.5.7.3.3'],timestampPresent:true,timestampEkus:['1.3.6.1.5.5.7.3.8']},{status:'Valid',signerEkus:[profileEku],timestampPresent:true,timestampEkus:['1.3.6.1.5.5.7.3.8']},{status:'Valid',signerEkus:['1.3.6.1.5.5.7.3.3',profileEku],timestampPresent:false,timestampEkus:[]}])await assert.rejects(f.verify({signatureCheck:async()=>signature}),{code:'JOB_SIGNATURE'});
+ await writeFile(f.manifestPath,JSON.stringify({...f.manifest,profileEku:'1.2.3.4'}));await assert.rejects(f.verify(),{code:'JOB_PACKAGE'});assert.equal(f.checks(),0);
+ await writeFile(f.manifestPath,JSON.stringify(f.manifest));
+ await assert.rejects(f.verify({signatureCheck:async()=>{await writeFile(f.executable,'changed while verifying');return f.signatureCheck();}}),{code:'JOB_PACKAGE'});
+ assert.equal(await readFile(f.executable,'utf8'),'changed while verifying','verification never repairs or replaces bytes');
+});
+
+test('packaged helper builtin signature verification rejects unsigned bytes without executing them',{skip:process.platform!=='win32'},async t=>{
+  const f=await packaged(t);
+  await assert.rejects(f.verify({signatureCheck:undefined}),{code:'JOB_SIGNATURE'});
+  assert.deepEqual(await readFile(f.executable),f.binary);
 });
 test('Windows owned job drains detached descendants on root exit and stdin cancellation', {skip:!windows,timeout:30000},async t=>{
   const {buildJobHost}=await import('../foundation/windows-job.mjs');

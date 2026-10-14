@@ -22,9 +22,13 @@ export async function createSessionServices({dataDir,sessionId,pinnedRunId}){
   const ref=owner=>({dataInstanceId,runId:owner.id,runtimeId:owner.runtime.id});
   const resolveOwner=runId=>resolveRun({dataDir:root,id:runId??pinnedRunId,sessionId});
   const previews=new Map();let previewBytes=0;
+  const unavailable=owner=>({sessionId,status:'unavailable',generation:null,workers:[],availability:{status:'unavailable',reason:'Saved execution data is unavailable. Original records were preserved.'},
+    meta:{name:owner.id},lifecycle:{available:false,visibilityKnown:false,reason:'Execution data is unavailable; lifecycle changes are disabled.'},experience:{run:ref(owner),phases:[],workers:[]}});
   async function read(owner,options={}){
     const retained=await moduleAt(owner,'monitor-data.mjs');
-    const result=await retained.monitorData(owner.runDir,{...options,runRef:ref(owner)});
+    let result;
+    try{result=await retained.monitorData(owner.runDir,{...options,runRef:ref(owner)});}
+    catch(error){if(!options.kind||options.kind==='summary')return unavailable(owner);throw error;}
     if(options.kind&&options.kind!=='summary')return result;
     if(result.sessionId!==sessionId)throw fault('MONITOR_OWNERSHIP','Saved execution differs from originating session');
     const lifecycle=await readLifecycle(owner.runDir);
@@ -38,6 +42,7 @@ export async function createSessionServices({dataDir,sessionId,pinnedRunId}){
     const owner=await resolveOwner(target.runId);
     if(target.runtimeId!==owner.runtime.id)throw fault('MONITOR_TARGET','Control target runtime changed');
     const snapshot=await read(owner);
+    if(snapshot.availability?.status==='unavailable')throw fault('MONITOR_UNAVAILABLE','Saved execution data is unavailable; controls are disabled');
     if(target.generation!==snapshot.generation)throw fault('REPLAY_GENERATION','Run generation changed; refresh before continuing');
     return{owner,snapshot};
   }

@@ -18,6 +18,24 @@ import {parseCommand} from '../bin/arguments.mjs';
 import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
 const execute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 
+test('doctor preserves parent admission labels without exposing snapshots or native catalog payloads',()=>{
+ for(const code of ['ACCESS_POLICY','ACCESS_OVERRIDE','PARENT_ACCESS_REQUIRED','PARENT_ACCESS_INVALID','PARENT_CAPABILITIES']){
+  const report=doctorFailure({code,message:'PRIVATE_PARENT_SENTINEL',parentAccess:{secret:'PRIVATE_PARENT_SENTINEL'},evidence:{parentCapabilities:{secret:'PRIVATE_PARENT_SENTINEL'}}});
+  assert.deepEqual(report.error,{code});assert.equal(report.inferenceRequests,0);
+  assert.equal(JSON.stringify(report).includes('PRIVATE_PARENT_SENTINEL'),false);
+ }
+});
+
+test('new public starts default to parent access while restrictions and snapshot input are explicit',()=>{
+ const parent=parseCommand(['run','demo','--session','s','--parent-access','authority.json'],{});
+ assert.equal(parent.values.access,'parent');assert.equal(parent.values['parent-access'],'authority.json');
+ assert.equal(parseCommand(['run','demo','--session','s','--access','restricted'],{}).values.access,'restricted');
+ assert.equal(parseCommand(['doctor'],{}).values.access,'restricted');
+ assert.equal(parseCommand(['doctor','--access','parent','--session','s','--parent-access','authority.json'],{}).values.access,'parent');
+ assert.throws(()=>parseCommand(['run','demo','--session','s','--access','arbitrary'],{}),/parent or restricted/);
+ for(const command of ['resume','restart-worker'])assert.throws(()=>parseCommand([command,'demo','--session','s','--access','parent'],{}),/not valid/);
+});
+
 test('Session 0 desktop selection is explicit, enumerated and frozen for saved runs',()=>{
  for(const command of ['doctor','run'])for(const mode of ['inherit','shared']){
   const args=command==='run'?['run','demo','--session','s']:['doctor'];
@@ -68,13 +86,21 @@ test('public detached start advertises exact observer arguments without claiming
  const temp=await mkdtemp(join(tmpdir(),'workflow-watch-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const script=join(temp,'script.js'),hook=join(temp,'hook.mjs'),dataDir=join(temp,'data');await writeFile(script,'export const meta={name:"fixture",description:"receipt"};return 1;');
  const runtime=`export * from ${JSON.stringify(new URL("../bin/managed-runtime.mjs?receipt-fixture",import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export function defaultDataDir(){throw Error('explicit data required');}export async function selectRuntime(){return{path:pluginRoot,codex:'fixture'};}export async function bindRun(){return{id:'saved-id',runDir:${JSON.stringify(join(temp,'run'))}};}export function resolveRun(){throw Error('unexpected read');}export function paths(){}export function noLinks(){}export function nativeCodex(){throw Error('inference forbidden');}`;
- const background=`export async function startBackground(input){return{status:'running',generation:3,watch:{required:true,attached:false,sessionId:input.sessionId,generation:3,after:0}};}`;
+ const background=`export async function startBackground(input){return{status:'running',generation:3,accessPolicy:input.accessPolicy,defaults:input.defaults,watch:{required:true,attached:false,sessionId:input.sessionId,generation:3,after:0}};}`;
  await writeFile(hook,`import{registerHooks}from'node:module';const base=${JSON.stringify(new URL('../',import.meta.url).href)};registerHooks({load(url,context,next){const source=url===new URL('bin/managed-runtime.mjs',base).href?${JSON.stringify(runtime)}:url===new URL('engine/background.mjs',base).href?${JSON.stringify(background)}:undefined;return source===undefined?next(url,context):{format:'module',source,shortCircuit:true};}});`);
  const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
- const result=await execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'run','--script',script,'--session','origin','--data-dir',dataDir],{cwd:temp,env,windowsHide:true,timeout:10000});
+ const invoke=flags=>execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'run','--script',script,'--session','origin','--data-dir',dataDir,...flags],{cwd:temp,env,windowsHide:true,timeout:10000});
+ const result=await invoke(['--access','restricted','--writable']);
  const receipt=JSON.parse(result.stdout);assert.equal(receipt.watch.attached,false);assert.equal(receipt.watch.required,true);
  assert.deepEqual(receipt.watch.argv,[process.execPath,join(root,'bin','launch.mjs'),'watch','saved-id','--session','origin','--generation','3','--after','0','--jsonl','--data-dir',dataDir]);
  const parsed=parseCommand(receipt.watch.argv.slice(2),{});assert.equal(parsed.command,'watch');assert.equal(parsed.sessionId,'origin');assert.equal(parsed.values.generation,'3');
+ assert.equal(receipt.accessPolicy.policy.access,'restricted');assert.equal(receipt.defaults.permissions.sandbox,'workspace-write');
+ await assert.rejects(invoke([]),error=>/parent-access/.test(error.stderr));
+ const authority=join(temp,'authority.json');
+ await writeFile(authority,JSON.stringify({version:1,sessionId:'origin',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}));
+ const parent=JSON.parse((await invoke(['--parent-access',authority,'--writable'])).stdout);
+ assert.equal(parent.accessPolicy.policy.access,'parent');assert.equal(parent.accessPolicy.policy.sessionId,'origin');
+ assert.equal(parent.defaults.workspace,'isolated');assert.equal(parent.defaults.permissions,undefined);
 });
 
 const doctorSecret='DOCTOR_SECRET_SENTINEL private@example.invalid C:/private/account';
@@ -116,7 +142,7 @@ async function invokeDoctor(t,scenario){
  await writeFile(hook,`import {registerHooks} from 'node:module';
  const base=${JSON.stringify(new URL('../',import.meta.url).href)},backend=${JSON.stringify(backend)},runtime=${JSON.stringify(runtime)},unused=${JSON.stringify(unused)},hostContext=${JSON.stringify(context)};
  registerHooks({load(url,context,nextLoad){
-  const source=url===new URL('foundation/host-context.mjs',base).href?hostContext:url===new URL('bin/managed-runtime.mjs',base).href?runtime:url===new URL('engine/backend.mjs',base).href?backend:url.startsWith(new URL('engine/',base).href)?unused:undefined;
+  const source=url===new URL('foundation/host-context.mjs',base).href?hostContext:url===new URL('bin/managed-runtime.mjs',base).href?runtime:url===new URL('engine/backend.mjs',base).href?backend:url===new URL('engine/access-policy.mjs',base).href?undefined:url.startsWith(new URL('engine/',base).href)?unused:undefined;
   return source===undefined?nextLoad(url,context):{format:'module',source,shortCircuit:true};
  }});`);
  const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
@@ -238,9 +264,12 @@ test('doctor diagnostics never invoke nested accessors or serializers',async()=>
  admission.stages[2].evidence=Object.create(poison,{exitCode:{get(){inspected++;throw Error(doctorSecret);}},markerObserved:{value:false}});
  admission.cleanup={...doctorCleanup,toJSON:poison.toJSON};admission.extra=admission;
  const error=Object.assign(Error(doctorSecret),{code:'ADMISSION_FAILED',admission,toJSON:poison.toJSON});
+ error.evidence={startup:{stage:'version',command:Object.create(poison,{exitCode:{get(){inspected++;throw Error(doctorSecret);}},killed:{value:true},signal:{value:doctorSecret},stdoutBytes:{value:Infinity},stderrBytes:{value:4},stdout:{value:doctorSecret}})}};
  const report=doctorFailure(error,{backend:'mxc'}),stdout=JSON.stringify(report);
  assert.equal(inspected,0);assert.doesNotMatch(stdout,/DOCTOR_SECRET_SENTINEL|private@example/);
  assert.deepEqual(report.admission.stages[2].evidence,{markerObserved:false});
+ assert.deepEqual(report.construction,{stage:'version',command:{exitCode:null,killed:true,signal:'unknown',stdoutBytes:null,stderrBytes:4}});
+ assert.equal(report.stage,'buffered-command','precise admission evidence wins over inconsistent construction metadata');
 });
 
 test('doctor preserves successful zero-inference output and owned cleanup',async t=>{

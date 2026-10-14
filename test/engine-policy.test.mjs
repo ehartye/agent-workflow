@@ -1,6 +1,13 @@
 /** @lane merge */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+test('parent integration policy preserves integrations but disables both native delegation generations',async()=>{
+ const {parentLaunch,assertNoDelegation}=await import('../engine/policy.mjs');
+ const launch=parentLaunch({args:['app-server','-c','features.apps=true']});
+ assert.ok(launch.args.includes('features.apps=true'));
+ assert.ok(launch.args.includes('features.multi_agent_v2=false'));
+ assert.throws(()=>assertNoDelegation({features:{multi_agent:false,multi_agent_v2:true},agents:{enabled:false}}),{code:'WORKER_CAPABILITIES'});
+});
 
 test('worker restrictions disable individual inherited integrations and reject effective overrides', async () => {
   const policy = await import('../engine/policy.mjs').catch(() => null);

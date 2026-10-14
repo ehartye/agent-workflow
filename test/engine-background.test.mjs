@@ -16,6 +16,41 @@ import {readRun,requestControl,readControl} from '../engine/controller.mjs';
 
 const exec=promisify(execFile);
 
+test('detached parent access binds the session, reaches the backend and cannot change on resume',async t=>{
+ const {startBackground}=await import('../engine/background.mjs');
+ const {resolveAccess}=await import('../engine/access-policy.mjs');
+ const base=await mkdtemp(join(tmpdir(),'workflow-background-access-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
+ const runDir=join(base,'run'),settings={runnerPath:fileURLToPath(new URL('./fixtures/engine-background.mjs',import.meta.url))};
+ const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}});
+ const receipt=await startBackground({runDir,sessionId:'s',codex:process.execPath,cwd:base,accessPolicy,script:'export const meta={name:"parent",description:"persist authority"};return 1;'},settings);
+ const first=await until(()=>readRun(runDir),state=>state.status==='completed');
+ assert.deepEqual(first.launch.accessPolicy,accessPolicy);assert.deepEqual(first.accessPolicy,accessPolicy);
+ assert.deepEqual(JSON.parse(await readFile(join(base,'backend-access.json'),'utf8')),accessPolicy);
+ await until(()=>readFile(receipt.resultPath,'utf8'),()=>true);
+ const resumed=await startBackground({runDir,sessionId:'s',resume:true},settings);
+ const second=await until(()=>readRun(runDir),state=>state.generation===2&&state.status==='completed');
+ assert.deepEqual(second.accessPolicy,accessPolicy);assert.deepEqual(second.launch.accessPolicy,accessPolicy);
+ await until(()=>readFile(resumed.resultPath,'utf8'),()=>true);
+ const before=(await readdir(runDir)).length;
+ await assert.rejects(startBackground({runDir,sessionId:'s',resume:true,accessPolicy},settings),{code:'ACCESS_OVERRIDE'});
+ assert.equal((await readdir(runDir)).length,before);
+ const foreignDir=join(base,'foreign');
+ await assert.rejects(startBackground({runDir:foreignDir,sessionId:'foreign',codex:process.execPath,cwd:base,accessPolicy,script:'export const meta={name:"foreign",description:"reject"};return 1;'},settings),{code:'ACCESS_POLICY'});
+ await assert.rejects(stat(foreignDir),{code:'ENOENT'});
+ const {DatabaseSync}=await import('node:sqlite'),db=new DatabaseSync(join(runDir,'run.sqlite'));
+ const header=db.prepare('SELECT value FROM header WHERE id=1').get().value;
+ try{
+  for(const target of ['native','launch']){
+   const changed=JSON.parse(header);
+   if(target==='native')changed.accessPolicy.native.command.sandboxPolicy={type:'readOnly',networkAccess:false};
+   else delete changed.launch.accessPolicy;
+   db.prepare('UPDATE header SET value=? WHERE id=1').run(JSON.stringify(changed));
+   await assert.rejects(startBackground({runDir,sessionId:'s',resume:true},settings),{code:'ACCESS_POLICY'});
+   assert.equal((await readdir(runDir)).length,before,'rejected saved authority must not create a new launch receipt');
+  }
+ }finally{db.prepare('UPDATE header SET value=? WHERE id=1').run(header);db.close();}
+});
+
 test('detached desktop selection reaches the backend and survives resume without overrides',{skip:process.platform!=='win32'},async t=>{
  const {startBackground}=await import('../engine/background.mjs');
  const base=await mkdtemp(join(tmpdir(),'workflow-background-desktop-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
@@ -151,7 +186,7 @@ test('detached controller survives launcher exit, pauses durably and resumes fro
   await until(()=>readFile(overridden.resultPath,'utf8'),()=>true);
 });
 
-for(const mode of ['fail','slow','unknown'])test(`launcher ${mode} admission preserves failure without worker dispatch`,async t=>{
+for(const mode of ['fail','fail-plain','fail-evidence','slow','unknown'])test(`launcher ${mode} admission preserves failure without worker dispatch`,async t=>{
   const background=await import('../engine/background.mjs').catch(()=>null);
   assert.equal(typeof background?.startBackground,'function');
   const base=await mkdtemp(join(tmpdir(),'workflow-background-failure-'));
@@ -173,5 +208,18 @@ for(const mode of ['fail','slow','unknown'])test(`launcher ${mode} admission pre
     assert.equal(failure.cleanup.jobEmpty,false);assert.equal(failure.cleanup.serverExited,false);
     assert.deepEqual(failure.cleanup.desktopCompatibility,{requested:'shared',applied:null});
   }
+  const completion=JSON.parse(result);
+  if(mode!=='slow'){
+   assert.ok(completion.startupDiagnostics,'failed background completion must retain sanitized startup evidence');
+   assert.equal(completion.startupDiagnostics.inferenceRequests,0);
+  }
+  if(mode==='fail-evidence'){
+    assert.equal(completion.startupDiagnostics.stage,'buffered-command');
+    assert.equal(completion.startupDiagnostics.admission.stages[1].evidence.exitCode,-1073741502);
+    assert.equal(completion.startupDiagnostics.cleanup.serverExited,false);
+    assert.equal(completion.startupDiagnostics.cleanup.jobEmpty,false);
+    assert.deepEqual(completion.startupDiagnostics.startup.map(item=>item.stage),['discovery','admission']);
+  }else if(mode==='fail-plain')assert.equal(completion.startupDiagnostics.cleanup.serverExited,null,'missing cleanup remains unknown');
+  if(mode!=='slow')assert.deepEqual(completion.startupDiagnostics,completion.admissionFailure,'both receipt surfaces retain the same sanitized admission facts');
   await assert.rejects(stat(join(cwd,'dispatched')),{code:'ENOENT'});
 });

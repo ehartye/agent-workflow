@@ -21,7 +21,10 @@ async function construct(t,scenario={}){
   assert.equal(dirname(directory),resolve(root));
   t.after(async()=>{assert.equal(dirname(directory),resolve(root));await rm(directory,{recursive:true,force:true});});
   const env={...process.env,TEMP:directory,TMP:directory,TMPDIR:directory};delete env.NODE_OPTIONS;
-  const result=await promisify(execFile)(process.execPath,[...(scenario.operation==='readiness-restart'?['--disable-warning=ExperimentalWarning']:[]),fixture,'construct',JSON.stringify(scenario)],{cwd:directory,env,windowsHide:true,timeout:10000,maxBuffer:64*1024});
+  // This outer process includes real Git capture plus several owned servers.
+  // Keep their individual protocol/deadline checks intact; filesystem pressure
+  // must not kill the constructor before the tested boundary is reached.
+  const result=await promisify(execFile)(process.execPath,[...(scenario.operation==='readiness-restart'?['--disable-warning=ExperimentalWarning']:[]),fixture,'construct',JSON.stringify(scenario)],{cwd:directory,env,windowsHide:true,timeout:60000,maxBuffer:64*1024});
   assert.equal(result.stderr,'');
   assert.doesNotMatch(result.stdout,/BACKEND_SECRET_SENTINEL|private@example/);
   assert.ok(Buffer.byteLength(result.stdout)<32*1024,'startup evidence must stay bounded');
@@ -41,6 +44,147 @@ function stopped(report,stage,code){
 function retained(report,expected){
   if(windows)assert.equal(report.directories.some(name=>name.startsWith('workflow-job-host-')),expected);
 }
+
+test('parent execution reaches launch probe readiness thread and turn without disabling configured integrations',async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,nativeSkills:true});
+ assert.equal(report.ok,true);assert.equal(report.value,'BACKEND_OK');
+ assert.equal(report.effective.permissions.sandbox,'danger-full-access');
+ for(const event of report.trace.filter(event=>event.method==='launch')){assert.equal(event.sandbox,'danger-full-access');assert.equal(event.integrationsDisabled,false);assert.equal(event.delegationDisabled,true);}
+ for(const event of report.trace.filter(event=>['command/exec','turn/start'].includes(event.method)))assert.deepEqual(event.sandboxPolicy,{type:'dangerFullAccess'});
+ assert.equal(report.trace.find(event=>event.method==='thread/start').sandbox,'danger-full-access');
+ assert.equal(report.trace.some(event=>event.method==='windowsSandbox/readiness'),false,'parent mode has no MXC readiness prerequisite');
+ assert.equal(report.workerEvidence.nativeIntegrations.invocation,'notVerified');
+ assert.deepEqual(report.workerEvidence.nativeIntegrations.servers,[{name:'fixture-server',status:'ready',toolCount:1}]);
+ assert.equal(report.workerEvidence.capabilities.native.catalog,'callAndOutputObserved');
+ assert.equal(report.cleanup.serverExited,true);
+});
+
+test('parent native catalog provisions original plugin roots and observes genuine native calls without manual manifests',async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true});
+ assert.equal(report.ok,true);assert.equal(report.value,'BACKEND_OK');
+ assert.equal(report.parentCapabilities.coverage.complete,true);assert.equal(report.parentCapabilities.coverage.pluginCount,1);
+ const thread=report.trace.find(event=>event.method==='thread/start');
+ assert.deepEqual(thread.roots,report.parentCapabilities.roots);assert.match(thread.roots[0].location.path,/fixture-plugin[\\/]1\.0\.0$/);
+ assert.equal(report.trace.find(event=>event.stage==='worker'&&event.method==='launch').directSkills,true);
+ const native=report.workerEvidence.parentCapabilities.native;
+ assert.equal(native.catalog,'callAndOutputObserved');assert.equal(native.read,'callAndOutputObserved');
+ assert.equal(native.readRootMatch,'notVerified');assert.equal(native.catalogContents,'notRetained');
+ assert.deepEqual(report.workerEvidence.nativeIntegrations.authentication,[{name:'fixture-server',status:'oAuth'}]);
+ assert.equal(report.trace.find(event=>event.method==='turn/start').nativeSkillGuidance,true);
+ assert.doesNotMatch(JSON.stringify(report),/PARENT_SKILL_BODY_NOT_COPIED|PRIVATE_NATIVE_SKILL/);
+});
+
+test('parent catalog and selected role roots deduplicate exact paths while keeping role identity',async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,nativeSkills:true});
+ assert.equal(report.ok,true);
+ const roots=report.trace.find(event=>event.method==='thread/start').roots;
+ assert.equal(roots.length,2);assert.equal(new Set(roots.map(root=>root.location.path)).size,2);
+ assert.equal(roots.find(root=>root.location.path===report.selectedRoot).id,'native-fixture');
+ assert.equal(report.workerEvidence.capabilities.native.read,'callAndOutputObserved');
+ assert.equal(report.workerEvidence.parentCapabilities.native.read,'callAndOutputObserved');
+});
+
+test('parent tasks need not invoke skills unless explicitly assigned and incomplete catalogs refuse before a model',async t=>{
+ const plain=await construct(t,{parentAccess:true,execute:true,worker:{nativeCalls:'none'}});
+ assert.equal(plain.ok,true);assert.equal(plain.workerEvidence.parentCapabilities.native.read,'notObserved');
+ const blocked=await construct(t,{parentAccess:true,execute:true,setup:{partialCatalog:true}});
+ assert.equal(blocked.ok,false);assert.equal(blocked.primary.code,'PARENT_CAPABILITIES');
+ assert.equal(blocked.connections.includes('worker'),false);assert.equal(blocked.cleanup.serverExited,true);
+ assert.equal(blocked.closeCalls.setup,1);assert.equal(blocked.trace.some(event=>event.method==='turn/start'),false);
+});
+
+for(const parentAccess of [false,true])for(const completionSource of ['missing','changed'])test(`selected skill ${completionSource} after model dispatch fails completion under ${parentAccess?'parent':'restricted'} policy despite paired native calls`,async t=>{
+ const report=await construct(t,{parentAccess,execute:true,nativeSkills:true,worker:{completionSource}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'CAPABILITY_SOURCE_CHANGED');
+ assert.equal(report.evidence.capabilities.sources.status,'passed','initial admission remains truthful');
+ const completion=report.evidence.capabilities.completionSources;
+ assert.equal(completion.status,'failed');assert.equal(completion.start,'observed');assert.equal(completion.sourceStatus,'changedOrUnavailable');
+ assert.equal(completion.scope,'selected-skills');assert.equal(completion.skillCount,1);
+ assert.equal(report.evidence.capabilities.native.read,'callAndOutputObserved','paired output does not prove assigned source remained available');
+ assert.equal(report.evidence.attempts.length,1);assert.equal(report.evidence.attempts[0].status,'completed');
+ assert.notEqual(report.noInference,true);assert.notEqual(report.notStarted,true);assert.notEqual(report.noProcessStarted,true);
+ assert.equal(report.evidence.cleanup.serverExited,true);assert.equal(report.evidence.cleanup.nativeTerminals.inventoryEmpty,true);
+ const methods=report.trace.filter(event=>event.stage==='worker').map(event=>event.method),turn=methods.indexOf('turn/start');
+ assert.ok(methods.indexOf('command/exec')<turn);assert.ok(methods.lastIndexOf('command/exec')>turn);assert.equal(methods.filter(method=>method==='turn/start').length,1);
+});
+
+test('partial required native read and disappeared source retain both observations without repeating the model',async t=>{
+ const report=await construct(t,{execute:true,nativeSkills:true,worker:{completionSource:'missing',nativeCalls:'unpaired'}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'CAPABILITY_SOURCE_CHANGED');
+ assert.equal(report.evidence.capabilities.native.read,'callObserved');assert.equal(report.evidence.capabilities.completionSources.sourceStatus,'changedOrUnavailable');
+ assert.equal(report.evidence.attempts.length,1);assert.equal(report.closeCalls.worker,1);
+});
+
+test('completion source transport failure stays unknown after the observed model result without a retry',async t=>{
+ const report=await construct(t,{execute:true,nativeSkills:true,worker:{completionTransportFailure:true}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'CAPABILITY_SOURCE_UNVERIFIED');assert.equal(report.executionUnknown,true);
+ assert.equal(report.evidence.capabilities.sources.status,'passed');assert.equal(report.evidence.capabilities.completionSources.start,'unknown');
+ assert.equal(report.evidence.capabilities.completionSources.sourceStatus,'unverified');assert.equal(report.evidence.attempts[0].status,'completed');
+ assert.notEqual(report.noInference,true);assert.notEqual(report.notStarted,true);assert.equal(report.closeCalls.worker,1);
+ assert.equal(report.trace.filter(event=>event.stage==='worker'&&event.method==='command/exec').length,2);
+});
+
+for(const nativeRead of ['error','wrong-root','reference','cursor','partial'])test(`selected activation rejects ${nativeRead} native read evidence even when exact sources remain available`,async t=>{
+ const delayed=nativeRead==='error';
+ const report=await construct(t,{execute:true,nativeSkills:true,twoSkills:nativeRead==='partial',...(delayed?{setup:{closeDelayMs:150}}:{}),worker:{nativeRead,...(delayed?{closeDelayMs:150}:{})}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'CAPABILITY_NATIVE_SKILLS');
+ const capability=report.evidence.capabilities;
+ assert.equal(capability.sources.status,'passed');assert.equal(capability.completionSources.status,'passed');
+ assert.equal(capability.native.catalog,'callAndOutputObserved');assert.equal(capability.native.read,'callAndOutputObserved');
+ assert.deepEqual(capability.native.missing,[]);
+ assert.deepEqual(capability.native.missingSkills,nativeRead==='partial'?['native-second']:['native-fixture']);
+ assert.deepEqual(capability.native.activation.observed,nativeRead==='partial'?['native-fixture']:[]);
+ assert.equal(capability.native.activation.status,'incomplete');assert.equal(capability.native.activation.body,'notVerified');
+ assert.equal(report.evidence.attempts[0].status,'completed');assert.equal(report.evidence.cleanup.serverExited,true);
+ if(delayed){
+   for(const stage of ['setup','worker'])assert.equal(report.trace.filter(event=>event.stage===stage&&event.method==='fixture/gracefulExit').length,1,'the real fixture must reach its delayed normal exit');
+   assert.equal(report.evidence.cleanup.forced,false);
+   if(windows)assert.equal(report.evidence.cleanup.jobEmpty,true);
+ }
+ assert.notEqual(report.noInference,true);assert.doesNotMatch(JSON.stringify(report),/PRIVATE_NATIVE_(SKILL_BODY|READ_ERROR)/);
+});
+
+test('parent worker can narrow actual policy before readiness and model dispatch',async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,nativeSkills:true,workerOptions:{permissions:{sandbox:'read-only'}}});
+ assert.equal(report.ok,true);
+ for(const event of report.trace.filter(event=>event.stage==='worker'&&['command/exec','turn/start'].includes(event.method)))assert.deepEqual(event.sandboxPolicy,{type:'readOnly',networkAccess:false});
+ assert.equal(report.trace.find(event=>event.method==='thread/start').sandbox,'read-only');
+ assert.equal(report.workerEvidence.settings.permissions.sandbox,'read-only');
+});
+
+for(const tamper of ['native','fingerprint'])test(`parent ${tamper} tampering rejects before any subprocess`,async t=>{
+ const report=await construct(t,{parentAccess:true,tamper});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'ACCESS_POLICY');assert.deepEqual(report.connections,[]);assert.deepEqual(report.trace,[]);
+});
+
+test('parent thread policy mismatch fails before readiness and inference',async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,nativeSkills:true,worker:{wrongPolicy:true}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'THREAD_POLICY');
+ assert.equal(report.trace.some(event=>event.stage==='worker'&&['turn/start','command/exec'].includes(event.method)),false);
+ assert.equal(report.evidence.cleanup.serverExited,true);
+});
+
+test('parent isolated writer retains full execution policy and exact owned worktree',{skip:!windows},async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,workspace:true,workerOptions:{workspace:'isolated'}});
+ assert.equal(report.ok,true,JSON.stringify(report.primary));assert.equal(report.value,'BACKEND_OK');
+ const thread=report.trace.find(event=>event.method==='thread/start'),turn=report.trace.find(event=>event.method==='turn/start');
+ assert.match(thread.cwd,/source-worktrees[\\/]workflow-/);assert.deepEqual(thread.runtimeWorkspaceRoots,[thread.cwd]);
+ assert.equal(thread.sandbox,'danger-full-access');assert.equal(turn.cwd,thread.cwd);assert.deepEqual(turn.runtimeWorkspaceRoots,[thread.cwd]);
+ assert.deepEqual(turn.sandboxPolicy,{type:'dangerFullAccess'});assert.equal(report.workerEvidence.settings.workspace,'isolated');
+ assert.equal(report.workerEvidence.cleanup.nativeTerminals.inventoryEmpty,true);assert.equal(report.workerEvidence.cleanup.jobEmpty,true);
+});
+
+for(const workspace of [false,'tampered'])test(`parent isolated writer rejects ${workspace?'tampered':'missing'} worktree before worker launch`,{skip:!windows},async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,workspace,workerOptions:{workspace:'isolated'}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,workspace?'WORKSPACE_PATH':'WORKSPACE_REQUIRED');
+ assert.equal(report.connections.includes('worker'),false);assert.equal(report.noProcessStarted,true);
+});
+
+test('parent isolated writer rejects thread that loses its owned workspace',{skip:!windows},async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,workspace:true,workerOptions:{workspace:'isolated'},worker:{wrongWorkspace:true}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'THREAD_POLICY');
+ assert.equal(report.trace.some(event=>event.method==='turn/start'),false);assert.equal(report.evidence.cleanup.jobEmpty,true);
+});
 
 test('empty owned job cannot override unresolved native terminal cleanup',async t=>{
   const report=await construct(t,{operation:'workerCleanup'});
@@ -80,7 +224,8 @@ test('selected exact skill roots reach native executor tools without UserInput o
   assert.equal(report.workerEvidence.capabilities.sources.status,'passed');
   assert.equal(report.workerEvidence.capabilities.native.catalog,'callAndOutputObserved');
   assert.equal(report.workerEvidence.capabilities.native.read,'callAndOutputObserved');
-  assert.equal(report.workerEvidence.capabilities.native.readRootMatch,'notVerified','paired calls do not certify every selected root/content');
+  assert.equal(report.workerEvidence.capabilities.native.readRootMatch,'observedForSelectedMainReads');
+  assert.deepEqual(report.workerEvidence.capabilities.native.activation,{status:'complete',required:['native-fixture'],observed:['native-fixture'],missing:[],body:'notVerified'});
   assert.equal(report.closeCalls.worker,1);
 });
 
@@ -218,6 +363,26 @@ for(const login of ['absent','warning-absent'])test(`native ${login} login refus
  assert.equal(report.doctor.cleanup.serverExited,null,'no App Server cleanup is invented before startup');
 });
 for(const login of ['unknown','wrong-exit','missing','timeout'])test(`native login ${login} failure is not misclassified as absent authentication`,async t=>{
- const report=await construct(t,{login});assert.equal(report.ok,false);assert.equal(report.primary.code,'CHECK_FAILED');assert.equal(report.doctor.stage,'backend');
+ const report=await construct(t,{login});assert.equal(report.ok,false);assert.equal(report.primary.code,'CHECK_FAILED');assert.equal(report.doctor.stage,'authentication');
  assert.deepEqual(report.connections,[]);assert.deepEqual(report.trace,[]);retained(report,false);
+ const command=report.evidence.startup.command;
+ assert.equal(report.evidence.startup.stage,'authentication');
+ assert.deepEqual(report.doctor.construction,{stage:'authentication',command});
+ assert.equal(report.doctor.inferenceRequests,0);assert.equal(report.doctor.cleanup.serverExited,null);
+ assert.notEqual(report.noProcessStarted,true);assert.notEqual(report.notStarted,true);
+ if(login==='unknown'){assert.equal(command.exitCode,1);assert.ok(command.stderrBytes>0);}
+ if(login==='wrong-exit')assert.equal(command.exitCode,2);
+ if(login==='missing'){assert.equal(command.exitCode,null);assert.equal(command.killed,null);}
+ if(login==='timeout'){assert.equal(command.exitCode,null);assert.equal(command.killed,true);assert.equal(command.signal,'termination');}
+});
+
+test('failed native version subprocess retains only bounded construction facts before any server starts',async t=>{
+ const report=await construct(t,{version:'failed'}),bytes=Buffer.byteLength('BACKEND_SECRET_SENTINEL private@example.invalid');
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'CHECK_FAILED');
+ assert.deepEqual(report.connections,[]);assert.deepEqual(report.trace,[]);retained(report,false);
+ const command={exitCode:7,killed:false,signal:'none',stdoutBytes:bytes,stderrBytes:bytes+1};
+ assert.equal(report.evidence.startup.stage,'version');assert.deepEqual(report.evidence.startup.command,command);
+ assert.deepEqual(report.doctor.construction,{stage:'version',command});assert.equal(report.doctor.stage,'version');
+ assert.equal(report.doctor.cleanup.serverExited,null);assert.equal(report.doctor.inferenceRequests,0);
+ assert.notEqual(report.noProcessStarted,true);assert.notEqual(report.notStarted,true);
 });

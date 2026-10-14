@@ -6,7 +6,8 @@ import {tmpdir} from 'node:os';
 import {fault,diagnostic} from '../foundation/client.mjs';
 import {validateCapturePolicy} from './workspace-policy.mjs';
 
-const maxFiles=20000,maxBytes=128*1024*1024,maxPatch=32*1024*1024;
+const maxFiles=20000,maxBytes=512*1024*1024,maxPatch=512*1024*1024;
+const maxMetadata=32*1024*1024,maxPreview=32*1024*1024;
 const maxExcludedEntries=100000,maxInventoryBytes=16*1024*1024,maxTraversalEntries=100000;
 const noHooks=join(tmpdir(),`workflow-no-hooks-${randomUUID()}`);
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -23,7 +24,7 @@ async function boundedRead(path,limit=maxBytes){
     return Buffer.concat(chunks,size);
   }finally{await handle.close();}
 }
-function git(cwd,args,{input,index,maxBuffer=maxPatch}={}){
+function git(cwd,args,{input,index,maxBuffer=maxMetadata}={}){
   return new Promise((done,reject)=>{
     const child=execFile('git',['--no-pager','--no-replace-objects','-c',`core.hooksPath=${noHooks}`,'-c','core.fsmonitor=false',...args],
       {cwd,env:{...gitEnv,...(index?{GIT_INDEX_FILE:index}:{})},windowsHide:true,timeout:20000,maxBuffer,encoding:'buffer'},
@@ -215,7 +216,7 @@ async function checkCapture(capture,{verifyBlobs=true}={}){
 }
 async function checkIndex(record){
   const info=await lstat(record.inputIndex);
-  if(!info.isFile()||record.version===2&&(info.nlink!==1||await realpath(record.inputIndex)!==record.inputIndex)||digest(await boundedRead(record.inputIndex,maxPatch))!==record.inputIndexHash)throw fault('WORKSPACE_ARTIFACT','Captured input index is missing or changed');
+  if(!info.isFile()||record.version===2&&(info.nlink!==1||await realpath(record.inputIndex)!==record.inputIndex)||digest(await boundedRead(record.inputIndex,maxMetadata))!==record.inputIndexHash)throw fault('WORKSPACE_ARTIFACT','Captured input index is missing or changed');
 }
 export async function captureInputs({source,artifactsDir,capturePolicy}){
   try{
@@ -241,7 +242,7 @@ export async function captureInputs({source,artifactsDir,capturePolicy}){
     for(const name of entries.keys())if(!capturedNames.has(name)&&await file(source,name,{optional:true,allowHardlinks:true}))throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
     for(const item of captured.files)if(digest(await boundedRead((await file(source,item.name,{allowHardlinks:true})).path))!==item.sha256)throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
     const built=await tree(source,captured,artifactsDir);
-    const result={version:frozen?2:1,source,common,base,parent:await realpath(parent),artifactsDir,inputTree:built.tree,inputIndex:built.index,inputIndexHash:digest(await boundedRead(built.index,maxPatch)),...captured,
+    const result={version:frozen?2:1,source,common,base,parent:await realpath(parent),artifactsDir,inputTree:built.tree,inputIndex:built.index,inputIndexHash:digest(await boundedRead(built.index,maxMetadata)),...captured,
       ...(frozen?{...frozen,excludedInventory:await saveInventory(artifactsDir,enumeration)}:{})};
     const manifestPath=join(artifactsDir,'inputs.json'),manifest=JSON.stringify(result)+'\n';
     await writeFile(manifestPath,manifest,{flag:'wx'});return{...result,manifestPath,manifestHash:digest(manifest)};
@@ -253,7 +254,7 @@ export function describeInputs(inputs){
 }
 async function readInputs(record,{verifyBlobs=true}={}){
   try{
-    const bytes=await boundedRead(record.manifestPath,maxPatch);
+    const bytes=await boundedRead(record.manifestPath,maxMetadata);
     if(digest(bytes)!==record.manifestHash)throw Error('manifest');
     const inputs=JSON.parse(bytes.toString('utf8'));
     if(![1,2].includes(inputs.version)||inputs.source!==record.source||inputs.base!==record.base||inputs.inputTree!==record.inputTree||!Array.isArray(inputs.files)||inputs.files.length>maxFiles||inputs.files.some(item=>! /^[a-f0-9]{64}$/.test(item.sha256)||item.blobPath!==join(inputs.artifactsDir,'blobs',item.sha256)))throw Error('inputs');
@@ -310,8 +311,8 @@ export async function collectWorkspace(workspace){
     const built=await tree(workspace.cwd,captured,capturedDir);
     stage='diff';
     const diffArgs=['diff','--binary','--no-ext-diff','--no-textconv','--no-renames','--no-color','--src-prefix=a/','--dst-prefix=b/'];
-    const patch=await git(workspace.cwd,[...diffArgs,workspace.inputTree,built.tree,'--']);
-    const basePatch=await git(workspace.cwd,[...diffArgs,workspace.base,built.tree,'--']);
+    const patch=await git(workspace.cwd,[...diffArgs,workspace.inputTree,built.tree,'--'],{maxBuffer:maxPatch});
+    const basePatch=await git(workspace.cwd,[...diffArgs,workspace.base,built.tree,'--'],{maxBuffer:maxPatch});
     const changedFiles=names(await git(workspace.cwd,['diff','--name-only','-z','--no-ext-diff','--no-textconv','--no-renames',workspace.inputTree,built.tree,'--']));
     stage='persist';
     const patchPath=join(capturedDir,'changes.patch'),basePatchPath=join(capturedDir,'from-base.patch');
@@ -330,7 +331,7 @@ async function verifyIdentity(workspace,{verifyBlobs=true}={}){
       for(const key of ['source','common','base','inputTree','inputIndex','inputIndexHash','policyHash'])if(workspace[key]!==inputs[key])throw Error('input identity');
       const path=join(workspace.artifactsDir,'workspace.json'),info=await lstat(path);
       if(!info.isFile()||info.nlink!==1||await realpath(path)!==path)throw Error('workspace manifest identity');
-      const bytes=await boundedRead(path,maxPatch),identity=JSON.parse(bytes.toString('utf8'));
+      const bytes=await boundedRead(path,maxMetadata),identity=JSON.parse(bytes.toString('utf8'));
       for(const key of ['version','cwd','source','common','base','inputTree','artifactsDir','inputIndex','inputIndexHash','gitPointerHash','inputs','policyHash'])
         if(canonical(identity[key])!==canonical(workspace[key]))throw Error('workspace identity');
     }catch(error){throw Object.assign(fault('WORKSPACE_ARTIFACT','Workspace capture policy or input identity changed'),{cause:error});}
@@ -362,9 +363,9 @@ export async function verifyWorkspace(workspace){
       ||workspace.manifestPath!==join(workspace.artifactsDir,'result','manifest.json')))throw Error('result artifact paths');
     for(const [path,hash] of [[workspace.patchPath,workspace.patchHash],[workspace.basePatchPath,workspace.basePatchHash],[workspace.manifestPath,workspace.manifestHash]]){
       const info=await lstat(path);
-      if(!inside(workspace.artifactsDir,path)||info.isSymbolicLink()||inputs&&(!info.isFile()||info.nlink!==1||await realpath(path)!==path)||digest(await boundedRead(path,maxPatch))!==hash)throw Error('artifact');
+      if(!inside(workspace.artifactsDir,path)||info.isSymbolicLink()||inputs&&(!info.isFile()||info.nlink!==1||await realpath(path)!==path)||digest(await boundedRead(path,path===workspace.manifestPath?maxMetadata:maxPatch))!==hash)throw Error('artifact');
     }
-    const manifest=JSON.parse((await boundedRead(workspace.manifestPath,maxPatch)).toString('utf8'));
+    const manifest=JSON.parse((await boundedRead(workspace.manifestPath,maxMetadata)).toString('utf8'));
     if(inputs){
       for(const key of ['version','cwd','source','common','base','inputTree','artifactsDir','inputIndex','inputIndexHash','gitPointerHash','inputs','policyHash','excludedInventory','missingProtectedPaths','resultTree','changedFiles','patchPath','basePatchPath','patchHash','basePatchHash','bytes','fileCount'])
         if(canonical(manifest[key])!==canonical(workspace[key]))throw Error('result identity');
@@ -394,7 +395,7 @@ export async function readWorkspaceExclusions(workspace,options={}){
       if(workspace.manifestPath!==join(workspace.artifactsDir,'result','manifest.json'))throw Error('missing output capture');
       const info=await lstat(workspace.manifestPath);
       if(!info.isFile()||info.isSymbolicLink()||await realpath(workspace.manifestPath)!==workspace.manifestPath)throw Error('manifest identity');
-      const data=await boundedRead(workspace.manifestPath,maxPatch);
+      const data=await boundedRead(workspace.manifestPath,maxMetadata);
       if(digest(data)!==workspace.manifestHash)throw Error('manifest hash');
       const manifest=JSON.parse(data.toString('utf8'));
       if(manifest.policyHash!==inputs.policyHash||canonical(manifest.inputs)!==canonical(workspace.inputs)
@@ -407,8 +408,8 @@ export async function readWorkspaceExclusions(workspace,options={}){
       fileCount:descriptor.fileCount,bytes:descriptor.bytes,nextAfter:after+limit<entries.length?after+limit:null};
   }catch(error){if(error.code==='WORKSPACE_INPUT')throw error;throw Object.assign(fault('WORKSPACE_ARTIFACT','Workspace excluded inventory is missing or changed'),{cause:error});}
 }
-export async function readWorkspacePatch(workspace,{basis='inputs',previewBytes=maxPatch}={}){
-  if(!['inputs','base'].includes(basis)||!Number.isInteger(previewBytes)||previewBytes<1||previewBytes>maxPatch)throw fault('PATCH_INPUT','Choose an inputs or base patch and a bounded preview');
+export async function readWorkspacePatch(workspace,{basis='inputs',previewBytes=maxPreview}={}){
+  if(!['inputs','base'].includes(basis)||!Number.isInteger(previewBytes)||previewBytes<1||previewBytes>maxPreview)throw fault('PATCH_INPUT','Choose an inputs or base patch and a bounded preview');
   if(!workspace?.patchPath)throw fault('MONITOR_MISSING','A finalized workspace diff is not available');
   try{
     const path=basis==='base'?workspace.basePatchPath:workspace.patchPath,sha256=basis==='base'?workspace.basePatchHash:workspace.patchHash;

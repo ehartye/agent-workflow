@@ -14,7 +14,7 @@ The coordinator supplies the complete assigned source-output scope in `protected
 
 The canonical policy and hash persist before writer dispatch, participate in replay identity, and remain immutable for that run. Changing the policy requires a new run; it cannot repair or recollect an earlier failed capture. Existing runs without an explicit policy keep their recorded capture semantics. An explicit empty exclusion list includes ignored inputs and outputs.
 
-Included files remain bounded at 20,000 files, 128 MiB and 32 MiB per diff. Excluded entries have a separate complete metadata inventory bounded at 100,000 entries and 16 MiB; overflow fails instead of silently dropping records. The inventory records names, kinds, counts and omitted bytes. Its hash verifies metadata, **not excluded payload contents**. Missing assigned outputs remain explicit evidence, not delivery.
+Included files remain bounded at 20,000 files and 512 MiB total captured bytes, with a separate 512 MiB budget for each diff. Patch previews and capture metadata retain their 32 MiB limits. Large captures increase disk use, hashing/Git time and peak memory because file and diff verification currently buffers data; the capture budget is not a process-memory cap. Excluded entries have a separate complete metadata inventory bounded at 100,000 entries and 16 MiB; overflow fails instead of silently dropping records. The inventory records names, kinds, counts and omitted bytes. Its hash verifies metadata, **not excluded payload contents**. Missing assigned outputs remain explicit evidence, not delivery.
 
 Inspect a finalized writer through the dashboard's Read excluded inputs/outputs buttons, or:
 

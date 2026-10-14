@@ -18,7 +18,7 @@ async function assertBinding(runDir,binding,state){
   if(!info.isFile()||info.isSymbolicLink()||info.size>65536)throw fault('MONITOR_OWNERSHIP','Run ownership record is unavailable or unsafe');
   const file=await open(path,'r');let owner;
   try{const bytes=Buffer.alloc(65537),read=await file.read(bytes,0,bytes.length,0);if(read.bytesRead>65536)throw fault('MONITOR_OWNERSHIP','Run ownership record exceeds its limit');owner=JSON.parse(bytes.subarray(0,read.bytesRead).toString('utf8'));}finally{await file.close();}
-  if(owner.schema!==2||owner.id!==binding.pinnedRunId||owner.runtime?.id!==binding.runtimeId||owner.sessionId!==binding.originatingSessionId||state.sessionId!==binding.originatingSessionId)throw fault('MONITOR_OWNERSHIP','Monitor binding differs from retained run/session/runtime ownership');
+  if(owner.schema!==2||owner.id!==binding.pinnedRunId||owner.runtime?.id!==binding.runtimeId||owner.sessionId!==binding.originatingSessionId||state!==undefined&&state.sessionId!==binding.originatingSessionId)throw fault('MONITOR_OWNERSHIP','Monitor binding differs from retained run/session/runtime ownership');
 }
 function integer(url,name,fallback){
   const value=url.searchParams.get(name);if(value===null&&fallback!==undefined)return fallback;
@@ -48,17 +48,17 @@ function readOptions(path,url){
 // The coordinator supplies these adapters after verifying originating session,
 // data root and retained runtimes. No browser/IPC-selected adapter is loaded.
 export async function createExperienceSurface({runDir,binding,services}){
-  const initial=await monitorData(runDir);await assertBinding(runDir,binding,initial);
   const pinned=binding?{dataInstanceId:binding.dataInstanceId,runId:binding.pinnedRunId,runtimeId:binding.runtimeId}:null;
   const has=name=>Boolean(binding&&typeof services?.[name]==='function');
   const capabilities={sessionNavigation:binding?.scope==='session'&&has('listSessionRuns')&&has('readRun'),lifecycle:has('lifecycle')&&has('readRun'),lifecycleReceipt:has('readLifecycleReceipt'),scopedControls:has('controlRun')};
   let busy=false;
-  function decorate(state,ref){return{...state,monitor:{run:ref,scope:binding?.scope??'run',pinnedRunId:binding?.pinnedRunId??null,capabilities,sessionUrl:capabilities.sessionNavigation?'/session':null}};}
+  function decorate(state,ref){return{...state,monitor:{run:ref,scope:binding?.scope??'run',pinnedRunId:binding?.pinnedRunId??null,capabilities:state.availability?.status==='unavailable'?{...capabilities,lifecycle:false,lifecycleReceipt:false,scopedControls:false}:capabilities,sessionUrl:capabilities.sessionNavigation?'/session':null}};}
   async function read(runId,options={}){
     const local=runId===null||runId===binding?.pinnedRunId;
     if(!local&&!capabilities.sessionNavigation)throw unavailable('Originating-session navigation adapter is unavailable.');
-    if(local){const state=await monitorData(runDir,{...options,runRef:pinned});if(!options.kind)await assertBinding(runDir,binding,state);
-      if(!has('readRun'))return!options.kind?decorate(state,pinned):state;
+    if(local){
+      await assertBinding(runDir,binding);
+      if(!has('readRun')){const state=await monitorData(runDir,{...options,runRef:pinned});if(!options.kind)await assertBinding(runDir,binding,state);return!options.kind?decorate(state,pinned):state;}
     }
     const targetId=local?binding.pinnedRunId:runId;
     const state=await services.readRun({runId:targetId,...options,kind:options.kind??'summary'});
@@ -69,6 +69,7 @@ export async function createExperienceSurface({runDir,binding,services}){
   }
   async function observed(runId,input,target){
     const state=await read(runId);
+    if(state.availability?.status==='unavailable')throw unavailable('Saved execution data is unavailable; controls and lifecycle changes are disabled.');
     if(state.generation!==input.generation)throw fault('REPLAY_GENERATION','Run generation changed; refresh before continuing');
     const keys=['dataInstanceId','runId','runtimeId','generation','position','attempt','turnId'];
     if(!target||typeof target!=='object'||Array.isArray(target)||Object.keys(target).some(key=>!keys.includes(key))||!sameRef(target,state.monitor.run)||target.generation!==state.generation)throw fault('MONITOR_TARGET','Select the exact current run/runtime/generation for control');
@@ -83,7 +84,7 @@ export async function createExperienceSurface({runDir,binding,services}){
       const page=await services.listSessionRuns({cursor,limit,includeHidden:hidden==='true'});
       if(!page||!Array.isArray(page.items)||page.items.length>limit||page.nextCursor!==null&&(typeof page.nextCursor!=='string'||page.nextCursor.length>1000))throw unavailable('Session adapter returned invalid paging evidence.');
       const counts={};
-      for(const key of ['hiddenCount','archivedCount','unknownCount','totalCount']){
+      for(const key of ['hiddenCount','archivedCount','unknownCount','unavailableCount','totalCount']){
         const value=page[key];if(value!==undefined&&value!==null&&(!Number.isSafeInteger(value)||value<0||value>1000000))throw unavailable('Session adapter returned invalid visibility counts.');counts[key]=value??null;
       }
       return result({items:page.items.map(item=>{
@@ -143,5 +144,6 @@ export async function createExperienceSurface({runDir,binding,services}){
     }
     return null;
   }
+  await read(null);
   return{route,readPinned:()=>read(null),capabilities,get busy(){return busy;}};
 }

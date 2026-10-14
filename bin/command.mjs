@@ -19,6 +19,8 @@ import {createSessionServices} from '../engine/monitor-adapters.mjs';
 import {doctorFailure,doctorHostContext} from './doctor-diagnostics.mjs';
 import {readHostContext} from '../foundation/host-context.mjs';
 import {readCapabilities} from '../engine/worker-capabilities.mjs';
+import {resolveAccess} from '../engine/access-policy.mjs';
+import {fault} from '../foundation/client.mjs';
 const print=value=>console.log(JSON.stringify(value,null,2));
 function backgroundReceipt(id,receipt,p){
  return{id,...receipt,watch:{...receipt.watch,argv:[process.execPath,join(pluginRoot,'bin','launch.mjs'),'watch',id,'--session',p.sessionId,'--generation',String(receipt.generation),'--after','0','--jsonl','--data-dir',p.dataDir]}};
@@ -39,6 +41,12 @@ function lifecycleRequest(p){
  const generation=integer(o.generation,'generation',{min:1,required:true});
  const target=kind==='run'?{kind}:{kind,generation:integer(o['worker-generation'],'worker-generation',{min:1})??generation,position:integer(o.position,'position',{max:999,required:true}),attempt:integer(o.attempt,'attempt',{required:true})};
  return{sessionId:p.sessionId,generation,expectedRevision:integer(o.revision,'revision',{required:true}),target,...(o.reason===undefined?{}:{reason:o.reason})};
+}
+async function commandAccess(p){
+ if(p.values.access==='restricted'&&p.command==='doctor')return undefined;
+ const access=p.values.access;
+ if(access==='parent'&&!p.values['parent-access'])throw fault('PARENT_ACCESS_REQUIRED','Capture the originating session permission context and supply --parent-access file; use --access restricted for intentionally restricted execution');
+ return resolveAccess({access,sessionId:p.sessionId,...(access==='parent'?{parentAccess:await boundedJson(p.values['parent-access'],4096)}:{})});
 }
 export async function main(tokens=process.argv.slice(2)){
  const p=parseCommand(tokens),o=p.values;if(p.command==='help'||o.help){process.stdout.write(help);return 0;}
@@ -70,20 +78,22 @@ export async function main(tokens=process.argv.slice(2)){
   // Optional diagnostics cannot replace admission failures or weaken policy.
   const hostContext=await readHostContext().then(doctorHostContext,()=>undefined);
   try{
+   const accessPolicy=await commandAccess(p);
    const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the managed runtime');
    const executable=await nativeCodex(pluginRoot);stage='backend';
-   backend=await createManagedBackend({executable,cwd:p.cwd,backend:backendName,session0Desktop});stage='cleanup';
+   backend=await createManagedBackend({executable,cwd:p.cwd,backend:backendName,session0Desktop,...(accessPolicy?{accessPolicy}:{})});stage='cleanup';
    const cleanup=await backend.close();
    const requiresJob=process.platform==='win32'||cleanup?.ownershipScope==='windows-job-members';
    if(cleanup?.serverExited!==true||requiresJob&&cleanup.jobEmpty!==true||cleanup.error){print(doctorFailure({code:'WORKER_DRAIN'},{stage,backend:backendName,admission:backend.admission,cleanup,hostContext}));return 1;}
-   print({status:'passed',inferenceRequests:0,node:process.version,codex:executable,backend:backendName,...(backend.desktopCompatibility?{desktopCompatibility:backend.desktopCompatibility}:{}),...(hostContext?{hostContext}:{}),admission:backend.admission,cleanup});return 0;
+   print({status:'passed',inferenceRequests:0,node:process.version,codex:executable,backend:backendName,...(backend.accessPolicy?{accessPolicy:backend.accessPolicy}:{}),...(backend.parentCapabilities?{parentCapabilities:{fingerprint:backend.parentCapabilities.fingerprint,coverage:backend.parentCapabilities.coverage}}:{}),...(backend.nativeIntegrations?{nativeIntegrations:backend.nativeIntegrations}:{}),...(backend.desktopCompatibility?{desktopCompatibility:backend.desktopCompatibility}:{}),...(hostContext?{hostContext}:{}),admission:backend.admission,cleanup});return 0;
   }catch(error){print(doctorFailure(error,{stage,backend:backendName,admission:backend?.admission,hostContext}));return 1;}
  }
  if(p.command==='run'){
   if(o.script&&p.id)throw Error('Choose a saved workflow name or --script');if(!o.script&&!p.id)throw Error('Provide a saved workflow name or --script');
   const script=o.script?await readFile(resolve(o.script),'utf8'):(await resolveWorkflow(p.id,registry)).script;parseScript(script);
   const args=o.args===undefined?null:JSON.parse(o.args),concurrency=integer(o.concurrency,'concurrency',{min:1,max:256})??2,limits=deadlines(o);
-  const defaults={...(o.model?{model:o.model}:{}),...(o.effort?{effort:o.effort}:{}),...(o['max-attempts']!==undefined?{maxAttempts:integer(o['max-attempts'],'max-attempts',{min:1,max:5})}:{}),...(o.writable?{permissions:{sandbox:'workspace-write'}}:{})};
+  const accessPolicy=await commandAccess(p);
+  const defaults={...(o.model?{model:o.model}:{}),...(o.effort?{effort:o.effort}:{}),...(o['max-attempts']!==undefined?{maxAttempts:integer(o['max-attempts'],'max-attempts',{min:1,max:5})}:{}),...(o.writable?(accessPolicy.policy.access==='parent'?{workspace:'isolated'}:{permissions:{sandbox:'workspace-write'}}):{})};
   let capturePolicy;
   const capabilities=o['worker-capabilities']===undefined?null:await readCapabilities(o['worker-capabilities']);
   if(o['capture-policy']!==undefined){
@@ -91,9 +101,9 @@ export async function main(tokens=process.argv.slice(2)){
    capturePolicy=workspacePolicy.validateCapturePolicy(await boundedJson(o['capture-policy'],2*1024*1024)).policy;
   }
   const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir}),binding=await bindRun({dataDir:p.dataDir,runtime,sessionId:p.sessionId});
-  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults,...(session0Desktop==='shared'?{session0Desktop}:{}),...(capturePolicy===undefined?{}:{capturePolicy}),...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})},input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
+  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults,accessPolicy,...(session0Desktop==='shared'?{session0Desktop}:{}),...(capturePolicy===undefined?{}:{capturePolicy}),...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})},input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
   try{if(!o.foreground){print(backgroundReceipt(binding.id,await startBackground(input),p));return 0;}
-   const backend=await createManagedBackend({executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,session0Desktop,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
+   const backend=await createManagedBackend({executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,session0Desktop,accessPolicy,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}
  }
  const runDir=owner.runDir;

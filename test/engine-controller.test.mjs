@@ -30,6 +30,56 @@ async function setup(t) {
 // Synthetic backend observations; these tests make no model, Windows job or descendant claim.
 const backend = execute => ({ identity: 'fixture-v1', execute, close: async () => ({ serverExited: true, descendants: 'notVerified' }) });
 
+test('parent catalog drift refuses replay before repeating a completed writer or changing retained artifacts',async t=>{
+  const {runDir:root,runWorkflow,readRun}=await setup(t);
+  const {mkdir,readFile}=await import('node:fs/promises');
+  const {promisify}=await import('node:util');const {execFile}=await import('node:child_process');const exec=promisify(execFile);
+  const {resolveAccess}=await import('../engine/access-policy.mjs');const {verifyWorkspace}=await import('../engine/workspaces.mjs');
+  const source=join(root,'project');await mkdir(source);
+  const git=(...args)=>exec('git',args,{cwd:source,windowsHide:true});
+  await git('init','-q');await git('config','user.name','Fixture');await git('config','user.email','fixture@example.invalid');
+  await writeFile(join(source,'note.txt'),'original\n');await git('add','.');await git('commit','-qm','fixture');
+  const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}});
+  const cleanup={serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members',nativeTerminals:{inventoryEmpty:true}};
+  let calls=0;
+  const native=(catalog='a'.repeat(64))=>({identity:`backend-${catalog}`,accessPolicy,parentCapabilities:{fingerprint:catalog,coverage:{complete:true}},close:async()=>cleanup,execute:async({workspace})=>{
+    calls++;await writeFile(join(workspace.cwd,'note.txt'),`owned effect ${calls}\n`);return{value:'done',terminalObserved:true,evidence:{cleanup}};
+  }});
+  const input={runDir:join(root,'run'),sessionId:'s',launch:{cwd:source,accessPolicy},script:meta+'return await agent("Write",{workspace:"isolated"});'};
+  const first=await runWorkflow({...input,backend:native()});assert.equal(first.status,'completed');assert.equal(calls,1);
+  const patch=await readFile(first.workers[0].workspace.patchPath);
+  await assert.rejects(runWorkflow({...input,resume:true,backend:native('b'.repeat(64))}),{code:'PARENT_CAPABILITIES_CHANGED'});
+  assert.deepEqual(await readRun(input.runDir),first);assert.equal(calls,1);
+  assert.deepEqual(await readFile(first.workers[0].workspace.patchPath),patch);assert.equal(await verifyWorkspace(first.workers[0].workspace),true);
+  assert.equal(await readFile(join(source,'note.txt'),'utf8'),'original\n');assert.equal(first.parentCapabilitiesHash,'a'.repeat(64));
+  const cached=await runWorkflow({...input,resume:true,backend:native()});assert.equal(cached.coverage.cached,1);assert.equal(calls,1);
+  const absent=native();delete absent.parentCapabilities;
+  await assert.rejects(runWorkflow({...input,resume:true,backend:absent}),{code:'PARENT_CAPABILITIES_CHANGED'});
+  assert.deepEqual(await readRun(input.runDir),cached);
+  const db=new DatabaseSync(join(input.runDir,'run.sqlite'));
+  const header=JSON.parse(db.prepare('SELECT value FROM header WHERE id=1').get().value);delete header.parentCapabilitiesHash;
+  db.prepare('UPDATE header SET value=? WHERE id=1').run(JSON.stringify(header));db.close();
+  const incomplete=await readRun(input.runDir);
+  await assert.rejects(runWorkflow({...input,resume:true,backend:native()}),{code:'PARENT_CAPABILITIES_CHANGED'});
+  assert.deepEqual(await readRun(input.runDir),incomplete);assert.equal(calls,1);
+});
+
+test('parent catalog drift also rejects explicit restart and fresh incomplete catalog before worker admission',async t=>{
+  const {runDir,runWorkflow,readRun}=await setup(t);const {resolveAccess}=await import('../engine/access-policy.mjs');
+  const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}});
+  const cleanup={serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members',nativeTerminals:{inventoryEmpty:true}};let calls=0;
+  const native=(hash='a'.repeat(64),complete=true)=>({identity:`backend-${hash}`,accessPolicy,parentCapabilities:{fingerprint:hash,coverage:{complete}},close:async()=>cleanup,execute:async()=>{
+    calls++;throw Object.assign(new Error('known task failure'),{code:'FIXTURE',terminalObserved:true,evidence:{cleanup}});
+  }});
+  const input={runDir,sessionId:'s',launch:{accessPolicy},script:meta+'return await agent("Task");'};
+  const missing=native();delete missing.parentCapabilities;
+  await assert.rejects(runWorkflow({...input,backend:missing}),{code:'PARENT_CAPABILITIES_CHANGED'});assert.equal(calls,0);
+  await assert.rejects(runWorkflow({...input,backend:native('a'.repeat(64),false)}),{code:'PARENT_CAPABILITIES_CHANGED'});assert.equal(calls,0);
+  const first=await runWorkflow({...input,backend:native()});assert.equal(first.workers[0].status,'failed');assert.equal(calls,1);
+  await assert.rejects(runWorkflow({...input,resume:true,expectedGeneration:first.generation,restart:{position:0,attempt:first.workers[0].attempts,reconciliation:'Owned fixture failure had no external effects.'},backend:native('b'.repeat(64))}),{code:'PARENT_CAPABILITIES_CHANGED'});
+  assert.deepEqual(await readRun(runDir),first);assert.equal(calls,1);
+});
+
 test('capability ceiling persists and rejects resume overrides source drift and undeclared worker IDs',async t=>{
   const {runDir,runWorkflow,readRun}=await setup(t);
   const source=join(runDir,'skill-source');await (await import('node:fs/promises')).mkdir(source);
