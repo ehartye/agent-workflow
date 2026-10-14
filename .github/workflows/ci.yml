@@ -48,6 +48,10 @@ jobs:
         if: steps.scope.outputs.needed == 'true'
       - run: npm test
         if: steps.scope.outputs.needed == 'true'
+      - name: Diagnose Windows verification failure
+        if: failure() && steps.scope.outputs.needed == 'true'
+        timeout-minutes: 2
+        run: node scripts/diagnose-windows-signature.mjs
       - run: npm run check
         if: steps.scope.outputs.needed == 'true'
       - run: npm run smoke

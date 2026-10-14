@@ -24,7 +24,11 @@ async function original(path,directory){
   if(!parts.length)fail();let current=base;
   for(const [index,part]of parts.entries()){
     current=join(current,part);const stat=await lstat(current),leaf=index===parts.length-1;
-    if(stat.isSymbolicLink()||(!leaf||directory?!stat.isDirectory():!stat.isFile()||stat.nlink!==1)||key(await realpath(current))!==key(current))throw new Error('unsafe source');
+    if(stat.isSymbolicLink()||(!leaf||directory?!stat.isDirectory():!stat.isFile()||stat.nlink!==1))throw new Error('unsafe source');
+    // Windows 8.3 names can expand without traversing a link. Compare the
+    // filesystem identity, retaining the admitted spelling for native roots.
+    const canonical=await lstat(await realpath(current));
+    if(canonical.isSymbolicLink()||stat.dev!==canonical.dev||stat.ino!==canonical.ino||stat.nlink!==canonical.nlink||stat.isDirectory()!==canonical.isDirectory())throw new Error('unsafe source');
   }
 }
 

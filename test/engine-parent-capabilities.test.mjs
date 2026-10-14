@@ -2,10 +2,11 @@
 // @subject engine/parent-capabilities.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,symlink,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join,dirname} from 'node:path';
-import {spawn} from 'node:child_process';
+import {join,dirname,relative} from 'node:path';
+import {spawn,execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {createInterface} from 'node:readline';
 import {discoverParentCapabilities} from '../engine/parent-capabilities.mjs';
 
@@ -53,6 +54,28 @@ test('parent catalog binds original active plugin roots and standalone skills th
   assert.equal(result.inventory.plugins.find(p=>p.id==='suggestion@owned').installed,false);
   assert.equal(result.fingerprint,(await f.run()).fingerprint);
   assert.ok(!JSON.stringify(result).includes('private skill body'));
+});
+
+test('Windows original catalog roots accept real short-name aliases without admitting junctions',{skip:process.platform!=='win32'},async t=>{
+  const f=await fixture(t);await f.plugin('short-path',['1.0.0']);await f.skill('standalone');
+  const longHome=await realpath(f.home);
+  const {stdout}=await promisify(execFile)(join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),
+    ['-NoProfile','-NonInteractive','-Command',"$f=New-Object -ComObject Scripting.FileSystemObject; $f.GetFolder($env:WORKFLOW_OWNED_SHORT_PATH).ShortPath"],
+    {env:{...process.env,WORKFLOW_OWNED_SHORT_PATH:longHome},windowsHide:true,timeout:10000,maxBuffer:8192});
+  const shortHome=stdout.trim();assert.equal((await realpath(shortHome)).toLowerCase(),longHome.toLowerCase());
+  if(shortHome.toLowerCase()===longHome.toLowerCase()){t.skip('Owned fixture volume does not expose an 8.3 alias');return;}
+  const replies=structuredClone(f.replies);replies['skills/list'].data[0].cwd=shortHome;
+  for(const skill of replies['skills/list'].data[0].skills)skill.path=join(shortHome,relative(f.home,skill.path));
+  const client={async request(method,params){assert.deepEqual(params.cwds,[shortHome]);return structuredClone(replies[method]);}};
+  const inspect=()=>discoverParentCapabilities(client,{cwd:shortHome,codexHome:shortHome});
+  const result=await inspect();
+  assert.equal(result.coverage.complete,true,JSON.stringify(result.inventory.missing));assert.equal(result.roots.length,2);
+  assert.ok(result.roots.some(root=>root.location.path===join(shortHome,'plugins/cache/owned/short-path/1.0.0')));
+  assert.ok(result.roots.some(root=>root.location.path===join(shortHome,'skills/standalone')));
+  const link=join(f.home,'redirected');await symlink(join(f.home,'skills/standalone'),link,'junction');
+  replies['skills/list'].data[0].skills.push({name:'redirected',path:join(shortHome,'redirected/SKILL.md'),scope:'user',enabled:true,pluginId:null});
+  const refused=await inspect();assert.equal(refused.coverage.complete,false);assert.equal(refused.roots.length,2);
+  assert.ok(refused.inventory.missing.some(item=>item.id==='redirected'&&item.code==='SOURCE_UNAVAILABLE'));
 });
 
 test('missing, duplicate, mismatched and partial catalog entries remain explicit without granting roots',async t=>{

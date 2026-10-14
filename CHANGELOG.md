@@ -3,6 +3,7 @@
 ## 0.3.3
 
 - Default new runs to explicitly captured parent execution authority and provision original enabled native plugin/skill roots automatically. Keep restricted mode explicit, delegation disabled and host-only connections distinct from native availability.
+- Accept verified Windows short-name aliases for original catalog roots while retaining filesystem identity and link/junction refusal.
 - Require native initial main-resource reads for every explicitly selected skill and revalidate those original sources after model completion. Preserve missing skill IDs, source drift, model attempts and cleanup without substituting packages or retrying effects.
 - Persist parent catalog identity separately; reject missing, incomplete or changed catalogs before resume/restart can advance a generation or repeat a completed writer.
 - Ship the packaged Microsoft Public Trust signed Windows job helper, binding reviewed source and executable identities to the approved profile and timestamp. Fail before startup on missing, altered or untrusted artifacts; preserve 0.3.2 Session 0 compatibility.
