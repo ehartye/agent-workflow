@@ -18,8 +18,8 @@ import {parseCommand} from '../bin/arguments.mjs';
 import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
 const execute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 
-test('doctor preserves parent admission labels without exposing snapshots or native catalog payloads',()=>{
- for(const code of ['ACCESS_POLICY','ACCESS_OVERRIDE','PARENT_ACCESS_REQUIRED','PARENT_ACCESS_INVALID','PARENT_CAPABILITIES']){
+test('doctor preserves known admission labels without exposing snapshots or native catalog payloads',()=>{
+ for(const code of ['ACCESS_POLICY','ACCESS_OVERRIDE','PARENT_ACCESS_REQUIRED','PARENT_ACCESS_INVALID','PARENT_CAPABILITIES','JOB_SIGNATURE','JOB_SIGNATURE_CHECK']){
   const report=doctorFailure({code,message:'PRIVATE_PARENT_SENTINEL',parentAccess:{secret:'PRIVATE_PARENT_SENTINEL'},evidence:{parentCapabilities:{secret:'PRIVATE_PARENT_SENTINEL'}}});
   assert.deepEqual(report.error,{code});assert.equal(report.inferenceRequests,0);
   assert.equal(JSON.stringify(report).includes('PRIVATE_PARENT_SENTINEL'),false);

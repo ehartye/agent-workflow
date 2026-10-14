@@ -7,6 +7,7 @@
 - Require native initial main-resource reads for every explicitly selected skill and revalidate those original sources after model completion. Preserve missing skill IDs, source drift, model attempts and cleanup without substituting packages or retrying effects.
 - Persist parent catalog identity separately; reject missing, incomplete or changed catalogs before resume/restart can advance a generation or repeat a completed writer.
 - Ship the packaged Microsoft Public Trust signed Windows job helper, binding reviewed source and executable identities to the approved profile and timestamp. Fail before startup on missing, altered or untrusted artifacts; preserve 0.3.2 Session 0 compatibility.
+- Bind signature verification to Windows built-in PowerShell modules and distinguish an unavailable verification command from a returned signature rejection, without extending deadlines or changing trust policy.
 - Raise captured bytes and each retained diff to 512 MiB while keeping metadata/previews bounded, integrity verification and reviewed replay.
 - Retain bounded startup diagnostics and unavailable-run dashboard evidence, and improve authoring guidance for parent authority, explicit skills, prerequisite readiness and live observation.
 

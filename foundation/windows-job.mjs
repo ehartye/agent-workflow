@@ -10,8 +10,11 @@ import {fault} from './client.mjs';
 const packagedRoot=fileURLToPath(new URL('./native/',import.meta.url));
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const field=(value,key)=>value&&typeof value==='object'?Object.getOwnPropertyDescriptor(value,key)?.value:undefined;
-const packageFailure=()=>fault('JOB_PACKAGE','Packaged Windows ownership host is missing or does not match its trusted manifest');
-const signatureFailure=()=>fault('JOB_SIGNATURE','Packaged Windows ownership host does not have the required trusted signature');
+const ownedFailures=new WeakSet();
+const failure=(code,message)=>{const error=fault(code,message);ownedFailures.add(error);return error;};
+const packageFailure=()=>failure('JOB_PACKAGE','Packaged Windows ownership host is missing or does not match its trusted manifest');
+const signatureFailure=()=>failure('JOB_SIGNATURE','Packaged Windows ownership host does not have the required trusted signature');
+const signatureCheckFailure=()=>failure('JOB_SIGNATURE_CHECK','Windows signature verification could not complete; artifact trust was not established');
 const sameFile=(a,b)=>a.dev===b.dev&&a.ino===b.ino&&a.size===b.size&&a.mtimeMs===b.mtimeMs&&a.ctimeMs===b.ctimeMs&&b.nlink===1;
 
 async function regularBytes(path,limit){
@@ -34,6 +37,7 @@ async function regularBytes(path,limit){
 // Fixed builtin-only script. The artifact path is data in a child-only variable,
 // never interpolated into PowerShell source. No script file or policy override.
 const signatureCommand=`$ErrorActionPreference='Stop';
+$env:PSModulePath=$PSHOME+'\\Modules';
 $s=Get-AuthenticodeSignature -LiteralPath $env:AGENT_WORKFLOW_VERIFY_FILE;
 $signer=@(); $timestamp=@();
 if($null -ne $s.SignerCertificate){$signer=@($s.SignerCertificate.Extensions | Where-Object {$_.Oid.Value -eq '2.5.29.37'} | ForEach-Object {$_.EnhancedKeyUsages} | ForEach-Object {$_.Value})};
@@ -42,15 +46,17 @@ if($null -ne $s.TimeStamperCertificate){$timestamp=@($s.TimeStamperCertificate.E
 
 async function checkWindowsSignature(executable){
   const systemRoot=process.env.SystemRoot;
-  if(!systemRoot||!isAbsolute(systemRoot))throw signatureFailure();
+  if(!systemRoot||!isAbsolute(systemRoot))throw signatureCheckFailure();
   const command=join(systemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
-  const env={AGENT_WORKFLOW_VERIFY_FILE:executable};
+  // Only vendor modules are needed. Pin both startup and effective search paths;
+  // Windows PowerShell otherwise reconstructs broader module discovery roots.
+  const env={AGENT_WORKFLOW_VERIFY_FILE:executable,PSModulePath:join(dirname(command),'Modules')};
   for(const name of ['SystemRoot','WINDIR','TEMP','TMP','USERPROFILE'])if(process.env[name])env[name]=process.env[name];
   try{
     const {stdout,stderr}=await promisify(execFile)(command,['-NoLogo','-NoProfile','-NonInteractive','-Command',signatureCommand],{env,windowsHide:true,timeout:15000,maxBuffer:16384});
-    if(stderr.trim())throw signatureFailure();
+    if(stderr.trim())throw signatureCheckFailure();
     return JSON.parse(stdout.replace(/^\uFEFF/,''));
-  }catch{throw signatureFailure();}
+  }catch{throw signatureCheckFailure();}
 }
 
 // The production wrapper below fixes root and policy. The verifier is exported
@@ -67,12 +73,12 @@ export async function verifyJobHostPackage({nativeRoot,policy,platform=process.p
     if(sha(source)!==manifest.sourceSha256||sha(binary)!==manifest.binarySha256||binary.length<64||binary.readUInt16LE(0)!==0x5a4d)throw packageFailure();
     const peOffset=binary.readUInt32LE(60);
     if(peOffset<64||peOffset>binary.length-6||binary.readUInt32LE(peOffset)!==0x4550||binary.readUInt16LE(peOffset+4)!==0x8664)throw packageFailure();
-    let signature;try{signature=await signatureCheck(executable);}catch{throw signatureFailure();}
+    let signature;try{signature=await signatureCheck(executable);}catch{throw signatureCheckFailure();}
     const signer=field(signature,'signerEkus'),timestamp=field(signature,'timestampEkus');
     if(field(signature,'status')!=='Valid'||field(signature,'timestampPresent')!==true||!Array.isArray(signer)||signer.length>32||!Array.isArray(timestamp)||timestamp.length>32||!signer.includes('1.3.6.1.5.5.7.3.3')||!signer.includes(profile)||!timestamp.includes('1.3.6.1.5.5.7.3.8'))throw signatureFailure();
     if(!(await regularBytes(manifestPath,4096)).equals(manifestBytes)||sha(await regularBytes(sourcePath,1024*1024))!==manifest.sourceSha256||sha(await regularBytes(executable,4*1024*1024))!==manifest.binarySha256)throw packageFailure();
     return executable;
-  }catch(error){if(['JOB_PLATFORM','JOB_PACKAGE','JOB_SIGNATURE'].includes(error?.code))throw error;throw packageFailure();}
+  }catch(error){if(ownedFailures.has(error))throw error;throw packageFailure();}
 }
 
 // directory remains accepted for existing callers; runtime compilation is never
@@ -84,5 +90,5 @@ export async function buildJobHost(directory){
     const executable=await verifyJobHostPackage({nativeRoot:packagedRoot,policy:JSON.parse(policyBytes.toString('utf8'))});
     if(!(await regularBytes(policyPath,4096)).equals(policyBytes))throw packageFailure();
     return executable;
-  }catch(error){if(['JOB_PLATFORM','JOB_PACKAGE','JOB_SIGNATURE'].includes(error?.code))throw error;throw packageFailure();}
+  }catch(error){if(ownedFailures.has(error))throw error;throw packageFailure();}
 }

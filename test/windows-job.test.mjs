@@ -83,6 +83,26 @@ test('packaged helper builtin signature verification rejects unsigned bytes with
   await assert.rejects(f.verify({signatureCheck:undefined}),{code:'JOB_SIGNATURE'});
   assert.deepEqual(await readFile(f.executable),f.binary);
 });
+
+test('unavailable signature checker is distinct from returned trust rejection and cannot forward spoofed diagnostics',async t=>{
+  const f=await packaged(t);
+  for(const code of ['ENOENT','ETIMEDOUT','JOB_SIGNATURE','JOB_SIGNATURE_CHECK','JOB_PACKAGE']){
+    await assert.rejects(f.verify({signatureCheck:async()=>{throw Object.assign(new Error('PRIVATE_SIGNATURE_FAILURE'),{code,stdout:'PRIVATE_SIGNATURE_FAILURE',stderr:'PRIVATE_SIGNATURE_FAILURE'});}}),error=>{
+      assert.equal(error.code,'JOB_SIGNATURE_CHECK');assert.doesNotMatch(JSON.stringify(error)+error.message,/PRIVATE_SIGNATURE_FAILURE/);return true;
+    });
+  }
+  await assert.rejects(f.verify({signatureCheck:async()=>({status:'NotTrusted'})}),{code:'JOB_SIGNATURE'});
+  assert.deepEqual(await readFile(f.executable),f.binary);
+});
+
+test('missing vendor signature command reports verifier failure through a real child without executing the artifact',{skip:!windows},async t=>{
+  const f=await packaged(t);
+  const moduleUrl=new URL('../foundation/windows-job.mjs',import.meta.url).href;
+  const script=`import {verifyJobHostPackage} from ${JSON.stringify(moduleUrl)};process.env.SystemRoot=process.argv[2];try{await verifyJobHostPackage(JSON.parse(process.argv[1]));process.exitCode=1;}catch(error){console.log(JSON.stringify({code:error.code,message:error.message}));}`;
+  const {stdout,stderr}=await promisify(execFile)(process.execPath,['--input-type=module','-e',script,JSON.stringify({nativeRoot:f.nativeRoot,policy:f.policy}),join(f.nativeRoot,'missing-windows')],{env:{...process.env,PSModulePath:'PRIVATE_MODULE_PATH'},windowsHide:true,timeout:5000,maxBuffer:2048});
+  assert.equal(stderr,'');const result=JSON.parse(stdout);assert.equal(result.code,'JOB_SIGNATURE_CHECK');assert.doesNotMatch(stdout,/PRIVATE_MODULE_PATH|missing-windows/);
+  assert.deepEqual(await readFile(f.executable),f.binary);
+});
 test('Windows owned job drains detached descendants on root exit and stdin cancellation', {skip:!windows,timeout:30000},async t=>{
   const {buildJobHost}=await import('../foundation/windows-job.mjs');
   const dir=await mkdtemp(join(tmpdir(),'workflow-job-test-'));t.after(()=>rm(dir,{recursive:true,force:true}));
