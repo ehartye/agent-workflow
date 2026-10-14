@@ -1,6 +1,6 @@
 # Candidate boundaries
 
-Version 0.3.3 implements the engine through CLI and dashboard, with parent execution authority, native skill activation checks and signed Windows job ownership. Full Ultracode parity remains an acceptance objective; the [ledger](codex-parity.md) records open work. Features from 0.1.1 are not implicitly inherited.
+Version 0.3.4 implements the engine through CLI and the Map + inspector dashboard, with parent execution authority, native skill activation checks and signed Windows job ownership. Full Ultracode parity remains an acceptance objective; the [ledger](codex-parity.md) records open work. Features from 0.1.1 are not implicitly inherited.
 
 | Area | Current behavior and limit |
 | --- | --- |

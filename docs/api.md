@@ -1,6 +1,6 @@
 # Fresh CLI and monitor API
 
-This describes the 0.3.3 API, including parent access, automatic native catalog provisioning, signed packaged job ownership, 512 MiB capture and completion skill checks. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
+This describes the 0.3.4 API, including parent access, automatic native catalog provisioning, signed packaged job ownership, 512 MiB capture and completion skill checks. Version 0.3.4 adds the Map + inspector presentation and bounded job-helper cleanup diagnostics; execution authority and strict drain requirements remain unchanged. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
 
 ## CLI
 

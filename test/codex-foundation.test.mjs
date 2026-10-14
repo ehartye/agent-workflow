@@ -8,6 +8,9 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 
 const fixture = fileURLToPath(new URL('./fixtures/foundation-server.mjs', import.meta.url));
 
@@ -88,6 +91,48 @@ test('shutdown observes owned server exit and does not claim descendant drain', 
   const result = await client.close();
   assert.deepEqual(result, { serverExited: true, forced: true, descendants: 'notVerified' });
   assert.deepEqual(await client.close(), result);
+});
+
+test('job close retains bounded helper facts without converting missing or failed receipts into drain proof',async t=>{
+  const {AppServer}=await import('../foundation/client.mjs');
+  const directory=await mkdtemp(join(tmpdir(),'workflow-close-receipt-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const host=join(directory,'receipt-host.mjs');
+  // A real protocol child supplies controlled host receipts; it is not a native
+  // job containment fixture (that invariant belongs to windows-job.test.mjs).
+  await writeFile(host,`import {createInterface} from 'node:readline';
+const config=JSON.parse(process.argv[2]);
+createInterface({input:process.stdin}).on('line',line=>{const request=JSON.parse(line);if(request.method==='initialize')process.stdout.write(JSON.stringify({id:request.id,result:{}})+'\\n');}).on('close',()=>{process.stderr.write(config.receipt);process.exitCode=config.exitCode;if(config.linger)setInterval(()=>{},1000);});`);
+  const ready='WORKFLOW_JOB_READY\n',drained=ready+'WORKFLOW_JOB_DRAINED\n';
+  for(const sample of [
+    {name:'exact',text:drained,exitCode:0,receipt:'drained',jobEmpty:true},
+    {name:'nonzero',text:drained,exitCode:1,receipt:'drained',jobEmpty:false},
+    {name:'missing',text:'',exitCode:0,receipt:'missing',jobEmpty:false},
+    {name:'ready only',text:ready,exitCode:0,receipt:'ready-only',jobEmpty:false},
+    {name:'drained without ready',text:'WORKFLOW_JOB_DRAINED\n',exitCode:0,receipt:'malformed',jobEmpty:false},
+    {name:'malformed',text:drained+'PRIVATE_STDERR_SENTINEL',exitCode:0,receipt:'malformed',jobEmpty:false},
+    {name:'overflow',text:drained+'PRIVATE_STDERR_SENTINEL'.repeat(100),exitCode:0,receipt:'overflow',jobEmpty:false},
+    {name:'io failure',text:ready+'WORKFLOW_JOB_FAILED:IOException\n',exitCode:1,receipt:'failed-io',jobEmpty:false},
+    {name:'native failure',text:ready+'WORKFLOW_JOB_FAILED:Win32Exception:5\n',exitCode:1,receipt:'failed-win32',nativeErrorCode:5,jobEmpty:false},
+    {name:'native failure before ready',text:'WORKFLOW_JOB_FAILED:Win32Exception:5\n',exitCode:1,receipt:'failed-win32',nativeErrorCode:5,jobEmpty:false},
+    {name:'unbounded native code',text:ready+'WORKFLOW_JOB_FAILED:Win32Exception:9999999999\n',exitCode:1,receipt:'malformed',jobEmpty:false},
+    {name:'unknown exception',text:ready+'WORKFLOW_JOB_FAILED:PRIVATE_STDERR_SENTINEL\n',exitCode:1,receipt:'malformed',jobEmpty:false},
+  ])await t.test(sample.name,async()=>{
+    const client=await AppServer.connect({jobHost:process.execPath,command:host,args:[JSON.stringify({receipt:sample.text,exitCode:sample.exitCode})],requestTimeoutMs:2000,shutdownMs:2000});
+    t.after(()=>client.close());
+    const result=await client.close();
+    assert.equal(result.jobEmpty,sample.jobEmpty);assert.equal(result.serverExited,sample.jobEmpty);assert.equal(result.forced,false);
+    assert.deepEqual(result.jobHost,{closeObserved:true,exitCode:sample.exitCode,signal:'none',receipt:sample.receipt,...(sample.nativeErrorCode===undefined?{}:{nativeErrorCode:sample.nativeErrorCode})});
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE_STDERR_SENTINEL|WORKFLOW_JOB_|receipt-host|output-drain/);
+    assert.deepEqual(await client.close(),result);
+  });
+  await t.test('forced helper close cannot replace drain receipt',async()=>{
+    const client=await AppServer.connect({jobHost:process.execPath,command:host,args:[JSON.stringify({receipt:ready,exitCode:0,linger:true})],requestTimeoutMs:2000,shutdownMs:100});
+    t.after(()=>client.close());
+    const result=await client.close();
+    assert.equal(result.forced,true);assert.equal(result.jobEmpty,false);assert.equal(result.serverExited,false);
+    assert.equal(result.jobHost.closeObserved,true);assert.equal(result.jobHost.signal,'SIGKILL');assert.equal(result.jobHost.receipt,'ready-only');
+  });
 });
 
 async function probeModule() {
