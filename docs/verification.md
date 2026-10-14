@@ -1,10 +1,16 @@
 # Verification record
 
+The 0.3.3 candidate's latest local rerun passed 483/483 tests, package checks and smoke. Its installed command-only parent-policy doctor passed with zero inference requests and confirmed owned-job cleanup. Windows PR verification is currently held on runner failures; release-tag verification and publication remain pending. The [PlanetForge friction report](../reports/planetforge-friction-033.md) records current scopes, earlier failures, native skill evidence and the unaccepted authoring drafts/game objectives.
+
+Published [0.3.2](https://github.com/ehartye/agent-workflow/releases/tag/v0.3.2) records the earlier Windows Session 0 acceptance. The checkpoints below retain their original pre-release context; their pending statements are historical rather than the current release status.
+
+## Earlier 0.3.1 checkpoints
+
 Final local 0.3.1 verification passed 409/409 tests, package check, detached smoke, clean native installation and a zero-vulnerability production audit. Candidate runtime `0.3.1-1328c7d0988d380f-node24.18.0` passed real command-only doctor admission with zero inference requests and positive owned cleanup on this Windows host. The first full run passed 408/409: a preexisting five-second test precondition expired before capture. The corrected real-Git callback barrier explicitly establishes retry ordering and rejects an isolated missing-guard mutation (3 attempts versus 2), without a runtime budget change. Required Windows PR/tag gates and exact installed-package/native/browser acceptance remain pending.
 
 The requested [live skill grant](../reports/live-skill-grants-native-boundary.md) remains blocked by the inspected pinned public native API. It is separate from startup skill provisioning and is not covered by successful native startup proofs.
 
-This page distinguishes published 0.3.0, current 0.3.1 candidate evidence and earlier acceptance records. It is not full Ultracode-parity certification or a reliability-rate claim. Required CI, tag verification, publication and exact published-version installation are separate gates.
+These entries distinguish published 0.3.0, the then-current 0.3.1 candidate evidence and earlier acceptance records. They are not full Ultracode-parity certification or a reliability-rate claim. Required CI, tag verification, publication and exact published-version installation are separate gates.
 
 ## Session delivery candidate
 

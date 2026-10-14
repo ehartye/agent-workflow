@@ -429,7 +429,16 @@ test('controller persists writer diffs, reuses intact work and rejects changed r
   const {root,source}=await fixture(t);await writeFile(join(source,'local.txt'),'local input');let calls=0;
   const input={runDir:join(root,'run'),sessionId:'s',launch:{cwd:source},script:'export const meta={name:"writers",description:"proof"};return await parallel([()=>agent("A"),()=>agent("B")]);'};
   const backend=()=>writerBackend(async({prompt,workspace})=>{calls++;assert.equal(await readFile(join(workspace.cwd,'local.txt'),'utf8'),'local input');await writeFile(join(workspace.cwd,'note.txt'),prompt+'\n');return{value:prompt,terminalObserved:true,evidence:{cleanup}};});
-  const first=await runWorkflow({...input,backend:backend()});assert.equal(first.status,'completed');assert.equal(calls,2);assert.notEqual(first.workers[0].workspace.cwd,first.workers[1].workspace.cwd);
+  const first=await runWorkflow({...input,backend:backend()});assert.equal(first.status,'completed');
+  assert.deepEqual(first.workers.map(worker=>worker.status),['completed','completed'],
+    'Both writers must complete before replay is tested: '+JSON.stringify(first.workers.map(worker=>({
+      position:worker.position,status:worker.status,notStarted:worker.notStarted,noProcessStarted:worker.noProcessStarted,
+      errorCode:worker.error?.code,workspaceErrorCode:worker.workspaceError?.code,captureStage:worker.workspaceError?.capture?.stage,
+      captureCauseCode:worker.workspaceError?.capture?.cause?.code,cleanup:worker.evidence?.cleanup&&{
+        serverExited:worker.evidence.cleanup.serverExited,jobEmpty:worker.evidence.cleanup.jobEmpty,errorCode:worker.evidence.cleanup.error?.code,
+        ownershipScope:worker.evidence.cleanup.ownershipScope,nativeInventoryEmpty:worker.evidence.cleanup.nativeTerminals?.inventoryEmpty}
+    }))));
+  assert.equal(calls,2);assert.notEqual(first.workers[0].workspace.cwd,first.workers[1].workspace.cwd);
   assert.equal(await readFile(join(source,'note.txt'),'utf8'),'base\n');assert.match(await readFile(first.workers[0].workspace.patchPath,'utf8'),/\+A/);
   await writeFile(join(source,'local.txt'),'source changes do not rewrite captured inputs');
   const replay=await runWorkflow({...input,resume:true,backend:backend()});assert.equal(replay.coverage.cached,2);assert.equal(calls,2);assert.deepEqual(replay.workspaceInputs,first.workspaceInputs);

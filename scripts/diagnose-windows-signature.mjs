@@ -10,17 +10,23 @@ const executable=fileURLToPath(new URL('../foundation/native/win32-x64/workflow-
 const powershell=join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
 const minimal={AGENT_WORKFLOW_VERIFY_FILE:executable};
 for(const key of ['SystemRoot','WINDIR','TEMP','TMP','USERPROFILE'])if(process.env[key])minimal[key]=process.env[key];
-const inherited={...process.env,AGENT_WORKFLOW_VERIFY_FILE:executable};
-const signature=`$ErrorActionPreference='Stop';
-Write-Output 'SIGNATURE_PROBE_START';
+const vendor={...minimal,PSModulePath:join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','Modules')};
+const user={...vendor},machine={...vendor};
+for(const key of ['APPDATA','LOCALAPPDATA','HOMEDRIVE','HOMEPATH'])if(process.env[key])user[key]=process.env[key];
+for(const key of ['SystemDrive','ProgramFiles','ProgramFiles(x86)','ProgramW6432','ProgramData','CommonProgramFiles','CommonProgramFiles(x86)','CommonProgramW6432','PROCESSOR_ARCHITECTURE','NUMBER_OF_PROCESSORS','OS'])if(process.env[key])machine[key]=process.env[key];
+machine.PATH=[join(process.env.SystemRoot,'System32'),process.env.SystemRoot,join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0')].join(';');
+machine.ComSpec=join(process.env.SystemRoot,'System32','cmd.exe');
+const signature=`'SIGNATURE_PROBE_START';
+$ErrorActionPreference='Stop';
+$env:PSModulePath=$PSHOME+'\\Modules';
 $s=Get-AuthenticodeSignature -LiteralPath $env:AGENT_WORKFLOW_VERIFY_FILE;
-Write-Output 'SIGNATURE_RETURNED';
+'SIGNATURE_RETURNED';
 $signer=@(); $timestamp=@();
 if($null -ne $s.SignerCertificate){$signer=@($s.SignerCertificate.Extensions | Where-Object {$_.Oid.Value -eq '2.5.29.37'} | ForEach-Object {$_.EnhancedKeyUsages} | ForEach-Object {$_.Value})};
 if($null -ne $s.TimeStamperCertificate){$timestamp=@($s.TimeStamperCertificate.Extensions | Where-Object {$_.Oid.Value -eq '2.5.29.37'} | ForEach-Object {$_.EnhancedKeyUsages} | ForEach-Object {$_.Value})};
 [pscustomobject]@{status=[string]$s.Status;signerEkus=$signer;timestampEkus=$timestamp;timestampPresent=($null -ne $s.TimeStamperCertificate)} | ConvertTo-Json -Compress -Depth 4;
-Write-Output 'SIGNATURE_PROJECTED'`;
-const trivial="Write-Output 'SIGNATURE_PROBE_START'; Write-Output '{\"status\":\"TRIVIAL_OK\"}'; Write-Output 'SIGNATURE_PROJECTED'";
+'SIGNATURE_PROJECTED'`;
+const trivial="'SIGNATURE_PROBE_START'; '{\"status\":\"TRIVIAL_OK\"}'; 'SIGNATURE_PROJECTED'";
 async function probe(name,script,env,closeInput){
   const started=performance.now();
   return new Promise(done=>{
@@ -35,8 +41,10 @@ async function probe(name,script,env,closeInput){
   });
 }
 console.log(JSON.stringify({node:process.version,architecture:process.arch,temporaryPathSpellingMatches:resolve(tmpdir()).toLowerCase()===(await realpath(tmpdir())).toLowerCase(),repositoryPathSpellingMatches:resolve(process.cwd()).toLowerCase()===(await realpath(process.cwd())).toLowerCase()}));
-await probe('trivial-minimal-open',trivial,minimal,false);
-await probe('trivial-minimal-closed',trivial,minimal,true);
-await probe('signature-minimal-open',signature,minimal,false);
-await probe('signature-minimal-closed',signature,minimal,true);
-await probe('signature-inherited-closed',signature,inherited,true);
+await probe('language-minimal-closed',trivial,minimal,true);
+const fixed=await probe('signature-vendor-modules',signature,vendor,true);
+if(fixed.exitCode!==0||fixed.killed||fixed.status!=='Valid'){
+  const profile=await probe('signature-vendor-profile',signature,user,true);
+  const system=await probe('signature-vendor-machine',signature,machine,true);
+  if(profile.exitCode!==0||profile.killed||profile.status!=='Valid')if(system.exitCode!==0||system.killed||system.status!=='Valid')await probe('signature-vendor-union',signature,{...user,...machine},true);
+}
