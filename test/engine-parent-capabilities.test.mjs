@@ -10,8 +10,8 @@ import {promisify} from 'node:util';
 import {createInterface} from 'node:readline';
 import {discoverParentCapabilities} from '../engine/parent-capabilities.mjs';
 
-async function fixture(t){
-  const home=await mkdtemp(join(tmpdir(),'workflow-parent-catalog-'));
+async function fixture(t,prefix='workflow-parent-catalog-'){
+  const home=await mkdtemp(join(tmpdir(),prefix));
   t.after(()=>rm(home,{recursive:true,force:true}));
   const plugins=[],skills=[];
   const replies={'plugin/installed':{marketplaces:[{name:'owned',path:null,plugins}],marketplaceLoadErrors:[]},'skills/list':{data:[{cwd:home,skills,errors:[]}]}};
@@ -57,11 +57,13 @@ test('parent catalog binds original active plugin roots and standalone skills th
 });
 
 test('Windows original catalog roots accept real short-name aliases without admitting junctions',{skip:process.platform!=='win32'},async t=>{
-  const f=await fixture(t);await f.plugin('short-path',['1.0.0']);await f.skill('standalone');
+  const f=await fixture(t,'workflow parent &! catalog-');await f.plugin('short-path',['1.0.0']);await f.skill('standalone');
   const longHome=await realpath(f.home);
-  const {stdout}=await promisify(execFile)(join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),
-    ['-NoProfile','-NonInteractive','-Command',"$f=New-Object -ComObject Scripting.FileSystemObject; $f.GetFolder($env:WORKFLOW_OWNED_SHORT_PATH).ShortPath"],
-    {env:{...process.env,WORKFLOW_OWNED_SHORT_PATH:longHome},windowsHide:true,timeout:10000,maxBuffer:8192});
+  // CMD's built-in expansion needs neither PowerShell module discovery nor COM startup.
+  assert.doesNotMatch(longHome,/["\r\n]/);
+  const {stdout}=await promisify(execFile)(join(process.env.SystemRoot,'System32/cmd.exe'),
+    ['/d','/v:off','/c','for %I in ("%WORKFLOW_OWNED_SHORT_PATH%") do @echo %~sI'],
+    {env:{...process.env,WORKFLOW_OWNED_SHORT_PATH:longHome},windowsHide:true,windowsVerbatimArguments:true,timeout:10000,maxBuffer:8192});
   const shortHome=stdout.trim();assert.equal((await realpath(shortHome)).toLowerCase(),longHome.toLowerCase());
   if(shortHome.toLowerCase()===longHome.toLowerCase()){t.skip('Owned fixture volume does not expose an 8.3 alias');return;}
   const replies=structuredClone(f.replies);replies['skills/list'].data[0].cwd=shortHome;

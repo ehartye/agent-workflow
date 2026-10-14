@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.3.4
+## 0.3.5
+
+- Carry forward the Map + inspector dashboard and cleanup diagnostics from the unpublished 0.3.4 candidate. Its release tag failed only the short-path test fixture (505/506 tests passed); the failed tag remains unchanged.
+- Query owned Windows test aliases through CMD's built-in expansion, avoiding PowerShell module discovery and COM startup. Keep the 10-second deadline, real filesystem identity and junction-refusal assertions; exercise spaces and shell punctuation in the owned fixture path. Production access, trust and drain policy are unchanged.
+
+## 0.3.4 (unpublished candidate)
 
 - Deliver the selected Map + inspector dashboard: compact blue header, dominant workflow map, independently scrolling desktop inspector, readable phone cards and closable bottom sheet. Move secondary controls and raw evidence behind deliberate panels and retain the full worker tray.
 - Keep dismissed messages in local history without reviving unchanged notices. Preserve distinct run failures, keyboard focus across polling, foreground-panel Escape behavior and generation/attempt-bound full worker reads.
