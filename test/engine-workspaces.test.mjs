@@ -10,6 +10,8 @@ import {join,dirname,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
+import childProcess from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
 import {promisify} from 'node:util';
 import {captureInputs,describeInputs,loadInputs,createWorkspace,collectWorkspace,verifyWorkspace,assertWorkspaceReady} from '../engine/workspaces.mjs';
 import * as workspaces from '../engine/workspaces.mjs';
@@ -343,18 +345,37 @@ test('a writer rejected before any process starts retains its empty diff with a 
   const worker=result.workers[0];assert.equal(worker.status,'failed');assert.equal(worker.notStarted,true);assert.equal(worker.workspaceError,undefined);assert.deepEqual(worker.workspace.changedFiles,[]);assert.equal(await readFile(worker.workspace.patchPath,'utf8'),'');
 });
 test('writer preparation cannot bypass an attempt budget consumed by a concurrent correction',async t=>{
-  const {root,source}=await fixture(t),runDir=join(root,'run');let writers=0;
-  const result=await runWorkflow({runDir,sessionId:'s',launch:{cwd:source},maxAgents:2,
-    script:'export const meta={name:"budget",description:"proof"};return await parallel([()=>agent("reader",{permissions:{sandbox:"read-only"}}),()=>agent("writer")]);',
-    backend:writerBackend(async({workspace,reserveRetry})=>{
-      if(workspace)writers++;
-      else{
-        const deadline=Date.now()+5000;
-        while(!(await readRun(runDir)).workspaceInputs){if(Date.now()>deadline)throw new Error('Writer capture not observed');await new Promise(resolve=>setTimeout(resolve,5));}
-        await reserveRetry();
-      }
-      return{value:'done',terminalObserved:true,evidence:{cleanup}};
-    })});
+  const {root,source}=await fixture(t),runDir=join(root,'run');let writers=0,retryReserved=false,preparations=0;
+  const preparing=Promise.withResolvers(),release=Promise.withResolvers();
+  // Run actual Git, holding only this owned worktree-add completion until the
+  // reader has durably consumed the remaining attempt. A slow capture cannot
+  // make the fixture skip its precondition and accuse the budget guard instead.
+  const original=childProcess.execFile;
+  childProcess.execFile=function(file,args,options,callback){
+    if(file==='git'&&options?.cwd===source&&args.includes('worktree')&&args.includes('add')&&args.includes('--no-checkout')){
+      preparations++;preparing.resolve();
+      return original.call(this,file,args,options,(...result)=>{release.promise.then(()=>callback(...result));});
+    }
+    return original.apply(this,arguments);
+  };
+  syncBuiltinESMExports();
+  const deadline=setTimeout(()=>{preparing.reject(new Error('Fixture never reached writer preparation'));release.resolve();},60000);
+  let result;
+  try{
+    result=await runWorkflow({runDir,sessionId:'s',launch:{cwd:source},maxAgents:2,
+      script:'export const meta={name:"budget",description:"proof"};return await parallel([()=>agent("reader",{permissions:{sandbox:"read-only"}}),()=>agent("writer")]);',
+      backend:writerBackend(async({workspace,reserveRetry})=>{
+        if(workspace)writers++;
+        else{
+          try{await preparing.promise;await reserveRetry();retryReserved=true;}
+          finally{release.resolve();}
+        }
+        return{value:'done',terminalObserved:true,evidence:{cleanup}};
+      })});
+  }finally{clearTimeout(deadline);release.resolve();childProcess.execFile=original;syncBuiltinESMExports();}
+  assert.equal(preparations,1,'Fixture reached real Git writer preparation');
+  assert.equal(retryReserved,true,'Reader reserved the correction before preparation completed');
+  assert.equal(result.workers[0].status,'completed');assert.equal(result.workers[0].attempts,2);
   assert.equal(result.attempts,2);assert.equal(writers,0);assert.equal(result.workers[1].notStarted,true);assert.equal(result.workers[1].error.code,'AGENT_LIMIT');
 });
 test('controller persists writer diffs, reuses intact work and rejects changed retained files before dispatch',async t=>{

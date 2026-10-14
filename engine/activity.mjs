@@ -1,15 +1,30 @@
 import {fault} from '../foundation/client.mjs';
+import {TOOL_METHOD,boundedToolId,copyToolObservation,copyToolSummary} from '../foundation/tool-observation.mjs';
 
 const usageKeys=['inputTokens','cachedInputTokens','outputTokens','reasoningOutputTokens','totalTokens','cacheWriteInputTokens'];
 const methods=new Set(['item/started','item/completed','item/commandExecution/outputDelta','item/agentMessage/delta','turn/plan/updated','turn/diff/updated','thread/tokenUsage/updated','turn/completed']);
 export function createActivityTable(db){
   db.exec('CREATE TABLE IF NOT EXISTS activity(seq INTEGER PRIMARY KEY,generation INTEGER NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL);CREATE INDEX IF NOT EXISTS activity_worker ON activity(generation,position,seq);CREATE INDEX IF NOT EXISTS activity_generation ON activity(generation,seq);CREATE TABLE IF NOT EXISTS activity_counts(generation INTEGER NOT NULL,position INTEGER NOT NULL,observed INTEGER NOT NULL,PRIMARY KEY(generation,position));');
 }
-function normalized(message,attempt){
+function normalized(message,worker){
   const {method,params={}}=message;
-  if(!methods.has(method)||params.item?.type==='reasoning')return null;
+  if(method===TOOL_METHOD&&!params.toolObservation)return null; // Never persist raw items.
+  if((method!==TOOL_METHOD&&!methods.has(method))||params.item?.type==='reasoning')return null;
   if(typeof params.threadId!=='string'||params.threadId.length>200||typeof(params.turnId??params.turn?.id)!=='string'||(params.turnId??params.turn.id).length>200)throw fault('ACTIVITY_INPUT','Activity requires bounded thread and turn identities');
-  const record={method,threadId:params.threadId,turnId:params.turnId??params.turn.id,attempt,at:new Date().toISOString(),truncated:[]};
+  const record={method,threadId:params.threadId,turnId:params.turnId??params.turn.id,attempt:worker.attempts??0,at:new Date().toISOString(),truncated:[]};
+  if(method===TOOL_METHOD||params.toolObservationSummary!==undefined){
+    if(!boundedToolId(record.threadId)||!boundedToolId(record.turnId)||worker.activeTurn?.threadId!==record.threadId||worker.activeTurn?.turnId!==record.turnId)throw fault('ACTIVITY_INPUT','Tool activity requires the confirmed worker turn');
+    if(method===TOOL_METHOD){
+      const observation=copyToolObservation(params.toolObservation);
+      if(!observation)throw fault('ACTIVITY_INPUT','Tool activity requires allowlisted bounded observation facts');
+      record.type='nativeTool';record.itemId=observation.callId;record.status=observation.outcome;record.toolObservation=observation;
+      return record;
+    }
+    if(method!=='turn/completed')throw fault('ACTIVITY_INPUT','Tool coverage belongs to the native terminal notification');
+    const summary=copyToolSummary(params.toolObservationSummary);
+    if(!summary)throw fault('ACTIVITY_INPUT','Tool activity coverage requires bounded explicit counters');
+    record.toolObservationSummary=summary;
+  }
   const field=(key,value,limit=4000)=>{
     if(value===undefined||value===null)return;
     const text=typeof value==='string'?value:JSON.stringify(value);
@@ -20,6 +35,10 @@ function normalized(message,attempt){
     field('itemId',item.id,200);field('type',item.type,100);field('status',item.status??(method==='item/started'?'inProgress':'completed'),40);
     field('input',item.command??item.arguments??item.changes??item.query);field('cwd',item.cwd,500);
     field('output',item.aggregatedOutput??item.text??item.result??item.error);
+    if(item.type==='agentMessage'){
+      field('phase',item.phase,40);
+      if(item.delivery!=null)record.delivery=item.delivery==='async'?'async':'unsupported';
+    }
     if(Number.isInteger(item.exitCode))record.exitCode=item.exitCode;
   }else if(method.endsWith('/delta')||method.endsWith('/outputDelta')){
     field('itemId',params.itemId,200);field('output',params.delta);record.status='inProgress';record.type=method.includes('commandExecution')?'commandExecution':'agentMessage';
@@ -41,7 +60,7 @@ function normalized(message,attempt){
 
 // Caller owns the surrounding SQLite transaction when coupled to worker state.
 export function recordActivity(db,{generation,worker,message}){
-  const record=normalized(message,worker.attempts??0);if(!record)return;
+  const record=normalized(message,worker);if(!record)return;
   let usageByThread,usage;
   if(record.usage){
     const prior=worker.usageByThread?.[record.threadId];
@@ -57,7 +76,7 @@ export function recordActivity(db,{generation,worker,message}){
   db.prepare('DELETE FROM activity WHERE generation=? AND seq < (SELECT seq FROM activity WHERE generation=? ORDER BY seq DESC LIMIT 1 OFFSET 4095)').run(generation,generation);
   if(usage){worker.usageByThread=usageByThread;worker.usage=usage;}
   worker.activityCount=(worker.activityCount??0)+1;
-  worker.activity={seq,at:record.at,method:record.method,type:record.type??'event',status:record.status??'updated',summary:(record.input??record.output??record.type??record.method).slice(0,180),truncated:record.truncated.length>0};
+  worker.activity={seq,at:record.at,method:record.method,type:record.type??'event',status:record.status??'updated',summary:(record.toolObservation?`${record.toolObservation.tool}: ${record.status}`:record.input??record.output??record.type??record.method).slice(0,180),truncated:record.truncated.length>0};
   return{seq,...record};
 }
 

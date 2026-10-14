@@ -9,6 +9,7 @@ import { startMonitor } from './monitor-launch.mjs';
 import {monitorData} from './monitor-data.mjs';
 import {parseScript} from './script.mjs';
 import {listWorkflows,resolveWorkflow,saveWorkflow} from './registry.mjs';
+import {readCapabilities,freezeCapabilities} from './worker-capabilities.mjs';
 
 const { values } = parseArgs({ options: {
   codex: { type: 'string' }, cwd: { type: 'string' }, script: { type: 'string' },
@@ -21,6 +22,7 @@ const { values } = parseArgs({ options: {
   reconcile:{type:'string'},worker:{type:'string'},'source-generation':{type:'string'},
   model:{type:'string'},effort:{type:'string'},'max-attempts':{type:'string'},
   writable:{type:'boolean'},
+  'worker-capabilities':{type:'string'},
   patch:{type:'string'},basis:{type:'string'},
   workflow:{type:'string'},'list-workflows':{type:'boolean'},'read-workflow':{type:'string'},'save-workflow':{type:'string'},validate:{type:'boolean'},command:{type:'boolean'},overwrite:{type:'boolean'},
 } });
@@ -34,6 +36,7 @@ if (values.help) {
   console.log('Start in background: node engine/cli.mjs --codex <native executable> --cwd <project> --script <workflow.js> --run <directory> --session <identity> [--backend mxc] [--args <JSON>]\nWorker defaults: [--model <catalog model>] [--effort <supported effort>] [--max-attempts <1-5>]\nInspect: --status --run <directory>\nPause/stop: --action <pause|stop> --run <directory> --session <identity> --generation <observed generation>\nControl receipt: --control <id> --run <directory>\nResume saved script: --resume --run <directory> --session <identity> [--script <edited workflow.js>]\nUse --foreground for synchronous diagnostics.');
 } else {
   try {
+    if(values['worker-capabilities']!==undefined&&(values.resume||values.action||values.status||values.control||values.dashboard||values.worker!==undefined||values.patch!==undefined))throw fault('CAPABILITY_OVERRIDE','--worker-capabilities is valid only for new runs');
     const definitionActions=['list-workflows','read-workflow','save-workflow','validate'].filter(key=>values[key]!==undefined);
     if(definitionActions.length>1||values.workflow&&values.script)throw fault('CLI_INPUT','Choose one definition operation and one script source');
     if(definitionActions.length){
@@ -62,6 +65,7 @@ if (values.help) {
     else if (values.status) run = await readRun(runDir);
     else {
       const input={runDir,sessionId:values.session,resume:values.resume,
+        ...(values['worker-capabilities']===undefined?{}:{workerCapabilities:(await readCapabilities(values['worker-capabilities'])).manifest}),
         ...(values.codex?{codex:values.codex}:{}),...(values.cwd?{cwd:values.cwd}:{}),...(values.backend?{backend:values.backend}:{}),
         ...(values.workflow?{script:(await resolveWorkflow(values.workflow,{cwd:values.cwd??process.cwd()})).script}:values.script?{script:await readFile(resolve(values.script),'utf8')}:{}),
         ...(values.args!==undefined?{args:JSON.parse(values.args)}:{}),...(values.concurrency?{concurrency:Number(values.concurrency)}:{}),
@@ -70,8 +74,11 @@ if (values.help) {
       if(!values.foreground)console.log(JSON.stringify(await startBackground(input),null,2));
       else {
         const previous=values.resume?await readRun(runDir):null;
-        const launch={codex:input.codex??previous?.launch?.codex,cwd:input.cwd??previous?.launch?.cwd,backend:input.backend??previous?.launch?.backend??'configured',defaults:{...previous?.launch?.defaults,...input.defaults}};
-        const backend=await createManagedBackend({executable:launch.codex,cwd:launch.cwd,backend:launch.backend,defaults:launch.defaults});
+        const capabilityValue=previous?.workerCapabilities??input.workerCapabilities;
+        const capabilities=capabilityValue===undefined?null:await freezeCapabilities(capabilityValue);
+        if(previous?.workerCapabilitiesHash!==undefined&&previous.workerCapabilitiesHash!==capabilities?.fingerprint)throw fault('CAPABILITY_IDENTITY','Saved capability ceiling changed');
+        const launch={codex:input.codex??previous?.launch?.codex,cwd:input.cwd??previous?.launch?.cwd,backend:input.backend??previous?.launch?.backend??'configured',defaults:{...previous?.launch?.defaults,...input.defaults},...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})};
+        const backend=await createManagedBackend({executable:launch.codex,cwd:launch.cwd,backend:launch.backend,defaults:launch.defaults,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});
         run=await runWorkflow({...input,script:input.script??previous?.script,args:Object.hasOwn(input,'args')?input.args:previous?.args??null,concurrency:input.concurrency??previous?.concurrency??2,launch,backend});
       }
     }

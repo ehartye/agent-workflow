@@ -16,6 +16,24 @@ import {readRun,requestControl,readControl} from '../engine/controller.mjs';
 
 const exec=promisify(execFile);
 
+test('detached capability admission persists its bundle and resume rejects overrides before a launch',async t=>{
+ const {startBackground}=await import('../engine/background.mjs');
+ const {createHash}=await import('node:crypto');
+ const base=await mkdtemp(join(fileURLToPath(new URL('../',import.meta.url)),'.background-capabilities-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
+ const selected=join(base,'selected-skill');await mkdir(selected);
+ const path=join(selected,'SKILL.md'),body='native source';await writeFile(path,body);
+ const workerCapabilities={version:1,skills:[{id:'native',name:'native',root:base,path,sha256:createHash('sha256').update(body).digest('hex'),references:[]}],tools:[]};
+ const runDir=join(base,'run'),settings={runnerPath:fileURLToPath(new URL('./fixtures/engine-background.mjs',import.meta.url))};
+ const receipt=await startBackground({runDir,sessionId:'s',codex:process.execPath,cwd:base,workerCapabilities,script:'export const meta={name:"capabilities",description:"persist"};return 1;'},settings);
+ assert.deepEqual(receipt.watch,{required:true,attached:false,sessionId:'s',generation:1,after:0});
+ const first=await until(()=>readRun(runDir),state=>state.status==='completed');
+ assert.deepEqual(first.workerCapabilities,workerCapabilities);assert.equal(first.launch.workerCapabilitiesHash,first.workerCapabilitiesHash);
+ await until(()=>readFile(receipt.resultPath,'utf8'),()=>true);
+ const count=(await readdir(runDir)).length;
+ await assert.rejects(startBackground({runDir,sessionId:'s',resume:true,workerCapabilities},settings),{code:'CAPABILITY_OVERRIDE'});
+ assert.equal((await readdir(runDir)).length,count);
+});
+
 test('detached admission persists immutable capture policy and resume cannot replace it',async t=>{
   const {startBackground}=await import('../engine/background.mjs');
   const {validateCapturePolicy}=await import('../engine/workspace-policy.mjs');

@@ -1,17 +1,230 @@
 /** @lane merge
  * @subject bin/launch-v2.mjs
+ * @subject bin/command.mjs
+ * @subject bin/launch.mjs
+ * @subject bin/agent-workflow.mjs
+ * @subject bin/doctor-diagnostics.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,cp,writeFile,readFile,rm} from 'node:fs/promises';
-import {join} from 'node:path';
+import {join,dirname,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {installRuntime,bindRun} from '../bin/managed-runtime.mjs';
 import {parseCommand} from '../bin/arguments.mjs';
 const execute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
+
+test('worker capability manifests are a new-run-only public option',()=>{
+ const parsed=parseCommand(['run','demo','--session','s','--worker-capabilities','bundle.json'],{});
+ assert.equal(parsed.values['worker-capabilities'],'bundle.json');
+ for(const command of ['resume','restart-worker','status'])assert.throws(()=>parseCommand([command,'demo','--session','s','--worker-capabilities','bundle.json'],{}),/not valid/);
+ assert.throws(()=>parseCommand(['run','demo','--session','s','--worker-capabilities','bundle.json'],{AGENT_WORKFLOW_WORKER:'1'}),/Worker processes cannot/);
+});
+
+test('public detached start advertises exact observer arguments without claiming an attachment',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'workflow-watch-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const script=join(temp,'script.js'),hook=join(temp,'hook.mjs'),dataDir=join(temp,'data');await writeFile(script,'export const meta={name:"fixture",description:"receipt"};return 1;');
+ const runtime=`export * from ${JSON.stringify(new URL("../bin/managed-runtime.mjs?receipt-fixture",import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export function defaultDataDir(){throw Error('explicit data required');}export async function selectRuntime(){return{path:pluginRoot,codex:'fixture'};}export async function bindRun(){return{id:'saved-id',runDir:${JSON.stringify(join(temp,'run'))}};}export function resolveRun(){throw Error('unexpected read');}export function paths(){}export function noLinks(){}export function nativeCodex(){throw Error('inference forbidden');}`;
+ const background=`export async function startBackground(input){return{status:'running',generation:3,watch:{required:true,attached:false,sessionId:input.sessionId,generation:3,after:0}};}`;
+ await writeFile(hook,`import{registerHooks}from'node:module';const base=${JSON.stringify(new URL('../',import.meta.url).href)};registerHooks({load(url,context,next){const source=url===new URL('bin/managed-runtime.mjs',base).href?${JSON.stringify(runtime)}:url===new URL('engine/background.mjs',base).href?${JSON.stringify(background)}:undefined;return source===undefined?next(url,context):{format:'module',source,shortCircuit:true};}});`);
+ const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
+ const result=await execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'run','--script',script,'--session','origin','--data-dir',dataDir],{cwd:temp,env,windowsHide:true,timeout:10000});
+ const receipt=JSON.parse(result.stdout);assert.equal(receipt.watch.attached,false);assert.equal(receipt.watch.required,true);
+ assert.deepEqual(receipt.watch.argv,[process.execPath,join(root,'bin','launch.mjs'),'watch','saved-id','--session','origin','--generation','3','--after','0','--jsonl','--data-dir',dataDir]);
+ const parsed=parseCommand(receipt.watch.argv.slice(2),{});assert.equal(parsed.command,'watch');assert.equal(parsed.sessionId,'origin');assert.equal(parsed.values.generation,'3');
+});
+
+const doctorSecret='DOCTOR_SECRET_SENTINEL private@example.invalid C:/private/account';
+const doctorCleanup={serverExited:true,forced:false,descendants:'notVerified',jobEmpty:true,ownershipScope:'windows-job-members'};
+const failedAdmission=()=>({status:'failed',inferenceRequests:0,runnerEquivalence:'notVerified',stages:[
+ {name:'authentication',status:'passed',evidence:{mode:'chatgpt',provider:'openai'}},
+ {name:'windows-readiness',status:'passed',evidence:{status:'ready',commandProven:false}},
+ {name:'buffered-command',status:'failed',error:{code:'COMMAND_FAILED',message:doctorSecret}},
+],error:{code:'COMMAND_FAILED',message:doctorSecret},cleanup:doctorCleanup});
+
+// Exercise the actual CLI process with only its managed-runtime/backend seams
+// replaced. No installed runtime, native server, dependencies or real run data.
+async function invokeDoctor(t,scenario){
+ const temp=await mkdtemp(join(root,'.doctor-test-'));
+ assert.equal(dirname(temp),resolve(root));
+ t.after(async()=>{assert.equal(dirname(temp),resolve(root));await rm(temp,{recursive:true,force:true});});
+ const trace=join(temp,'trace.txt'),hook=join(temp,'hook.mjs');
+ const backend=`import {appendFileSync} from 'node:fs';
+ const scenario=${JSON.stringify(scenario)},trace=${JSON.stringify(trace)};
+ export async function createManagedBackend(){
+  appendFileSync(trace,'create\\n');
+  if(scenario.failure!==false)throw Object.assign(Error(${JSON.stringify(doctorSecret)}),scenario.error??{code:'ADMISSION_FAILED'},${Object.hasOwn(scenario,'admission')?'{admission:scenario.admission}':'{}'});
+  return {admission:scenario.admission,async close(){appendFileSync(trace,'close\\n');if(scenario.closeError)throw Object.assign(Error(${JSON.stringify(doctorSecret)}),scenario.closeError);return scenario.cleanup;},execute(){throw Error('Doctor dispatched inference');}};
+ }`;
+ const runtime=`import {appendFileSync} from 'node:fs';
+ const scenario=${JSON.stringify(scenario)},trace=${JSON.stringify(trace)};
+ export const pluginRoot=${JSON.stringify(root)};
+ export async function selectRuntime(){appendFileSync(trace,'select\\n');if(scenario.phase==='selection')throw Object.assign(Error(${JSON.stringify(doctorSecret)}),scenario.error);return {path:pluginRoot};}
+ export async function nativeCodex(){appendFileSync(trace,'native\\n');if(scenario.phase==='native')throw Object.assign(Error(${JSON.stringify(doctorSecret)}),scenario.error);return 'C:/private/native/codex.exe';}
+ export function defaultDataDir(){throw Error('Doctor must use its explicit fixture data directory');}
+ export function paths(){throw Error('Doctor inspected run records');}
+ export function bindRun(){throw Error('Doctor created a run');}
+ export function resolveRun(){throw Error('Doctor inspected a run');}
+ export function noLinks(){throw Error('Unexpected runtime operation');}`;
+ const unused=`function unused(){throw Error('Doctor used an unrelated engine operation');}
+ export {unused as readCapabilities,unused as readMode,unused as setMode,unused as parseScript,unused as listWorkflows,unused as resolveWorkflow,unused as saveWorkflow,unused as readRun,unused as runWorkflow,unused as requestControl,unused as readControl,unused as startBackground,unused as startMonitor,unused as monitorData,unused as readLifecycle,unused as readLifecycleReceipt,unused as requestLifecycle,unused as planPrune,unused as applyPrune,unused as createSessionServices};
+ export const MAX_RUN_TIMEOUT_MS=86400000,MAX_WORKER_TIMEOUT_MS=1800000;`;
+ await writeFile(hook,`import {registerHooks} from 'node:module';
+ const base=${JSON.stringify(new URL('../',import.meta.url).href)},backend=${JSON.stringify(backend)},runtime=${JSON.stringify(runtime)},unused=${JSON.stringify(unused)};
+ registerHooks({load(url,context,nextLoad){
+  const source=url===new URL('bin/managed-runtime.mjs',base).href?runtime:url===new URL('engine/backend.mjs',base).href?backend:url.startsWith(new URL('engine/',base).href)?unused:undefined;
+  return source===undefined?nextLoad(url,context):{format:'module',source,shortCircuit:true};
+ }});`);
+ const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
+ let result;
+ try{result={...await execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'doctor','--backend','mxc','--data-dir',join(temp,'data')],{cwd:temp,env,windowsHide:true,timeout:10000,maxBuffer:32*1024}),code:0};}
+ catch(error){if(typeof error.code!=='number')throw error;result={code:error.code,stdout:error.stdout,stderr:error.stderr};}
+ assert.ok(result.stdout.trim(),'doctor must emit structured diagnostics on stdout');
+ assert.equal(result.stderr,'','doctor must not leak generic error messages to stderr');
+ return {...result,report:JSON.parse(result.stdout),trace:await readFile(trace,'utf8')};
+}
+
+function assertDoctorFailure(result,stage,code){
+ assert.equal(result.code,1);assert.equal(result.report.status,'failed');assert.equal(result.report.inferenceRequests,0);
+ assert.equal(result.report.stage,stage);assert.deepEqual(result.report.error,{code});
+ assert.doesNotMatch(result.stdout,/DOCTOR_SECRET_SENTINEL|private@example|C:[/\\]|stdout|stderr|stack|account|config|command\":|authToken/);
+ assert.ok(Buffer.byteLength(result.stdout)<8192,'doctor diagnostics must stay bounded');
+}
+
+test('doctor retains failed command admission stages and owned cleanup without inventing command facts',async t=>{
+ const result=await invokeDoctor(t,{admission:failedAdmission()});
+ assertDoctorFailure(result,'buffered-command','ADMISSION_FAILED');
+ assert.deepEqual(result.report.admission,{status:'failed',inferenceRequests:0,runnerEquivalence:'notVerified',stages:[
+  {name:'authentication',status:'passed',evidence:{mode:'chatgpt',provider:'openai'}},
+  {name:'windows-readiness',status:'passed',evidence:{status:'ready',commandProven:false}},
+  {name:'buffered-command',status:'failed',error:{code:'COMMAND_FAILED'}},
+ ],error:{code:'COMMAND_FAILED'},cleanup:doctorCleanup});
+ assert.deepEqual(result.report.cleanup,doctorCleanup);
+ assert.equal(result.trace,'select\nnative\ncreate\n','failed backend admission owns its cleanup; doctor must not retry');
+});
+
+test('doctor retains only safe supplied command facts and rejects hostile nested fields',async t=>{
+ const admission=failedAdmission();
+ const hostile={message:doctorSecret,stdout:doctorSecret,stderr:doctorSecret,stack:doctorSecret,account:{email:doctorSecret},config:{authToken:doctorSecret},command:[doctorSecret],path:doctorSecret};
+ Object.assign(admission,hostile);
+ for(const stage of admission.stages)Object.assign(stage,hostile);
+ Object.assign(admission.stages[0].evidence,hostile);
+ admission.stages[2].evidence={exitCode:-1073741502,markerObserved:false,outputTruncated:true,...hostile};
+ admission.cleanup={...doctorCleanup,...hostile,nativeTerminals:hostile,error:{code:'RPC_ERROR',...hostile}};
+ const result=await invokeDoctor(t,{admission,error:{code:'ADMISSION_FAILED',...hostile}});
+ assertDoctorFailure(result,'buffered-command','ADMISSION_FAILED');
+ assert.deepEqual(result.report.admission.stages[2].evidence,{exitCode:-1073741502,markerObserved:false,outputTruncated:true});
+ assert.deepEqual(result.report.cleanup,{...doctorCleanup,error:{code:'RPC_ERROR'}});
+});
+
+test('doctor handles missing and malformed admission without accepting untrusted codes or cleanup claims',async t=>{
+ for(const admission of [undefined,null,doctorSecret,[],{status:'passed',inferenceRequests:99,stages:[null,{name:doctorSecret,status:'passed'},{name:'authentication',status:doctorSecret,error:{code:doctorSecret}}],cleanup:{serverExited:'true',forced:1,descendants:'verified',jobEmpty:'true',ownershipScope:doctorSecret}}]){
+  await t.test(String(admission===undefined?'missing':typeof admission),async t=>{
+   const result=await invokeDoctor(t,{...(admission===undefined?{}:{admission}),error:{code:'DOCTOR_SECRET_SENTINEL',message:doctorSecret}});
+   assertDoctorFailure(result,'backend','CHECK_FAILED');
+   assert.equal(result.report.cleanup.serverExited,null);assert.equal(result.report.cleanup.descendants,'notVerified');
+   assert.ok(!result.report.admission||result.report.admission.status!=='passed');
+  });
+ }
+});
+
+test('doctor bounds stage summaries and excludes oversized or unknown codes and evidence',async t=>{
+ const admission=failedAdmission();
+ admission.stages=Array.from({length:1000},()=>({name:'authentication',status:'passed',evidence:{mode:doctorSecret}}));
+ admission.stages[0]={name:'buffered-command',status:'failed',error:{code:'A'.repeat(100000)},evidence:{exitCode:1e100,marker:doctorSecret,markerObserved:'false',outputTruncated:1}};
+ const result=await invokeDoctor(t,{admission});
+ assertDoctorFailure(result,'buffered-command','ADMISSION_FAILED');
+ assert.equal(result.report.admission.stagesTruncated,true);assert.ok(result.report.admission.stages.length<=6);
+ assert.deepEqual(result.report.admission.stages[0].error,{code:'CHECK_FAILED'});
+ assert.ok(!result.report.admission.stages[0].evidence);
+});
+
+test('doctor reports runtime and connection failures with safe cleanup and no admission retry',async t=>{
+ for(const phase of ['selection','native','backend'])await t.test(phase,async t=>{
+  const result=await invokeDoctor(t,{phase,error:{code:'SERVER_START',message:doctorSecret,cleanup:{serverExited:false,forced:true,descendants:'notVerified'}}});
+  assertDoctorFailure(result,phase==='backend'?'backend':'runtime','SERVER_START');
+  assert.equal(result.report.cleanup.serverExited,false);
+  assert.equal(result.trace,phase==='selection'?'select\n':phase==='native'?'select\nnative\n':'select\nnative\ncreate\n');
+ });
+});
+
+test('doctor retains passing admission when owned cleanup fails or throws and never retries close',async t=>{
+ for(const [name,closeError] of [['unconfirmed',undefined],['throws',{code:'REQUEST_TIMEOUT',message:doctorSecret,cleanup:{serverExited:false,descendants:'notVerified'}}],['throws without receipt',{code:'REQUEST_TIMEOUT',message:doctorSecret}]])await t.test(name,async t=>{
+  const admission={...failedAdmission(),status:'passed',stages:failedAdmission().stages.slice(0,2)};delete admission.error;
+  const result=await invokeDoctor(t,{failure:false,admission,cleanup:{serverExited:false,forced:true,descendants:'notVerified'},closeError});
+  assertDoctorFailure(result,'cleanup',closeError?'REQUEST_TIMEOUT':'WORKER_DRAIN');
+  assert.equal(result.report.admission.status,'passed');assert.equal(result.report.cleanup.serverExited,closeError&&!Object.hasOwn(closeError,'cleanup')?null:false);
+  assert.equal(result.trace,'select\nnative\ncreate\nclose\n');
+ });
+});
+
+test('doctor treats malformed owned cleanup as unknown and fails closed',async t=>{
+ const admission={...failedAdmission(),status:'passed',stages:failedAdmission().stages.slice(0,2)};delete admission.error;
+ const result=await invokeDoctor(t,{failure:false,admission,cleanup:{serverExited:'true',jobEmpty:'true',descendants:'verified',path:doctorSecret}});
+ assertDoctorFailure(result,'cleanup','WORKER_DRAIN');
+ assert.deepEqual(result.report.cleanup,{serverExited:null,descendants:'notVerified'});
+ assert.equal(result.trace,'select\nnative\ncreate\nclose\n');
+});
+
+test('doctor diagnostics never invoke nested accessors or serializers',async()=>{
+ const {doctorFailure}=await import('../bin/doctor-diagnostics.mjs');
+ let inspected=0;
+ const poison={get message(){inspected++;throw Error(doctorSecret);},toJSON(){inspected++;throw Error(doctorSecret);}};
+ const admission=failedAdmission();
+ admission.stages[2].evidence=Object.create(poison,{exitCode:{get(){inspected++;throw Error(doctorSecret);}},markerObserved:{value:false}});
+ admission.cleanup={...doctorCleanup,toJSON:poison.toJSON};admission.extra=admission;
+ const error=Object.assign(Error(doctorSecret),{code:'ADMISSION_FAILED',admission,toJSON:poison.toJSON});
+ const report=doctorFailure(error,{backend:'mxc'}),stdout=JSON.stringify(report);
+ assert.equal(inspected,0);assert.doesNotMatch(stdout,/DOCTOR_SECRET_SENTINEL|private@example/);
+ assert.deepEqual(report.admission.stages[2].evidence,{markerObserved:false});
+});
+
+test('doctor preserves successful zero-inference output and owned cleanup',async t=>{
+ const admission={...failedAdmission(),status:'passed',stages:failedAdmission().stages.slice(0,2)};delete admission.error;
+ const result=await invokeDoctor(t,{failure:false,admission,cleanup:doctorCleanup});
+ assert.equal(result.code,0);
+ assert.deepEqual(result.report,{status:'passed',inferenceRequests:0,node:process.version,codex:'C:/private/native/codex.exe',backend:'mxc',admission,cleanup:doctorCleanup});
+ assert.match(result.trace,/^select\nnative\ncreate\nclose\n(?:close\n)?$/);
+});
+
+test('public doctor launchers sanitize missing and malformed runtime selection without starting work',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'workflow-doctor-public-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const plugin=join(temp,'plugin'),data=join(temp,'DOCTOR_SECRET_SENTINEL-data');await mkdir(join(plugin,'bin'),{recursive:true});
+ for(const name of ['launch.mjs','launch-v2.mjs','agent-workflow.mjs','arguments.mjs','managed-runtime.mjs','doctor-diagnostics.mjs'])await cp(join(root,'bin',name),join(plugin,'bin',name));
+ const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
+ for(const mode of ['missing','malformed']){
+  if(mode==='malformed'){await mkdir(data);await writeFile(join(data,'runtime-v2.json'),'DOCTOR_SECRET_SENTINEL private@example.invalid');}
+  for(const entry of ['launch.mjs','agent-workflow.mjs','launch-v2.mjs']){
+   const result=await execute(process.execPath,[join(plugin,'bin',entry),'doctor','--data-dir',data],{env,windowsHide:true,timeout:10000}).then(()=>null,error=>error);
+   assert.equal(result?.code,1);assert.equal(result.stderr,'');
+   const report=JSON.parse(result.stdout);assert.equal(report.status,'failed');assert.equal(report.stage,'runtime');assert.equal(report.inferenceRequests,0);
+   assert.equal(report.cleanup.serverExited,null);assert.equal(report.admission,undefined);
+   assert.doesNotMatch(result.stdout,/DOCTOR_SECRET_SENTINEL|private@example|stack|argv/);
+  }
+ }
+});
+
+test('doctor fails closed when an owned Windows job lacks positive empty proof',async t=>{
+ for(const cleanup of [{serverExited:true,jobEmpty:false,ownershipScope:'windows-job-members'},
+   {serverExited:true,ownershipScope:'windows-job-members'},
+   {serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members',error:{code:'WORKER_DRAIN'}}]){
+  const result=await invokeDoctor(t,{failure:false,admission:{status:'passed',stages:[]},cleanup});
+  assertDoctorFailure(result,'cleanup','WORKER_DRAIN');assert.equal(result.trace,'select\nnative\ncreate\nclose\n');
+ }
+});
+
+test('doctor exposes bounded startup ownership boundaries separately from the primary failure',async t=>{
+ const cleanup={serverExited:false,jobEmpty:false,descendants:'notVerified',startup:[
+  {stage:'discovery',cleanup:{serverExited:false,jobEmpty:false,error:{code:'REQUEST_TIMEOUT',message:doctorSecret},account:doctorSecret}},
+ ]};
+ const result=await invokeDoctor(t,{error:{code:'DISCOVERY_CLEANUP',cleanup}});
+ assertDoctorFailure(result,'discovery','DISCOVERY_CLEANUP');
+ assert.deepEqual(result.report.startup,[{stage:'discovery',cleanup:{serverExited:false,jobEmpty:false,descendants:'notVerified',error:{code:'REQUEST_TIMEOUT'}}}]);
+ assert.deepEqual(result.report.cleanup,{serverExited:false,jobEmpty:false,descendants:'notVerified'});
+});
 
 test('public CLI accepts explicit run and worker deadlines for starts and resumes',()=>{
  for(const command of ['run','resume']){
@@ -23,13 +236,15 @@ test('public CLI accepts explicit run and worker deadlines for starts and resume
 test('public launcher selects the run-pinned runtime after upgrade and refuses foreign-session control',async t=>{
  const temp=await mkdtemp(join(tmpdir(),'workflow-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));const pluginRoot=join(temp,'plugin'),dataDir=join(temp,'data');await mkdir(pluginRoot);
  for(const name of ['bin','engine','foundation','workflows','hooks','skills'])await mkdir(join(pluginRoot,name));
- for(const name of ['managed-runtime.mjs','launch-v2.mjs','arguments.mjs'])await cp(join(root,'bin',name),join(pluginRoot,'bin',name));
+ for(const name of ['managed-runtime.mjs','launch-v2.mjs','arguments.mjs','doctor-diagnostics.mjs'])await cp(join(root,'bin',name),join(pluginRoot,'bin',name));
  await writeFile(join(pluginRoot,'bin','command.mjs'),'import {parseCommand} from "./arguments.mjs";parseCommand();console.log(JSON.stringify({marker:"first",root:import.meta.url,args:process.argv.slice(2)}));');
  await writeFile(join(pluginRoot,'package.json'),JSON.stringify({version:'0.2.0',dependencies:{'@openai/codex':'0.162.1'}}));await writeFile(join(pluginRoot,'package-lock.json'),'{}');await writeFile(join(pluginRoot,'LICENSE'),'MIT');
  const npmCli=join(temp,'npm.mjs');await writeFile(npmCli,`import {mkdir,writeFile} from 'node:fs/promises';import {join} from 'node:path';const root=join(process.cwd(),'node_modules/@openai');await mkdir(join(root,'codex'),{recursive:true});await writeFile(join(root,'codex/package.json'),JSON.stringify({version:'0.162.1'}));const target=join(root,'codex-win32-x64');await mkdir(join(target,'vendor/x86_64-pc-windows-msvc/bin'),{recursive:true});await writeFile(join(target,'package.json'),JSON.stringify({version:'0.162.1-win32-x64'}));await writeFile(join(target,'vendor/x86_64-pc-windows-msvc/bin/codex.exe'),'fixture');`);
  const first=await installRuntime({pluginRoot,dataDir,npmCli});const bound=await bindRun({dataDir,runtime:first,sessionId:'origin'});
  await writeFile(join(pluginRoot,'bin','command.mjs'),'import {parseCommand} from "./arguments.mjs";parseCommand();console.log(JSON.stringify({marker:"second"}));');await installRuntime({pluginRoot,dataDir,npmCli});
  const invoke=(args,env={})=>execute(process.execPath,[join(pluginRoot,'bin','launch-v2.mjs'),...args,'--data-dir',dataDir],{env:{...process.env,...env},windowsHide:true,timeout:10000});
+ assert.equal(JSON.parse((await invoke(['watch',bound.id,'--session','origin','--generation','1','--jsonl'])).stdout).marker,'first');
+ await assert.rejects(invoke(['watch',bound.id,'--generation','1','--jsonl'],{CODEX_THREAD_ID:''}),e=>/session/i.test(e.stderr));
  assert.equal(JSON.parse((await invoke(['status',bound.id])).stdout).marker,'first');assert.equal(JSON.parse((await invoke(['workflows'])).stdout).marker,'second');
  await assert.rejects(invoke(['resume',bound.id,'--session','other']),e=>/session/i.test(e.stderr));
  assert.equal(JSON.parse((await invoke(['resume',bound.id],{CODEX_THREAD_ID:'origin'})).stdout).marker,'first');

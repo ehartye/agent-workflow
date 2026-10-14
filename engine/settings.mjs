@@ -1,9 +1,10 @@
 import {fault} from '../foundation/client.mjs';
+import {selectCapabilities} from './worker-capabilities.mjs';
 
 const limits=Object.freeze({sandbox:'read-only',networkAccess:false,approvalPolicy:'never'});
 const invalid=()=>fault('WORKER_SETTINGS','Worker model, reasoning, attempt count or permissions are invalid');
 
-export function createSettings({catalog,config={},defaults={}}){
+export function createSettings({catalog,config={},defaults={},workerCapabilities}){
   if(!Array.isArray(catalog)||!catalog.length||catalog.length>1000||catalog.some(model=>typeof model.model!=='string'||!model.model||!Array.isArray(model.supportedReasoningEfforts)||!model.supportedReasoningEfforts.length||model.supportedReasoningEfforts.some(option=>typeof option.reasoningEffort!=='string')||!model.supportedReasoningEfforts.some(option=>option.reasoningEffort===model.defaultReasoningEffort))||new Set(catalog.map(model=>model.model)).size!==catalog.length)throw fault('MODEL_CATALOG','Codex model catalog is missing or malformed');
   if(!defaults||typeof defaults!=='object'||Array.isArray(defaults)||Object.keys(defaults).some(key=>!['model','effort','maxAttempts','permissions'].includes(key)))throw invalid();
   const configuredModel=config.model??catalog.find(model=>model.isDefault)?.model;
@@ -14,6 +15,7 @@ export function createSettings({catalog,config={},defaults={}}){
   }
   permissions(defaults.permissions,{...limits,sandbox:'workspace-write'});
   function resolve(options={}){
+    selectCapabilities(workerCapabilities,options);
     const model=options.model??defaults.model??configuredModel;
     const selected=catalog.find(item=>item.model===model);
     if(!selected)throw invalid();

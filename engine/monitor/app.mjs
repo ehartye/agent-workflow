@@ -76,8 +76,8 @@ function node(tag, text, className) {
   return element;
 }
 function valueText(value) { return typeof value === 'string' ? value : JSON.stringify(value, null, 2); }
-function activityType(value) { return ({commandExecution:'Command',agentMessage:'Response',userMessage:'Instruction',fileChange:'File change',mcpToolCall:'Tool call',webSearch:'Web search',usage:'Token usage',turn:'Worker turn',plan:'Plan'})[value]??value??'Event'; }
-function activityStatus(value) { return ({inProgress:'running',completed:'completed',failed:'failed',updated:'updated'})[value]??value??'updated'; }
+function activityType(value) { return ({commandExecution:'Command',agentMessage:'Response',userMessage:'Instruction',fileChange:'File change',mcpToolCall:'Tool call',nativeTool:'Native tool',webSearch:'Web search',usage:'Token usage',turn:'Worker turn',plan:'Plan'})[value]??value??'Event'; }
+function activityStatus(value) { return ({inProgress:'running',completed:'completed',failed:'failed',updated:'updated',reportedRejected:'rejection reported',reportedFailed:'failure reported',reportedSucceeded:'success reported'})[value]??value??'updated'; }
 function dateText(value) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? 'Time unavailable' : date.toLocaleString(); }
 function badge(element, status) { element.textContent = status; element.dataset.status = status; }
 function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
@@ -405,6 +405,8 @@ function renderDetail() {
     if(history.sourceGeneration!==undefined&&history.sourceGeneration!==snapshot.generation)historyPanel.append(node('p',`Recorded in generation ${history.sourceGeneration}; this result was reused.`, 'muted'));
     historyPanel.append(node('p', `${history.records.length} events displayed · ${history.retained} retained of ${history.observed} observed · ${history.dropped} older events discarded.`,history.dropped?'truncation':'muted'));
     if(history.displayDropped)historyPanel.append(node('p',`${history.displayDropped} previously loaded events left this bounded view.`, 'muted'));
+    const toolCoverage=history.records.findLast(record=>record.toolObservationSummary)?.toolObservationSummary;
+    if(toolCoverage)evidence(historyPanel,'Tool observation coverage',toolCoverage);
     const visible=activityFilter==='all'?history.records:history.records.filter(record=>!['agentMessage','userMessage','usage','turn','plan'].includes(record.type));
     historyPanel.append(node('p',`${visible.length} matching events in the loaded history.`, 'muted'));
     for(const record of visible){
@@ -413,6 +415,10 @@ function renderDetail() {
       if(record.truncated?.length)entry.append(node('p',`Shortened: ${record.truncated.join(', ')}.`, 'truncation'));
       if(record.input!==undefined)evidence(entry,'Tool input',record.input);
       if(record.output!==undefined)evidence(entry,'Output',record.output);
+      if(record.toolObservation){
+        evidence(entry,'Native tool observation',{threadId:record.threadId,turnId:record.turnId,...record.toolObservation});
+        entry.append(node('p','Tool payloads are omitted. Reported status does not establish artifact acceptance or reconciled effects.','muted'));
+      }
       if(record.exitCode!==undefined)entry.append(node('p',`Exit code ${record.exitCode}`));
       if(record.usage)evidence(entry,'Native cumulative usage',record.usage);
       historyPanel.append(entry);

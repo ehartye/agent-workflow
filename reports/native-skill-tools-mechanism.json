@@ -1,0 +1,122 @@
+{
+  "schema": 1,
+  "checkedAt": "2026-10-14T00:42:22.724Z",
+  "status": "passed",
+  "scope": "Genuine worker-called native skill-tool mechanism in one owned read-only fixture; not public Workflow bundle integration or associated asset export acceptance.",
+  "version": "0.3.1",
+  "runtimeId": "0.3.1-5aedd77ebbe879a6-node24.18.0",
+  "nativeCodex": "0.162.1",
+  "nativeSourceCommit": "092d3acd6bec3e3a14bdc7e7a2810ab628ab759d",
+  "authentication": "managed ChatGPT",
+  "apiKeyFallback": false,
+  "nativeOverride": "features.code_mode.direct_only_tool_namespaces=[\"skills\"]",
+  "selection": {
+    "source": "supported selectedCapabilityRoots",
+    "environmentId": "local",
+    "root": "owned exact skill directory; original path omitted"
+  },
+  "inferenceRequests": 1,
+  "attempts": 1,
+  "toolCalls": [
+    {
+      "threadId": "01a137d7-a78b-7661-bcb0-6cd443509fd8",
+      "turnId": "01a137d7-a7f4-78e3-af68-1c71f096c5bc",
+      "callId": "call_56f677ca42ff4761ac6e1dbf4f51ab9d",
+      "type": "function_call",
+      "name": "list",
+      "namespace": "skills"
+    },
+    {
+      "threadId": "01a137d7-a78b-7661-bcb0-6cd443509fd8",
+      "turnId": "01a137d7-a7f4-78e3-af68-1c71f096c5bc",
+      "callId": "call_56f677ca42ff4761ac6e1dbf4f51ab9d",
+      "type": "function_call_output",
+      "name": "absent",
+      "namespace": "absent",
+      "outputShape": "string"
+    },
+    {
+      "threadId": "01a137d7-a78b-7661-bcb0-6cd443509fd8",
+      "turnId": "01a137d7-a7f4-78e3-af68-1c71f096c5bc",
+      "callId": "call_98e4c87afc3f4b8fbef2a85bee8c0a86",
+      "type": "function_call",
+      "name": "read",
+      "namespace": "skills"
+    },
+    {
+      "threadId": "01a137d7-a78b-7661-bcb0-6cd443509fd8",
+      "turnId": "01a137d7-a7f4-78e3-af68-1c71f096c5bc",
+      "callId": "call_98e4c87afc3f4b8fbef2a85bee8c0a86",
+      "type": "function_call_output",
+      "name": "absent",
+      "namespace": "absent",
+      "outputShape": "string"
+    }
+  ],
+  "hiddenMarkerMatched": true,
+  "commandExecutions": 0,
+  "manualFileRead": false,
+  "cliFallback": false,
+  "workerCleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members",
+    "nativeTerminals": {
+      "observed": 0,
+      "acknowledged": 0,
+      "inventoryEmpty": true,
+      "descendants": "notVerified"
+    }
+  },
+  "aggregateCleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members",
+    "startup": [
+      {
+        "stage": "discovery",
+        "cleanup": {
+          "serverExited": true,
+          "forced": false,
+          "descendants": "notVerified",
+          "jobEmpty": true,
+          "ownershipScope": "windows-job-members"
+        }
+      },
+      {
+        "stage": "admission",
+        "cleanup": {
+          "serverExited": true,
+          "forced": false,
+          "descendants": "notVerified",
+          "jobEmpty": true,
+          "ownershipScope": "windows-job-members"
+        }
+      },
+      {
+        "stage": "setup",
+        "cleanup": {
+          "serverExited": true,
+          "forced": false,
+          "descendants": "notVerified",
+          "jobEmpty": true,
+          "ownershipScope": "windows-job-members"
+        }
+      }
+    ]
+  },
+  "earlierPilot": {
+    "report": "native-skills-tool-pilot-DIaBgm",
+    "passed": false,
+    "reason": "Two outer exec pairs did not prove exact nested tool identities; retained unchanged."
+  },
+  "missing": [
+    "Public Workflow bundle/API integration",
+    "Actual selected asset skill tool calls and usable managed CLI/export artifacts",
+    "Fresh combined product verification and release/install gates"
+  ]
+}

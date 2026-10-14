@@ -1,22 +1,52 @@
 /** @lane merge
  * @subject engine/controller.mjs
+ * @subject engine/evaluator-child.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile,cp,appendFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath,pathToFileURL } from 'node:url';
 
 const meta = 'export const meta={name:"local",description:"controller acceptance"};\n';
+test('replay refuses changed native observation source and preserves the accepted execution',async t=>{
+ const {runDir}=await setup(t),repository=fileURLToPath(new URL('../',import.meta.url)),source=join(runDir,'source');
+ for(const name of ['engine','foundation','package-lock.json'])await cp(join(repository,name),join(source,name),{recursive:true});
+ const {runWorkflow,readRun}=await import(pathToFileURL(join(source,'engine/controller.mjs')).href);let calls=0;
+ const input={runDir:join(runDir,'state'),sessionId:'synthetic-source-identity',script:meta+'return await agent("Read");',backend:backend(async()=>({value:++calls,terminalObserved:true}))};
+ const before=await runWorkflow(input);assert.equal(before.status,'completed');assert.equal(calls,1);
+ await appendFile(join(source,'foundation/tool-observation.mjs'),'\n// changed controlled source identity\n');
+ await assert.rejects(runWorkflow({...input,resume:true}),{code:'REPLAY_RUNTIME'});
+ assert.equal(calls,1);assert.deepEqual(await readRun(input.runDir),before);
+});
 async function setup(t) {
-  const runDir = await mkdtemp(join(tmpdir(), 'workflow-engine-'));
+  const runDir = await mkdtemp(join(fileURLToPath(new URL('../', import.meta.url)), '.controller-test-'));
   t.after(() => rm(runDir, { recursive: true, force: true }));
   const module = await import('../engine/controller.mjs').catch(() => null);
   assert.ok(module?.runWorkflow, 'Fresh workflow controller must exist');
   return { runDir, runWorkflow: module.runWorkflow, readRun: module.readRun, requestControl: module.requestControl, readControl:module.readControl };
 }
+// Synthetic backend observations; these tests make no model, Windows job or descendant claim.
 const backend = execute => ({ identity: 'fixture-v1', execute, close: async () => ({ serverExited: true, descendants: 'notVerified' }) });
+
+test('capability ceiling persists and rejects resume overrides source drift and undeclared worker IDs',async t=>{
+  const {runDir,runWorkflow,readRun}=await setup(t);
+  const source=join(runDir,'skill-source');await (await import('node:fs/promises')).mkdir(source);
+  const path=join(source,'SKILL.md');await writeFile(path,'original native skill');
+  const {createHash}=await import('node:crypto');
+  const skill={id:'selected',name:'native-skill',root:source,path,sha256:createHash('sha256').update('original native skill').digest('hex'),references:[]};
+  const manifest={version:1,skills:[skill],tools:[]};let calls=0;
+  const input={runDir,sessionId:'s',workerCapabilities:manifest,script:meta+'return await agent("Use native skill",{skills:["selected"]});',backend:backend(async()=>({value:++calls,terminalObserved:true}))};
+  const first=await runWorkflow(input);assert.equal(first.status,'completed');assert.deepEqual(first.workerCapabilities,manifest);assert.match(first.workerCapabilitiesHash,/^[a-f0-9]{64}$/);
+  const {workerCapabilities,...saved}=input;
+  const replay=await runWorkflow({...saved,resume:true});assert.equal(replay.coverage.cached,1);assert.equal(calls,1);
+  await assert.rejects(runWorkflow({...input,resume:true}),{code:'CAPABILITY_OVERRIDE'});assert.deepEqual(await readRun(runDir),replay);
+  await writeFile(path,'drift');await assert.rejects(runWorkflow({...saved,resume:true}),{code:'SKILL_SOURCE'});assert.deepEqual(await readRun(runDir),replay);
+  await writeFile(path,'original native skill');
+  const invalid=await runWorkflow({...saved,resume:true,script:meta+'return await agent("Invalid",{skills:["undeclared"]});'});
+  assert.equal(invalid.error.code,'CAPABILITY_SELECTION');assert.equal(calls,1);
+});
 
 test('run and worker deadlines are independent, persisted and reused on replay',async t=>{
   const {runDir,runWorkflow,readRun}=await setup(t);const seen=[];
@@ -150,22 +180,33 @@ test('rolled back activity cannot leak usage into subsequent worker persistence'
   assert.equal(page.observed,0);assert.equal(page.retained,0);
 });
 
-test('live native activity is durable before worker completion and late events cannot alter history',async t=>{
+test('live synthetic native-protocol activity is durable before worker completion and late events cannot alter history',async t=>{
   const {runDir,runWorkflow,readRun}=await setup(t);let announced,finish,late;
   const ready=new Promise(resolve=>{announced=resolve;}),gate=new Promise(resolve=>{finish=resolve;});
   const {monitorData}=await import('../engine/monitor-data.mjs');
   const message={method:'item/started',params:{threadId:'thread',turnId:'turn',item:{id:'command',type:'commandExecution',command:'Read marker',status:'inProgress'}}};
+  const usage={inputTokens:10,cachedInputTokens:2,outputTokens:3,reasoningOutputTokens:1,totalTokens:13};
   const work=runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("Read");',backend:backend(async({onActive,onEvent})=>{
-    try{onActive?.({threadId:'thread',turnId:'turn'});onEvent?.(message);late=()=>onEvent?.(message);}finally{announced();}
+    try{
+      onActive({threadId:'thread',turnId:'turn'});onEvent(message);
+      onEvent({method:'thread/tokenUsage/updated',params:{threadId:'thread',turnId:'turn',tokenUsage:{total:usage}}});
+      late=()=>onEvent(message);
+    }finally{announced();}
     await gate;return{value:'marker',terminalObserved:true};
   })});
   await ready;let snapshot,page;
   try{snapshot=await readRun(runDir);page=await monitorData(runDir,{kind:'activity',generation:1,position:0});}finally{finish();}
   const done=await work;
-  assert.deepEqual(snapshot.workers[0].activeTurn,{threadId:'thread',turnId:'turn'});assert.equal(snapshot.workers[0].activity.summary,'Read marker');
+  assert.equal(snapshot.status,'running');assert.equal(snapshot.workers[0].status,'running');
+  assert.deepEqual(snapshot.workers[0].activeTurn,{threadId:'thread',turnId:'turn'});
+  assert.equal(page.records[0].input,'Read marker');assert.equal(snapshot.workers[0].activity.method,'thread/tokenUsage/updated');
+  assert.equal(page.observed,2);assert.equal(snapshot.workers[0].activityCount,page.observed);
+  assert.deepEqual(snapshot.workers[0].usage,{observedThreads:1,...usage,cacheWriteInputTokens:0});
+  assert.deepEqual(done.workers[0].usage,snapshot.workers[0].usage);
   assert.equal(page.records[0].status,'inProgress');assert.equal(done.workers[0].activeTurn,undefined);
   assert.throws(late,{code:'RUN_RETIRED'});
-  assert.equal((await monitorData(runDir,{kind:'activity',generation:1,position:0})).records.length,1);
+  assert.deepEqual(await readRun(runDir),done);
+  assert.deepEqual(await monitorData(runDir,{kind:'activity',generation:1,position:0}),page);
 });
 
 test('cached workers retain original activity usage and attempt evidence without new observations',async t=>{
@@ -400,36 +441,84 @@ test('pause persists completed work and prevents queued admission until explicit
   assert.equal(resumed.status,'completed');assert.equal(resumed.coverage.cached,1);assert.deepEqual(calls,['A','B']);
 });
 
-test('stop retains interruption evidence and refuses replay of unknown dispatched work',async t=>{
-  const {runDir,runWorkflow,requestControl}=await setup(t);
+test('stop durably retains activity and unknown interruption through controlled drain and refuses late writes or replay',async t=>{
+  const {runDir,runWorkflow,readRun,requestControl,readControl}=await setup(t);
+  const {monitorData}=await import('../engine/monitor-data.mjs');
   assert.equal(typeof requestControl,'function');
-  let started;const running=new Promise(resolve=>{started=resolve;});let closed=false;
+  // Synthetic controlled backend; the controller still uses its real SQLite and evaluator process.
+  let started,closing,finish,lateEvent,lateActive,retry;
+  const running=new Promise(resolve=>{started=resolve;});
+  const draining=new Promise(resolve=>{closing=resolve;});
+  const gate=new Promise(resolve=>{finish=resolve;});let closed=false,dispatches=0;
+  const usage={inputTokens:10,cachedInputTokens:2,outputTokens:3,reasoningOutputTokens:1,totalTokens:13};
+  const progress={method:'item/agentMessage/delta',params:{threadId:'thread',turnId:'turn',itemId:'progress',delta:'durable before stop'}};
   const input={runDir,sessionId:'s',concurrency:1,script:meta+'return await parallel([()=>agent("A"),()=>agent("B")]);'};
-  const worker={...backend(async({signal})=>{started();return await new Promise((resolve,reject)=>signal.addEventListener('abort',()=>{
-    setTimeout(()=>{assert.equal(closed,false,'Give native interruption its terminal observation window');reject(Object.assign(new Error('cancel'),{interruption:{terminalObserved:true,terminalStatus:'interrupted',descendants:'notVerified'}}));},30);
-  },{once:true}));}),close:async()=>{closed=true;return{serverExited:true,descendants:'notVerified'};}};
-  const work=runWorkflow({...input,backend:worker});await running;
-  await assert.rejects(requestControl(runDir,{sessionId:'other',generation:1,action:'stop'}),{code:'CONTROL_SESSION'});
-  await assert.rejects(requestControl(runDir,{sessionId:'s',generation:2,action:'stop'}),{code:'CONTROL_GENERATION'});
-  await requestControl(runDir,{sessionId:'s',generation:1,action:'stop'});
-  const stopped=await work;
+  const worker={...backend(async({signal,onActive,onEvent,reserveRetry})=>{
+    dispatches++;onActive({threadId:'thread',turnId:'turn'});onEvent(progress);
+    onEvent({method:'thread/tokenUsage/updated',params:{threadId:'thread',turnId:'turn',tokenUsage:{total:usage}}});
+    lateEvent=()=>onEvent(progress);lateActive=()=>onActive({threadId:'late',turnId:'late'});retry=reserveRetry;
+    const cancellation=new Promise((resolve,reject)=>signal.addEventListener('abort',()=>{
+      assert.equal(closed,false,'Observe the synthetic interruption before controlled backend shutdown');
+      onEvent({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'interrupted',items:[]}}});
+      reject(Object.assign(new Error('cancel'),{interruption:{terminalObserved:true,terminalStatus:'interrupted',descendants:'notVerified'}}));
+    },{once:true}));
+    started();return await Promise.race([cancellation,gate.then(()=>({value:'fixture released for cleanup',terminalObserved:false}))]);
+  }),close:async()=>{closing();await gate;closed=true;return{serverExited:true,descendants:'notVerified'};}};
+  const work=runWorkflow({...input,backend:worker});let before,during,receipt,stopped;
+  try{
+    await Promise.race([running,draining.then(()=>assert.fail('Controlled backend closed before synthetic worker admission'))]);
+    before=await readRun(runDir);
+    assert.equal(before.workers[0].status,'running');assert.equal(before.workers[0].activityCount,2);
+    await assert.rejects(requestControl(runDir,{sessionId:'other',generation:1,action:'stop'}),{code:'CONTROL_SESSION'});
+    await assert.rejects(requestControl(runDir,{sessionId:'s',generation:2,action:'stop'}),{code:'CONTROL_GENERATION'});
+    receipt=await requestControl(runDir,{sessionId:'s',generation:1,action:'stop'});
+    await draining;during=await readRun(runDir);
+    assert.equal(closed,false);assert.equal(during.status,'stopping');assert.equal(during.acceptingControls,false);
+    assert.equal(during.cleanup,undefined);assert.equal(during.workers[0].status,'unknown');
+    assert.equal(during.workers[0].activeTurn,undefined);assert.equal(during.workers[0].activityCount,3);
+    assert.equal(during.workers[0].notStarted,false);assert.equal(during.workers[0].noProcessStarted,false);
+    assert.deepEqual(during.workers[0].usage,{observedThreads:1,...usage,cacheWriteInputTokens:0});
+    assert.equal((await readControl(runDir,receipt.id)).status,'applied');
+    assert.throws(lateEvent,{code:'RUN_RETIRED'});assert.throws(lateActive,{code:'RUN_RETIRED'});
+    await assert.rejects(retry(),{code:'RUN_STOPPED'});
+    assert.deepEqual(await readRun(runDir),during);
+  }finally{finish();stopped=await work;}
   assert.equal(stopped.status,'blocked');assert.equal(stopped.workers[0].status,'unknown');
   assert.equal(stopped.workers[0].interruption.terminalStatus,'interrupted');
-  assert.equal(stopped.attempts,1);assert.equal(closed,true);
-  await assert.rejects(runWorkflow({...input,resume:true,backend:backend(async()=>{})}),{code:'REPLAY_UNKNOWN'});
+  assert.equal(stopped.workers[0].interruption.descendants,'notVerified');
+  assert.equal(stopped.workers[1].status,'queued');assert.equal(stopped.coverage.complete,false);
+  assert.equal(stopped.coverage.unknown,1);assert.equal(stopped.attempts,1);assert.equal(closed,true);
+  assert.equal(stopped.cleanup.serverExited,true);assert.equal(stopped.cleanup.descendants,'notVerified');
+  assert.equal(stopped.sessionId,before.sessionId);assert.equal(stopped.runtimeIdentity,before.runtimeIdentity);
+  assert.equal(stopped.backendIdentity,before.backendIdentity);assert.equal(stopped.generation,1);
+  assert.deepEqual(stopped.workers[0].usage,during.workers[0].usage);
+  const page=await monitorData(runDir,{kind:'activity',generation:1,position:0});
+  assert.equal(page.observed,3);assert.equal(page.records.at(-1).status,'interrupted');
+  assert.throws(lateEvent,{code:'RUN_RETIRED'});assert.throws(lateActive,{code:'RUN_RETIRED'});
+  await assert.rejects(requestControl(runDir,{sessionId:'s',generation:1,action:'stop'}),{code:'CONTROL_TERMINAL'});
+  await assert.rejects(runWorkflow({...input,resume:true,backend:backend(async()=>{dispatches++;})}),{code:'REPLAY_UNKNOWN'});
+  assert.equal(dispatches,1);assert.deepEqual(await readRun(runDir),stopped);
+  assert.deepEqual(await monitorData(runDir,{kind:'activity',generation:1,position:0}),page);
 });
 
 test('unresponsive backend cannot hold stop forever or rewrite terminal evidence later',async t=>{
   const {runDir,runWorkflow,requestControl,readRun}=await setup(t);
+  const {readNotifications}=await import('../engine/notifications.mjs');
   let started,finish;const running=new Promise(resolve=>{started=resolve;});
   const gate=new Promise(resolve=>{finish=resolve;});
+  let closing,drain;const closeEntered=new Promise(resolve=>{closing=resolve;}),closeGate=new Promise(resolve=>{drain=resolve;});
+  t.after(()=>{finish();drain();});
   const work=runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',drainTimeoutMs:60,
-    backend:backend(async()=>{started();await gate;return{value:'late',terminalObserved:true};})});
+    backend:{...backend(async()=>{started();await gate;return{value:'late',terminalObserved:true};}),close:async()=>{closing();await closeGate;return{serverExited:true};}}});
   await running;await requestControl(runDir,{sessionId:'s',generation:1,action:'stop'});
+  await closeEntered;
+  const held=await readNotifications(runDir,{sessionId:'s',generation:1});assert.equal(held.terminal,false);assert.deepEqual(held.events,[],'Forced unknown worker is not a terminal notification before backend drain');
+  drain();
   let timer;const result=await Promise.race([work,new Promise(resolve=>{timer=setTimeout(()=>resolve('late'),350);})]);
   clearTimeout(timer);finish();if(result==='late')await work;
   assert.notEqual(result,'late');assert.equal(result.status,'blocked');assert.equal(result.workers[0].status,'unknown');
   const saved=await readRun(runDir);assert.equal(saved.workers[0].status,'unknown');assert.equal(saved.workers[0].result,undefined);
+  const terminal=await readNotifications(runDir,{sessionId:'s',generation:1});assert.equal(terminal.terminal,true);assert.deepEqual(terminal.events.map(e=>[e.kind,e.status]),[['worker-terminal','unknown'],['run-terminal','blocked']]);
   await assert.rejects(requestControl(runDir,{sessionId:'s',generation:1,action:'pause'}),{code:'CONTROL_TERMINAL'});
 });
 
