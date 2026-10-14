@@ -16,7 +16,8 @@ import {MAX_RUN_TIMEOUT_MS,MAX_WORKER_TIMEOUT_MS} from '../engine/deadlines.mjs'
 import {readLifecycle,readLifecycleReceipt,requestLifecycle,planPrune,applyPrune} from '../engine/run-lifecycle.mjs';
 import * as workspacePolicy from '../engine/workspace-policy.mjs';
 import {createSessionServices} from '../engine/monitor-adapters.mjs';
-import {doctorFailure} from './doctor-diagnostics.mjs';
+import {doctorFailure,doctorHostContext} from './doctor-diagnostics.mjs';
+import {readHostContext} from '../foundation/host-context.mjs';
 import {readCapabilities} from '../engine/worker-capabilities.mjs';
 const print=value=>console.log(JSON.stringify(value,null,2));
 function backgroundReceipt(id,receipt,p){
@@ -62,18 +63,21 @@ export async function main(tokens=process.argv.slice(2)){
   const counts={visible:runs.filter(r=>!r.disposition||r.disposition==='visible').length,hidden:runs.filter(r=>['hidden','archived'].includes(r.disposition)).length,archived:runs.filter(r=>r.disposition==='archived').length,unknown:runs.reduce((n,r)=>n+(r.lifecycleCounts?.unknownWorkers??0),0),unavailable:runs.filter(r=>r.status==='unavailable').length};
   print({runs:o['show-hidden']?runs:runs.filter(r=>!['hidden','archived'].includes(r.disposition)),counts});return 0;
  }
+ const session0Desktop=o['session0-desktop']??'inherit';
  const backendName=o.backend??(process.platform==='win32'?'mxc':'configured');if(!['mxc','configured'].includes(backendName))throw Error('Unknown worker backend');
  if(p.command==='doctor'){
   let backend,stage='runtime';
+  // Optional diagnostics cannot replace admission failures or weaken policy.
+  const hostContext=await readHostContext().then(doctorHostContext,()=>undefined);
   try{
    const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the managed runtime');
    const executable=await nativeCodex(pluginRoot);stage='backend';
-   backend=await createManagedBackend({executable,cwd:p.cwd,backend:backendName});stage='cleanup';
+   backend=await createManagedBackend({executable,cwd:p.cwd,backend:backendName,session0Desktop});stage='cleanup';
    const cleanup=await backend.close();
    const requiresJob=process.platform==='win32'||cleanup?.ownershipScope==='windows-job-members';
-   if(cleanup?.serverExited!==true||requiresJob&&cleanup.jobEmpty!==true||cleanup.error){print(doctorFailure({code:'WORKER_DRAIN'},{stage,backend:backendName,admission:backend.admission,cleanup}));return 1;}
-   print({status:'passed',inferenceRequests:0,node:process.version,codex:executable,backend:backendName,admission:backend.admission,cleanup});return 0;
-  }catch(error){print(doctorFailure(error,{stage,backend:backendName,admission:backend?.admission}));return 1;}
+   if(cleanup?.serverExited!==true||requiresJob&&cleanup.jobEmpty!==true||cleanup.error){print(doctorFailure({code:'WORKER_DRAIN'},{stage,backend:backendName,admission:backend.admission,cleanup,hostContext}));return 1;}
+   print({status:'passed',inferenceRequests:0,node:process.version,codex:executable,backend:backendName,...(backend.desktopCompatibility?{desktopCompatibility:backend.desktopCompatibility}:{}),...(hostContext?{hostContext}:{}),admission:backend.admission,cleanup});return 0;
+  }catch(error){print(doctorFailure(error,{stage,backend:backendName,admission:backend?.admission,hostContext}));return 1;}
  }
  if(p.command==='run'){
   if(o.script&&p.id)throw Error('Choose a saved workflow name or --script');if(!o.script&&!p.id)throw Error('Provide a saved workflow name or --script');
@@ -87,9 +91,9 @@ export async function main(tokens=process.argv.slice(2)){
    capturePolicy=workspacePolicy.validateCapturePolicy(await boundedJson(o['capture-policy'],2*1024*1024)).policy;
   }
   const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir}),binding=await bindRun({dataDir:p.dataDir,runtime,sessionId:p.sessionId});
-  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults,...(capturePolicy===undefined?{}:{capturePolicy}),...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})},input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
+  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults,...(session0Desktop==='shared'?{session0Desktop}:{}),...(capturePolicy===undefined?{}:{capturePolicy}),...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})},input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
   try{if(!o.foreground){print(backgroundReceipt(binding.id,await startBackground(input),p));return 0;}
-   const backend=await createManagedBackend({executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
+   const backend=await createManagedBackend({executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,session0Desktop,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}
  }
  const runDir=owner.runDir;

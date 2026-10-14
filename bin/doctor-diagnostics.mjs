@@ -3,7 +3,7 @@
 const stages=new Set(['authentication','windows-readiness','buffered-command','streamed-command','pty-command','cancellation']);
 const codes=new Set([
  'CHECK_FAILED','ADMISSION_FAILED','AUTH_UNSUPPORTED','CONFIG_UNSUPPORTED','VERSION_UNSUPPORTED',
- 'LAUNCH_INVALID','JOB_BUILD','JOB_PLATFORM','SANDBOX_NOT_READY','COMMAND_FAILED',
+ 'SESSION0_DESKTOP_SCOPE','LAUNCH_INVALID','JOB_BUILD','JOB_PLATFORM','SANDBOX_NOT_READY','COMMAND_FAILED',
  'CANCEL_NOT_STARTED','CANCEL_EARLY_EXIT','CANCEL_UNVERIFIED','CLIENT_CLOSED',
  'SERVER_START','SERVER_EXIT','TRANSPORT_ERROR','PROTOCOL_ERROR','PROTOCOL_LIMIT',
  'REQUEST_LIMIT','REQUEST_TIMEOUT','RPC_ERROR','NOTIFICATION_ERROR','MODEL_CATALOG',
@@ -25,6 +25,7 @@ function cleanupSummary(source){
  const exited=field(source,'serverExited'),summary={serverExited:typeof exited==='boolean'?exited:null,descendants:'notVerified'};
  boolean(source,summary,'forced');boolean(source,summary,'jobEmpty');
  if(field(source,'ownershipScope')==='windows-job-members')summary.ownershipScope='windows-job-members';
+ const desktop=field(source,'desktopCompatibility');if(field(desktop,'requested')==='shared')summary.desktopCompatibility={requested:'shared',applied:typeof field(desktop,'applied')==='boolean'?field(desktop,'applied'):null};
  const error=field(source,'error');if(error!==undefined)summary.error=errorSummary(error);
  return summary;
 }
@@ -85,7 +86,33 @@ function admissionSummary(source,admitted){
  return summary;
 }
 
-export function doctorFailure(error,{stage='backend',backend,admission,cleanup}={}){
+export function doctorHostContext(source){
+ if(!record(source))return undefined;
+ const summary={};
+ const strings={node:/^v\d{1,3}\.\d{1,3}\.\d{1,3}$/,osRelease:/^\d[A-Za-z0-9._+-]{0,63}$/};
+ for(const [key,pattern] of Object.entries(strings)){
+  const value=field(source,key);if(typeof value==='string'&&value.length<=64&&pattern.test(value))summary[key]=value;
+ }
+ for(const [key,allowed] of [['platform',['win32','linux','darwin','aix','freebsd','openbsd','sunos','android']],['arch',['x64','arm64','ia32','arm','ppc64','s390x','riscv64','loong64']]]){
+  const value=field(source,key);if(allowed.includes(value))summary[key]=value;
+ }
+ boolean(source,summary,'sshEnvironmentPresent');
+ if(summary.platform==='win32'){
+  const input=field(source,'windows'),windows={status:'unavailable'};
+  const sessionId=field(input,'sessionId'),revision=field(input,'revision'),buildNumber=field(input,'buildNumber');
+  const elevated=field(input,'elevated'),interactive=field(input,'interactive');
+  const uint=value=>Number.isInteger(value)&&value>=0&&value<=0xffffffff;
+  if(field(input,'status')==='observed'&&uint(sessionId)&&uint(revision)&&typeof elevated==='boolean'&&typeof interactive==='boolean'&&typeof buildNumber==='string'&&/^\d{1,10}$/.test(buildNumber)){
+   Object.assign(windows,{status:'observed',sessionId,elevated,interactive,buildNumber,revision});
+   const displayVersion=field(input,'displayVersion');
+   if(typeof displayVersion==='string'&&/^[A-Za-z0-9 ._-]{0,32}$/.test(displayVersion))windows.displayVersion=displayVersion;
+  }
+  summary.windows=windows;
+ }
+ return Object.keys(summary).length?summary:undefined;
+}
+
+export function doctorFailure(error,{stage='backend',backend,admission,cleanup,hostContext}={}){
  const phase=['runtime','backend','cleanup'].includes(stage)?stage:'backend';
  const source=admission??field(error,'admission'),summary=admissionSummary(source,phase==='cleanup');
  // The probe owns admission cleanup. A later backend close is a distinct
@@ -96,5 +123,8 @@ export function doctorFailure(error,{stage='backend',backend,admission,cleanup}=
  if(phase==='backend'&&summary?.status==='failed'){
   failedStage=summary.stages.find(item=>item.status==='failed')?.name??(!summary.error&&summary.cleanup.serverExited===false?'cleanup':'admission');
  }else if(phase==='backend'&&startup?.boundaries.length)failedStage=startup.boundaries.at(-1).stage;
- return {status:'failed',inferenceRequests:0,...(['mxc','configured'].includes(backend)?{backend}:{}),stage:failedStage,error:errorSummary(error),...(summary?{admission:summary}:{}),cleanup:cleanupSummary(ownedCleanup),...(startup?{startup:startup.boundaries,...(startup.truncated?{startupTruncated:true}:{})}:{})};
+ const context=doctorHostContext(hostContext);
+ const failedCommand=phase==='backend'&&summary?.status==='failed'?summary.stages.find(item=>item.status==='failed'):undefined;
+ const dllFailure=context?.platform==='win32'&&['buffered-command','streamed-command','pty-command'].includes(failedCommand?.name)&&[-1073741502,3221225794].includes(failedCommand?.evidence?.exitCode);
+ return {status:'failed',inferenceRequests:0,...(['mxc','configured'].includes(backend)?{backend}:{}),stage:failedStage,error:errorSummary(error),...(context?{hostContext:context}:{}),...(dllFailure?{diagnosis:{kind:'windows-dll-initialization-failed',ntstatus:'0xC0000142',cause:'notDetermined'}}:{}),...(summary?{admission:summary}:{}),cleanup:cleanupSummary(ownedCleanup),...(startup?{startup:startup.boundaries,...(startup.truncated?{startupTruncated:true}:{})}:{})};
 }

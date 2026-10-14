@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Add explicit Windows MXC Session 0 shared-desktop compatibility for doctor and new runs, with native session enforcement, fixed desktop selection and unchanged filesystem/network policy.
+- Preserve the selection across resume/restart and retain host application evidence in doctor, startup and worker cleanup receipts.
+- Report bounded Windows host context and supplied DLL initialization status; retain detached admission failures without losing ownership evidence.
+- Explain authorization, measured shared UI exposure and scoped acceptance in the setup/run/mode skills. Codex remains pinned and unmodified.
+
 ## 0.3.1
 
 - Provision immutable, hash-verified skill/tool bundles and genuine native executor `skills.list` / `skills.read` calls for workers; supply verified invocation paths only after required readiness passes.

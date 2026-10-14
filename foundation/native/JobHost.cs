@@ -8,6 +8,9 @@ using System.Text;
 using System.Threading;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
+using System.Text.RegularExpressions;
+using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 
 internal static class JobHost {
@@ -63,8 +66,35 @@ internal static class JobHost {
         var thread=new Thread(delegate(){try{var buffer=new byte[8192];int count;while((count=source.Read(buffer,0,buffer.Length))>0){destination.Write(buffer,0,count);destination.Flush();}}catch(IOException){}finally{if(ended!=null)ended();}});
         thread.IsBackground=true;thread.Start();return thread;
     }
+    // Local doctor facts only. This branch never creates a job or child process.
+    static int Context() {
+        try {
+            int session;bool elevated;
+            using(var process=Process.GetCurrentProcess())session=process.SessionId;
+            using(var identity=WindowsIdentity.GetCurrent())elevated=new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+            using(var version=Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion",false)) {
+                if(version==null)throw new InvalidOperationException();
+                string build=version.GetValue("CurrentBuildNumber") as string;
+                object revision=version.GetValue("UBR");
+                string display=version.GetValue("DisplayVersion") as string;
+                if(session<0||build==null||!Regex.IsMatch(build,@"\A[0-9]{1,10}\z")||!(revision is int)||
+                   (display!=null&&!Regex.IsMatch(display,@"\A[A-Za-z0-9 ._-]{0,32}\z")))throw new InvalidOperationException();
+                Console.WriteLine("{\"status\":\"observed\",\"sessionId\":"+session+",\"elevated\":"+(elevated?"true":"false")+
+                    ",\"interactive\":"+(Environment.UserInteractive?"true":"false")+",\"buildNumber\":\""+build+
+                    "\",\"revision\":"+unchecked((uint)(int)revision)+(display==null?"":",\"displayVersion\":\""+display+"\"")+"}");
+            }
+        } catch(Exception) {Console.WriteLine("{\"status\":\"unavailable\"}");}
+        return 0;
+    }
     static int Main(string[] args) {
+        if(args.Length==1&&args[0]=="--context")return Context();
         Console.Error.NewLine="\n";
+        bool shared=args.Length>0&&args[0]=="--session0-desktop";
+        if(shared) {
+            try {using(var current=Process.GetCurrentProcess())if(current.SessionId!=0)throw new InvalidOperationException();}
+            catch(Exception){Console.Error.WriteLine("WORKFLOW_SESSION0_DESKTOP_REJECTED");return 2;}
+            var remaining=new string[args.Length-1];Array.Copy(args,1,remaining,0,remaining.Length);args=remaining;
+        }
         if(args.Length==0||!Path.IsPathRooted(args[0]))return 2;
         IntPtr job=IntPtr.Zero,inputRead=IntPtr.Zero,inputWrite=IntPtr.Zero,outputRead=IntPtr.Zero,outputWrite=IntPtr.Zero,nul=IntPtr.Zero,attributes=IntPtr.Zero,handles=IntPtr.Zero;
         ProcessInfo process=new ProcessInfo();bool assigned=false,attributesReady=false;
@@ -81,12 +111,14 @@ internal static class JobHost {
             handles=Marshal.AllocHGlobal(IntPtr.Size*3);Marshal.WriteIntPtr(handles,0,inputRead);Marshal.WriteIntPtr(handles,IntPtr.Size,outputWrite);Marshal.WriteIntPtr(handles,IntPtr.Size*2,nul);
             Check(UpdateProcThreadAttribute(attributes,0,new IntPtr(0x20002),handles,new IntPtr(IntPtr.Size*3),IntPtr.Zero,IntPtr.Zero));
             var startup=new StartupEx{Info=new Startup{Size=Marshal.SizeOf(typeof(StartupEx)),Flags=0x100,Input=inputRead,Output=outputWrite,Error=nul},Attributes=attributes};
+            if(shared)startup.Info.Desktop=@"WinSta0\Default";
             var command=new StringBuilder();foreach(string argument in args){if(command.Length>0)command.Append(' ');command.Append(Quote(argument));}
             // EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_SUSPENDED.
             Check(CreateProcessW(args[0],command,IntPtr.Zero,IntPtr.Zero,true,0x08080004,IntPtr.Zero,null,ref startup,out process));
             Check(AssignProcessToJobObject(job,process.Process));assigned=true;
             Check(ResumeThread(process.Thread)!=uint.MaxValue);Close(ref process.Thread);
             Close(ref inputRead);Close(ref outputWrite);Close(ref nul);
+            if(shared)Console.Error.WriteLine("WORKFLOW_SESSION0_DESKTOP_APPLIED");
             Console.Error.WriteLine("WORKFLOW_JOB_READY");
             var input=new FileStream(new SafeFileHandle(inputWrite,true),FileAccess.Write);inputWrite=IntPtr.Zero;
             var output=new FileStream(new SafeFileHandle(outputRead,true),FileAccess.Read);outputRead=IntPtr.Zero;

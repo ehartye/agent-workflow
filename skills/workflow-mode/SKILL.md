@@ -20,4 +20,6 @@ Keep explicit --data-dir consistent. Otherwise CLI/hooks share AGENT_WORKFLOW_DA
 
 Mode is opt-in and persists outside plugin cache. The prompt hook supplies routing context for user prompts; ordinary questions and small direct edits stay conversational. Workers/tool messages are excluded. A status question or steering instruction does not replace the active user objective.
 
+Windows [Session 0 compatibility](../workflow-setup/references/session0-compatibility.md) is a separate explicit launch selection. Mode on never enables it.
+
 Mode grants no file, network, publication or installation permission, and adds no native composer control, effort slider or shared hard budget. Manual CLI/dashboard use does not require mode. Hook trust is separate; report runtime readiness and hook availability independently. Do not edit global AGENTS or Codex settings to imitate routing.

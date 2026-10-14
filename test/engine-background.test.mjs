@@ -16,6 +16,25 @@ import {readRun,requestControl,readControl} from '../engine/controller.mjs';
 
 const exec=promisify(execFile);
 
+test('detached desktop selection reaches the backend and survives resume without overrides',{skip:process.platform!=='win32'},async t=>{
+ const {startBackground}=await import('../engine/background.mjs');
+ const base=await mkdtemp(join(tmpdir(),'workflow-background-desktop-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
+ const runDir=join(base,'run'),settings={runnerPath:fileURLToPath(new URL('./fixtures/engine-background.mjs',import.meta.url))};
+ const receipt=await startBackground({runDir,sessionId:'s',codex:process.execPath,cwd:base,backend:'mxc',session0Desktop:'shared',script:'export const meta={name:"desktop",description:"persist"};return 1;'},settings);
+ const first=await until(()=>readRun(runDir),state=>state.status==='completed');
+ assert.equal(first.launch.session0Desktop,'shared');
+ assert.equal(JSON.parse(await readFile(join(base,'backend-desktop.json'),'utf8')),'shared');
+ await until(()=>readFile(receipt.resultPath,'utf8'),()=>true);
+ const resumed=await startBackground({runDir,sessionId:'s',resume:true},settings);
+ const second=await until(()=>readRun(runDir),state=>state.generation===2&&state.status==='completed');
+ assert.equal(second.launch.session0Desktop,'shared');
+ assert.equal(JSON.parse(await readFile(join(base,'backend-desktop.json'),'utf8')),'shared');
+ await until(()=>readFile(resumed.resultPath,'utf8'),()=>true);
+ const before=(await readdir(runDir)).length;
+ await assert.rejects(startBackground({runDir,sessionId:'s',resume:true,session0Desktop:'inherit'},settings),{code:'LAUNCH_INVALID'});
+ assert.equal((await readdir(runDir)).length,before);
+});
+
 test('detached capability admission persists its bundle and resume rejects overrides before a launch',async t=>{
  const {startBackground}=await import('../engine/background.mjs');
  const {createHash}=await import('node:crypto');
@@ -132,7 +151,7 @@ test('detached controller survives launcher exit, pauses durably and resumes fro
   await until(()=>readFile(overridden.resultPath,'utf8'),()=>true);
 });
 
-for(const mode of ['fail','slow'])test(`launcher ${mode} admission preserves failure without worker dispatch`,async t=>{
+for(const mode of ['fail','slow','unknown'])test(`launcher ${mode} admission preserves failure without worker dispatch`,async t=>{
   const background=await import('../engine/background.mjs').catch(()=>null);
   assert.equal(typeof background?.startBackground,'function');
   const base=await mkdtemp(join(tmpdir(),'workflow-background-failure-'));
@@ -143,5 +162,16 @@ for(const mode of ['fail','slow'])test(`launcher ${mode} admission preserves fai
   const files=await until(()=>readdir(runDir),files=>files.some(file=>file.startsWith('finish-')));
   const result=await readFile(join(runDir,files.find(file=>file.startsWith('finish-'))),'utf8');
   assert.equal(JSON.parse(result).status,'failed');assert.doesNotMatch(result,/REVIEW_SECRET_SENTINEL|private@example/);
+  if(mode==='fail'){
+    const failure=JSON.parse(result).admissionFailure;
+    assert.equal(failure.cleanup.jobEmpty,true);assert.equal(failure.cleanup.serverExited,true);
+    assert.deepEqual(failure.cleanup.desktopCompatibility,{requested:'shared',applied:false});
+    assert.equal(failure.startup[0].stage,'discovery');
+  }
+  if(mode==='unknown'){
+    const failure=JSON.parse(result).admissionFailure;
+    assert.equal(failure.cleanup.jobEmpty,false);assert.equal(failure.cleanup.serverExited,false);
+    assert.deepEqual(failure.cleanup.desktopCompatibility,{requested:'shared',applied:null});
+  }
   await assert.rejects(stat(join(cwd,'dispatched')),{code:'ENOENT'});
 });
