@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4
+
+- Deliver the selected Map + inspector dashboard: compact blue header, dominant workflow map, independently scrolling desktop inspector, readable phone cards and closable bottom sheet. Move secondary controls and raw evidence behind deliberate panels and retain the full worker tray.
+- Keep dismissed messages in local history without reviving unchanged notices. Preserve distinct run failures, keyboard focus across polling, foreground-panel Escape behavior and generation/attempt-bound full worker reads.
+- Retain bounded Windows job-helper exit and receipt diagnostics without changing the strict drain predicate or accepting uncertain captures. The earlier cleanup failure remains unexplained; additional evidence supports investigation rather than automatic recovery.
+
 ## 0.3.3
 
 - Default new runs to explicitly captured parent execution authority and provision original enabled native plugin/skill roots automatically. Keep restricted mode explicit, delegation disabled and host-only connections distinct from native availability.

@@ -49,6 +49,77 @@ let navigationCounts=null;
 let pruneReview=null,lifecycleReceipt=null,lifecycleUncertain=false;
 const runDrafts=new Map();
 const runKey=()=>viewRun??snapshot?.monitor?.run?.runId??'pinned';
+const phoneLayout=matchMedia('(max-width: 599px)');
+let inspectorOrigin=null, trayOrigin='tray-toggle', drawerOrigin=null;
+let currentNotice=null, messagesDropped=0;
+let detailScope='';
+const messageHistory=new Map();
+function focusIdentity(element){
+  if(element?.id)return {id:element.id};
+  if(element?.tagName==='SUMMARY'&&element.parentElement?.dataset.disclosure)return {kind:'disclosure',key:element.parentElement.dataset.disclosure};
+  if(element?.dataset.prerequisite!==undefined)return {kind:'prerequisite',position:element.dataset.prerequisite};
+  if(element?.dataset.messageKey)return {kind:'message',key:element.dataset.messageKey};
+  if(element?.classList?.contains('map-worker'))return {kind:'map',position:element.dataset.position};
+  if(element?.classList?.contains('worker'))return {kind:'tray',position:element.dataset.position};
+  return null;
+}
+function restoreFocus(identity){
+  if(identity?.kind==='tray')toggleTray(true, false);
+  const element=identity?.id?$(identity.id):identity?.kind==='disclosure'?[...$('detail').querySelectorAll('details[data-disclosure]')].find(item=>item.dataset.disclosure===identity.key)?.querySelector('summary'):identity?.kind==='prerequisite'?[...$('detail').querySelectorAll('[data-prerequisite]')].find(item=>item.dataset.prerequisite===identity.position):identity?.kind==='message'?[...$('message-history').querySelectorAll('button')].find(item=>item.dataset.messageKey===identity.key):identity?.kind?document.querySelector(`${identity.kind==='map'?'.map-worker':'.worker'}[data-position="${identity.position}"]`):null;
+  (element??$('workflow-map')).focus({preventScroll:true});
+}
+function toggleDrawer(id,open){
+  const toggle=id==='more-panel'?'more-toggle':'messages-toggle';
+  if(open){drawerOrigin={id:toggle};for(const other of ['more-panel','messages-panel']){if(other!==id)$(other).hidden=true;}toggleSettings(false);}
+  $(id).hidden=!open;
+  $('more-toggle').setAttribute('aria-expanded',String(!$('more-panel').hidden));
+  $('messages-toggle').setAttribute('aria-expanded',String(!$('messages-panel').hidden));
+  if(open)$(id==='more-panel'?'close-more':'close-messages').focus();
+  else restoreFocus(drawerOrigin);
+}
+function toggleTray(open,focus=true,origin='tray-toggle'){
+  $('worker-tray').hidden=!open;
+  for(const id of ['tray-toggle','workers-toggle'])$(id).setAttribute('aria-expanded',String(open));
+  if(open){trayOrigin=origin;if(focus)$('close-tray').focus();}
+  else if(focus)$(trayOrigin).focus();
+}
+function chooseWorker(position,origin){
+  if(!snapshot?.workers?.some(worker=>worker.position===position))return;
+  if(origin)inspectorOrigin=focusIdentity(origin)??inspectorOrigin;
+  selected=position;extendedWorker=undefined;activityHistory=undefined;earlierEvidence=undefined;
+  $('status-filter').value='';$('phase-filter').value='';
+  $('inspector-panel').hidden=false;
+  if(origin?.classList.contains('worker'))toggleTray(false,false);
+  renderWorkers();renderDetail();renderMap();$('close-inspector').focus({preventScroll:true});
+}
+function closeInspector(){ $('inspector-panel').hidden=true;restoreFocus(inspectorOrigin); }
+for(const [toggle,panel] of [['more-toggle','more-panel'],['messages-toggle','messages-panel']])$(toggle).addEventListener('click',()=>toggleDrawer(panel,$(panel).hidden));
+$('close-more').addEventListener('click',()=>toggleDrawer('more-panel',false));
+$('close-messages').addEventListener('click',()=>toggleDrawer('messages-panel',false));
+for(const id of ['tray-toggle','workers-toggle'])$(id).addEventListener('click',()=>toggleTray($('worker-tray').hidden,true,id));
+$('close-tray').addEventListener('click',()=>toggleTray(false));
+$('close-inspector').addEventListener('click',closeInspector);
+document.addEventListener('keydown',event=>{
+  if(event.key!=='Escape'||event.defaultPrevented)return;
+  event.preventDefault();
+  if(!$('more-panel').hidden)toggleDrawer('more-panel',false);
+  else if(!$('messages-panel').hidden)toggleDrawer('messages-panel',false);
+  else if(!$('worker-tray').hidden)toggleTray(false);
+  else if(!$('inspector-panel').hidden)closeInspector();
+});
+$('fit-map').addEventListener('click',()=>{ $('workflow-map').scrollTo({left:0,top:0,behavior:'instant'});$('announcement').textContent='Map origin. Scroll to inspect the remaining workers.'; });
+$('focus-active').addEventListener('click',()=>{
+  const worker=snapshot?.workers?.find(worker=>worker.status==='running');
+  if(!worker){$('announcement').textContent='No running worker in the recorded snapshot.';return;}
+  chooseWorker(worker.position,$('focus-active'));
+  let target=document.querySelector(`.map-worker[data-position="${worker.position}"]`);
+  if(!target){
+    if(visibilityFor(worker)!=='visible'&&!$('show-hidden').checked){$('announcement').textContent=`Running worker has a ${visibilityFor(worker)} record; opened in the inspector. Show hidden retains list access.`;}
+    else{toggleTray(true,false);target=document.querySelector(`.worker[data-position="${worker.position}"]`);$('announcement').textContent='Running worker is outside the map preview; opened in the full worker tray.';}
+  }else $('announcement').textContent='Running worker selected in the map and inspector.';
+  target?.scrollIntoView({block:'center',inline:'center',behavior:'instant'});
+});
+phoneLayout.addEventListener('change',()=>{mapKey='';renderMap();});
 const sameRun=(a,b)=>a?.dataInstanceId===b?.dataInstanceId&&a?.runId===b?.runId&&a?.runtimeId===b?.runtimeId;
 function controlsMatch(){return snapshot&&!stale&&(!snapshot.monitor?.run?viewRun===null:sameRun(controlTarget,snapshot.monitor.run)&&controlTarget.generation===snapshot.generation);}
 function scopedPath(path,runId=viewRun){return runId&&/^\/api\/(run(?:\?|$)|worker\/|patch\/|exclusions\/|activity(?:\?|$)|script(?:\?|$)|result(?:\?|$)|control$|resume$|restart$|lifecycle(?:\/|$))/.test(path)?`/api/runs/${encodeURIComponent(runId)}${path.slice(4)}`:path;}
@@ -80,12 +151,46 @@ function activityType(value) { return ({commandExecution:'Command',agentMessage:
 function activityStatus(value) { return ({inProgress:'running',completed:'completed',failed:'failed',updated:'updated',reportedRejected:'rejection reported',reportedFailed:'failure reported',reportedSucceeded:'success reported'})[value]??value??'updated'; }
 function dateText(value) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? 'Time unavailable' : date.toLocaleString(); }
 function badge(element, status) { element.textContent = status; element.dataset.status = status; }
-function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
+function renderMessages(){
+  const focused=focusIdentity(document.activeElement);
+  const records=[...messageHistory.values()];
+  $('message-count').textContent=records.filter(record=>!record.dismissed).length;
+  $('message-history-limit').textContent=`${records.length} retained local messages · ${records.filter(record=>record.dismissed).length} dismissed · ${messagesDropped} older messages discarded. Limit: 32 distinct messages for this page. Execution evidence and receipts remain in records.`;
+  $('message-history').replaceChildren(...records.slice().reverse().map(record=>{
+    const item=node('li');item.append(node('p',record.message),node('small',`${record.run} · generation ${record.generation??'unavailable'} · ${record.dismissed?'Dismissed · retained in history':'Retained message'}`));
+    if(!record.dismissed){const dismiss=node('button','Dismiss message');dismiss.type='button';dismiss.dataset.messageKey=record.key;dismiss.addEventListener('click',()=>dismissMessage(record));item.append(dismiss);}
+    return item;
+  }));
+  if(focused?.kind==='message'){
+    if(messageHistory.get(focused.key)?.dismissed)$('close-messages').focus({preventScroll:true});
+    else restoreFocus(focused);
+  }
+}
+function dismissMessage(record){
+  record.dismissed=true;
+  if(currentNotice===record.key)$('notice').hidden=true;
+  renderMessages();$('announcement').textContent='Message dismissed locally; retained in Messages.';
+}
+$('dismiss-notice').addEventListener('click',()=>{const record=messageHistory.get(currentNotice);if(record)dismissMessage(record);$('messages-toggle').focus();});
+function notice(message,identity=message) {
+  currentNotice=message?JSON.stringify([runKey(),snapshot?.generation??null,identity]):null;
+  if(message&&!messageHistory.has(currentNotice)){
+    messageHistory.set(currentNotice,{key:currentNotice,message,run:runKey(),generation:snapshot?.generation,dismissed:false});
+    if(messageHistory.size>32){messageHistory.delete(messageHistory.keys().next().value);messagesDropped++;}
+  }
+  $('notice-text').textContent=message??'';
+  $('notice').hidden=!message||messageHistory.get(currentNotice)?.dismissed===true;
+  renderMessages();
+}
+function disclosure(key,title,className){
+  const section=node('details',undefined,className);section.dataset.disclosure=key;
+  section.append(node('summary',title));return section;
+}
 function evidence(container, title, value, failure = false) {
-  container.append(node('h3', title));
+  const section=disclosure(title==='Worker result'?'result':title.toLowerCase().replaceAll(' ','-'),title,'raw-evidence');
   const pre = node('pre', valueText(value), failure ? 'failure' : undefined);
   pre.tabIndex = 0;
-  container.append(pre);
+  section.append(pre);container.append(section);
 }
 async function api(path, { method = 'GET', body, text = false, runId = viewRun } = {}) {
   const selectedRun=viewRun,scoped=scopedPath(path,runId);path=scoped;
@@ -151,11 +256,11 @@ function renderWorkers() {
   }
   const filtered = visible.filter(worker => (!$('status-filter').value || worker.status === $('status-filter').value) &&
     (!$('phase-filter').value || phaseLabel(worker) === $('phase-filter').value));
-  if (!filtered.some(worker => worker.position === selected)) selected = filtered[0]?.position;
+  if (!workers.some(worker => worker.position === selected)) selected = filtered[0]?.position;
   const key = JSON.stringify([snapshot.generation, selected,snapshot.lifecycle, filtered.map(worker => [worker.position, worker.status, worker.cached, worker.options?.label,phaseLabel(worker)])]);
   if (key !== listKey) {
     listKey = key;
-    const focusPosition = document.activeElement?.dataset?.position;
+    const focusPosition = document.activeElement?.closest?.('.worker')?.dataset?.position;
     const children = filtered.map(worker => {
       const item = node('li');
       const button = node('button', undefined, 'worker');
@@ -168,19 +273,20 @@ function renderWorkers() {
       if (worker.cached) status.append(node('small', 'reused result'));
       if(visibilityFor(worker)!=='visible')status.append(node('small',visibilityFor(worker)));
       button.append(node('span', String(worker.position + 1).padStart(2, '0'), 'slot'), content, status);
-      button.addEventListener('click', () => { selected = worker.position; extendedWorker = undefined; renderWorkers(); renderDetail(); renderMap(); });
+      button.addEventListener('click', () => chooseWorker(worker.position,button));
       item.append(button); return item;
     });
     $('worker-list').replaceChildren(...children);
     if (focusPosition !== undefined) [...$('worker-list').querySelectorAll('button')].find(button => button.dataset.position === focusPosition)?.focus({ preventScroll: true });
   }
   $('worker-count').textContent = snapshot.availability?.status==='unavailable'?'Worker counts unavailable':`${filtered.length} of ${workers.length} recorded`;
+  $('tray-count').textContent=snapshot.availability?.status==='unavailable'?'?':workers.length;
   $('empty').hidden = filtered.length !== 0;
   $('empty').textContent = snapshot.availability?.status==='unavailable'?'Worker execution records are unavailable.':workers.length ? 'No workers match these filters.' : 'Workers appear here when the workflow requests them.';
 }
 function renderWorkspace(container, worker, sourceGeneration) {
   if (!worker.workspace && !worker.workspaceError) return;
-  const section = node('section', undefined, 'workspace-review');
+  const section = disclosure(`workspace-${sourceGeneration??snapshot.generation}`,sourceGeneration?`Workspace & changes · generation ${sourceGeneration}`:'Workspace & changes','workspace-review');
   section.dataset.sourceGeneration = sourceGeneration ?? snapshot.generation;
   section.append(node('h3', sourceGeneration ? `Writer changes · generation ${sourceGeneration}` : 'Writer changes'));
   const workspace = worker.workspace;
@@ -274,6 +380,11 @@ function renderDetail() {
   }):null]);
   if (key === detailKey) return;
   detailKey = key;
+  const scope=JSON.stringify([runKey(),snapshot.generation,selected]);
+  const sameScope=scope===detailScope;
+  const expanded=sameScope?[...$('detail').querySelectorAll('details[data-disclosure][open]')].map(element=>element.dataset.disclosure):[];
+  detailScope=scope;
+  const focused=focusIdentity(document.activeElement);
   const focusedSteer=document.activeElement?.id==='steer-text',selectionStart=$('steer-text')?.selectionStart,selectionEnd=$('steer-text')?.selectionEnd;
   const focusedReconcile=document.activeElement?.id==='reconcile-text',reconcileStart=$('reconcile-text')?.selectionStart,reconcileEnd=$('reconcile-text')?.selectionEnd;
   const detail = $('detail'); detail.replaceChildren();
@@ -285,15 +396,22 @@ function renderDetail() {
   meta.append(node('span', `Slot ${worker.position + 1}`), node('span', worker.cached ? 'Result reused from saved evidence' : worker.status === 'queued' ? 'Awaiting dispatch' : 'Result not reused'));
   if (worker.startedAt) meta.append(node('span', `Started ${dateText(worker.startedAt)}`));
   if (worker.completedAt) meta.append(node('span', `Finished ${dateText(worker.completedAt)}`));
-  detail.append(meta);
   const task=snapshot.experience?.workers?.find(item=>item.ref.position===worker.position)?.task;
   const taskPanel=node('section',undefined,'task-evidence');taskPanel.append(node('h3','Task outcome'),node('p',`Execution: ${worker.status}. Task outcome: ${task?.declaredOutcome??'unverified'}. Verification: ${task?.verification??'unverified'}.`));
-  taskPanel.append(node('p',task?.reason??'No validated task report. Execution completion does not establish delivery.','muted'));
-  for(const artifact of snapshot.experience?.artifacts?.filter(item=>item.worker.position===worker.position)??[])taskPanel.append(node('p',`${artifact.claimId}: retained integrity ${artifact.integrity}; acceptance ${artifact.acceptance}.`));
+  const taskEvidence=disclosure('acceptance','Verification & acceptance evidence');
+  taskEvidence.append(node('p',task?.reason??'No validated task report. Execution completion does not establish delivery.','muted'));
+  for(const artifact of snapshot.experience?.artifacts?.filter(item=>item.worker.position===worker.position)??[])taskEvidence.append(node('p',`${artifact.claimId}: retained integrity ${artifact.integrity}; acceptance ${artifact.acceptance}.`));
   detail.append(taskPanel);
-  const visibility=node('section',undefined,'worker-controls');visibility.append(node('h3','Record visibility'),node('p',`Disposition: ${visibilityFor(worker)}. Visibility preserves execution and historical evidence.`));
+  let resultPreview=worker.result;
+  if(typeof resultPreview==='string'&&/^[\s]*[\[{]/.test(resultPreview)){
+    try{resultPreview=JSON.parse(resultPreview);}catch{resultPreview={summary:'Structured result preview. Load worker details to read the complete evidence.'};}
+  }
+  const summary=typeof resultPreview==='string'?resultPreview:typeof resultPreview?.summary==='string'?resultPreview.summary:worker.activity?.summary??worker.prompt;
+  const summaryText=typeof summary==='string'?summary.trim().replace(/\s+/g,' '):'';
+  detail.append(node('p',summaryText?`${summaryText.slice(0,360)}${summaryText.length>360?'… Open the evidence below for the remaining text.':''}`:worker.status==='unknown'?'Outcome unknown. No worker result recorded.':worker.status==='queued'?'Waiting for dispatch.':'No worker summary recorded.','worker-summary'));
+  const visibility=disclosure('visibility','Record visibility & pruning','worker-controls');visibility.append(node('p',`Disposition: ${visibilityFor(worker)}. Visibility preserves execution and historical evidence.`));
   for(const action of ['hide','archive','restore','planPrune']){const button=node('button',action==='planPrune'?'Review worker prune':action[0].toUpperCase()+action.slice(1)+' worker');button.type='button';button.dataset.workerLifecycle=action;button.addEventListener('click',()=>mutateLifecycle(action,{kind:'worker',generation:snapshot.generation,position:worker.position,attempt:worker.attempts??0}));visibility.append(button);}detail.append(visibility);
-  const controls=node('section',undefined,'worker-controls');controls.append(node('h3','Worker controls'));
+  const controls=disclosure('steering','Steering & cancellation','worker-controls');
   const label=node('label','Steering instruction');label.htmlFor='steer-text';
   const input=node('textarea');input.id='steer-text';input.rows=3;input.maxLength=8000;
   input.value=steerDraft?.generation===snapshot.generation&&steerDraft.position===worker.position?steerDraft.text:'';
@@ -304,7 +422,7 @@ function renderDetail() {
   if(focusedSteer){input.focus({preventScroll:true});input.setSelectionRange?.(selectionStart,selectionEnd);}
   const restart=snapshot.restartPreview;
   if(restart?.position===worker.position){
-    const section=node('section',undefined,'worker-controls');section.append(node('h3','Restart after review'));
+    const section=disclosure('restart','Restart after review','worker-controls');
     if(!restart.eligible)section.append(node('p',restart.reason,'muted'));
     else{
       section.append(node('p',`Restart worker ${worker.position+1} and all later workers in a new generation. Completed earlier results stay cached. Review external effects before rerunning this work.`));
@@ -321,7 +439,7 @@ function renderDetail() {
     if(!restart.eligible)detail.append(section);
   }
   if(Array.isArray(worker.priorExecutions)&&worker.priorExecutions.length){
-    const section=node('section',undefined,'worker-controls');section.append(node('h3','Earlier executions'));
+    const section=disclosure('earlier','Earlier executions','worker-controls');
     section.append(node('p',`${worker.attempts??0} total attempts at this position. Earlier evidence remains unchanged.`, 'muted'));
     const label=node('label','Generation'),select=node('select');select.id='earlier-generation';label.htmlFor=select.id;
     for(const source of [...worker.priorExecutions].reverse())select.append(new Option(`Generation ${source.generation}`,String(source.generation)));
@@ -366,7 +484,13 @@ function renderDetail() {
     const pending = prerequisites.filter(item => item.status !== 'completed');
     if (worker.status === 'queued' && pending.length) detail.append(node('p', `Waiting for ${pending.map(item => item.options?.label || `Worker ${item.position + 1}`).join(', ')}.`, 'muted'));
     const list = node('ul');
-    for (const prerequisite of prerequisites) list.append(node('li', `${prerequisite.options?.label || `Worker ${prerequisite.position + 1}`} · ${prerequisite.status}${visibilityFor(prerequisite)!=='visible'?` · ${visibilityFor(prerequisite)}; use Show hidden to inspect`:''}`));
+    list.className='prerequisites';
+    for (const prerequisite of prerequisites){
+      const item=node('li'),button=node('button',`${prerequisite.options?.label || `Worker ${prerequisite.position + 1}`} · ${prerequisite.status}${visibilityFor(prerequisite)!=='visible'?` · ${visibilityFor(prerequisite)}`:''}`);
+      button.type='button';button.dataset.prerequisite=prerequisite.position;
+      button.disabled=!snapshot.workers.some(item=>item.position===prerequisite.position);
+      button.addEventListener('click',()=>chooseWorker(prerequisite.position));item.append(button);list.append(item);
+    }
     detail.append(list);
   }
   if (worker.truncations?.length) {
@@ -377,7 +501,7 @@ function renderDetail() {
       load.disabled = true;
       try {
         const full = await api(`/api/worker/${position}?generation=${generation}`);
-        if (snapshot?.generation !== generation || selected !== position) return;
+        if (snapshot?.generation !== generation || selected !== position || JSON.stringify(snapshot.workers.find(item=>item.position===position))!==JSON.stringify(base)) return;
         extendedWorker = { generation, position, worker: full, previewKey: JSON.stringify(base) };
         renderDetail();
       } catch (error) { readError(error); }
@@ -387,20 +511,23 @@ function renderDetail() {
   }
   renderWorkspace(detail, worker);
   if (Object.hasOwn(worker, 'prompt')) evidence(detail, 'Prompt', worker.prompt);
-  if (Object.hasOwn(worker, 'result')) evidence(detail, 'Accepted result', worker.result);
-  else detail.append(node('h3', 'Accepted result'), node('p', worker.status === 'unknown' ? 'Outcome unknown. No result has been accepted.' : 'No result has been accepted.', 'muted'));
+  if (Object.hasOwn(worker, 'result')) evidence(detail, 'Worker result', worker.result);
+  else detail.append(node('h3', 'Worker result'), node('p', worker.status === 'unknown' ? 'Outcome unknown. No worker result recorded.' : 'No worker result recorded.', 'muted'));
   if (worker.error) evidence(detail, 'Worker error', worker.error, true);
   if (worker.interruption) evidence(detail, 'Interruption evidence', worker.interruption);
-  if (worker.evidence) evidence(detail, 'Execution evidence', worker.evidence);
-  detail.append(node('h3', 'Activity'));
+  const execution=disclosure('execution','Execution metadata & settings');execution.append(meta);
+  if (worker.evidence) evidence(execution, 'Execution evidence', worker.evidence);
+  else execution.append(node('p','Effective execution settings were not captured.','muted'));
+  detail.append(execution,taskEvidence);
+  const activityPanel=disclosure('activity','Tool activity & history');detail.append(activityPanel);
   if(worker.activity && typeof worker.activity==='object') {
-    detail.append(node('p', `${activityType(worker.activity.type)} · ${activityStatus(worker.activity.status)}`, 'muted'),node('pre',worker.activity.summary));
-  } else detail.append(node('p', 'No native activity has been recorded for this worker.', 'muted'));
-  if(worker.usage && typeof worker.usage==='object')detail.append(node('p',`Observed tokens: ${worker.usage.inputTokens} input · ${worker.usage.outputTokens} output · ${worker.usage.totalTokens} total.`, 'muted'));
+    activityPanel.append(node('p', `${activityType(worker.activity.type)} · ${activityStatus(worker.activity.status)}`, 'muted'),node('pre',worker.activity.summary));
+  } else activityPanel.append(node('p', 'No native activity has been recorded for this worker.', 'muted'));
+  if(worker.usage && typeof worker.usage==='object')activityPanel.append(node('p',`Observed tokens: ${worker.usage.inputTokens} input · ${worker.usage.outputTokens} output · ${worker.usage.totalTokens} total.`, 'muted'));
   const filterLabel=node('label','Show activity ', 'activity-filter'),filter=node('select');filter.id='activity-filter';
   filter.append(new Option('Tool activity','tools'),new Option('All events','all'));filter.value=activityFilter;
-  filter.addEventListener('change',()=>{activityFilter=filter.value;renderDetail();});filterLabel.append(filter);detail.append(filterLabel);
-  const historyPanel=node('div');historyPanel.id='activity-history';historyPanel.tabIndex=0;historyPanel.setAttribute('aria-label','Recorded activity history');detail.append(historyPanel);
+  filter.addEventListener('change',()=>{activityFilter=filter.value;renderDetail();});filterLabel.append(filter);activityPanel.append(filterLabel);
+  const historyPanel=node('div');historyPanel.id='activity-history';historyPanel.tabIndex=0;historyPanel.setAttribute('aria-label','Recorded activity history');activityPanel.append(historyPanel);
   if(history){
     if(history.sourceGeneration!==undefined&&history.sourceGeneration!==snapshot.generation)historyPanel.append(node('p',`Recorded in generation ${history.sourceGeneration}; this result was reused.`, 'muted'));
     historyPanel.append(node('p', `${history.records.length} events displayed · ${history.retained} retained of ${history.observed} observed · ${history.dropped} older events discarded.`,history.dropped?'truncation':'muted'));
@@ -438,7 +565,11 @@ function renderDetail() {
     }catch(error){readError(error);}
     finally{activityLoading=false;renderDetail();}
   });
-  detail.append(loadActivity);
+  activityPanel.append(loadActivity);
+  detail.append(visibility,controls);
+  for(const element of detail.querySelectorAll('details[data-disclosure]'))if(expanded.includes(element.dataset.disclosure))element.open=true;
+  if(sameScope&&(focused?.id&&detail.querySelector(`#${focused.id}`)||['disclosure','prerequisite'].includes(focused?.kind)))restoreFocus(focused);
+  if(focusedSteer)input.setSelectionRange?.(selectionStart,selectionEnd);
   updateButtons();
 }
 function renderReceipts() {
@@ -470,94 +601,75 @@ function svgNode(tag, attributes = {}, text) {
 }
 function renderMap() {
   if(!snapshot)return;
-  const workers = snapshot.workers ?? [], coverage = snapshot.coverage ?? {};
-  const count = coverage.requested ?? workers.length, complete = coverage.completed ?? 0;
-  const percent = count ? Math.floor(complete / count * 100) : snapshot.status === 'completed' ? 100 : null;
-  const active = ['running', 'pausing', 'stopping', 'finishing'].includes(snapshot.status);
-  const missing = `${workers.filter(worker => worker.status === 'running').length} active · ${workers.filter(worker => worker.status === 'queued').length} queued · ${coverage.failed ?? 0} failed · ${coverage.unknown ?? 0} unknown`;
-  $('flow-progress').textContent = `${percent === null ? 'No workers discovered yet' : `${percent}% of discovered workers complete · ${complete} / ${count} executions complete`} · ${missing}${active ? '. The workflow can still discover more workers.' : ''}`;
-  if(snapshot.availability?.status==='unavailable')$('flow-progress').textContent='Execution data unavailable; worker counts and progress are not known.';
-  $('progress-fill').style.width = `${percent ?? 0}%`;
-  if (percent === null) $('progress').removeAttribute('aria-valuenow');
-  else $('progress').setAttribute('aria-valuenow', String(percent));
-  $('progress').setAttribute('aria-valuetext', $('flow-progress').textContent);
-  const visible=visibleWorkers(),displayed = visible.slice(0, 60),positions=new Set(displayed.map(worker=>worker.position));
+  const workers=snapshot.workers??[],coverage=snapshot.coverage??{};
+  const count=coverage.requested??workers.length,complete=coverage.completed??0;
+  const percent=count?Math.floor(complete/count*100):null;
+  const running=workers.filter(worker=>worker.status==='running').length;
+  const queued=workers.filter(worker=>worker.status==='queued').length;
+  const unavailable=snapshot.availability?.status==='unavailable';
+  $('flow-progress').textContent=unavailable?'Execution data unavailable':`${complete} / ${count} complete · ${running} active`;
+  $('coverage-breakdown').textContent=unavailable?'Worker counts and execution progress are unavailable.':`${queued} queued · ${coverage.failed??0} failed · ${coverage.unknown??0} unknown · ${coverage.cached??0} reused results. Completed execution is not coordinator acceptance.${['running','pausing','stopping','finishing'].includes(snapshot.status)?' The workflow can still discover more workers.':''}`;
+  $('progress-fill').style.width=`${unavailable?0:percent??0}%`;
+  if(percent===null||unavailable)$('progress').removeAttribute('aria-valuenow');else $('progress').setAttribute('aria-valuenow',String(percent));
+  $('progress').setAttribute('aria-valuetext',$('flow-progress').textContent+' '+$('coverage-breakdown').textContent);
+  const visible=visibleWorkers(),displayed=visible.slice(0,60),positions=new Set(displayed.map(worker=>worker.position));
   const omittedEdges=displayed.flatMap(worker=>Array.isArray(worker.dependencies)?worker.dependencies.filter(position=>!positions.has(position)).map(position=>`Worker ${worker.position+1} depends on omitted prerequisite ${position+1}`):[]);
-  const unknownDependencies = displayed.filter(worker => !Array.isArray(worker.dependencies)).length;
-  $('map-note').textContent = `Grouping does not imply execution order. ${unknownDependencies ? `Dependency evidence is unavailable for ${unknownDependencies} displayed workers.` : 'Arrows show recorded prerequisites.'}${workers.length > displayed.length ? ` Map shows the first ${displayed.length} of ${workers.length} workers; Show hidden and the full worker list retain access.` : ''}${omittedEdges.length?` ${omittedEdges.length} omitted prerequisite links: ${omittedEdges.slice(0,8).join('; ')}${omittedEdges.length>8?'; additional links are disclosed in worker details.':''}.`:''}`;
-  const key = JSON.stringify([snapshot.generation, snapshot.status, selected,$('show-hidden').checked,snapshot.lifecycle,snapshot.experience?.phases, workers.map(worker => [worker.position, worker.status, worker.cached, worker.options?.label, worker.phase, worker.options?.phase, worker.dependencies,worker.activity])]);
-  if (key === mapKey) return;
-  mapKey = key;
-  const groups = new Map();
-  for (const worker of displayed) {
-    const phase=workerPhaseKey(worker);
-    if (!groups.has(phase)) groups.set(phase,{name:phaseLabel(worker)||'Unassigned phase',members:[]});
-    groups.get(phase).members.push(worker);
+  const unknownDependencies=displayed.filter(worker=>!Array.isArray(worker.dependencies)).length;
+  const hidden=workers.filter(worker=>visibilityFor(worker)!=='visible').length;
+  $('map-note').textContent=`Grouping does not imply execution order. ${unknownDependencies?`Dependency evidence is unavailable for ${unknownDependencies} displayed workers.`:'Arrows show recorded prerequisites.'}${visible.length>displayed.length?` Map shows the first ${displayed.length} of ${visible.length} visible workers; ${workers.length} recorded in total.`:''}${hidden?` ${hidden} hidden or archived records; ${displayed.length} workers shown. Show hidden retains list access.`:''}${workers.length>displayed.length?' The full ordered worker tray retains access.':''}${omittedEdges.length?` ${omittedEdges.length} omitted prerequisite links: ${omittedEdges.slice(0,8).join('; ')}${omittedEdges.length>8?'; additional links are disclosed in worker details.':''}.`:''}`;
+  const compact=phoneLayout.matches;
+  const key=JSON.stringify([compact,snapshot.generation,selected,$('show-hidden').checked,snapshot.lifecycle,snapshot.experience,workers]);
+  if(key===mapKey)return;mapKey=key;
+  const groups=new Map();
+  for(const worker of workers){const phase=workerPhaseKey(worker);if(!groups.has(phase))groups.set(phase,{name:phaseLabel(worker)||'Unassigned phase',members:[]});groups.get(phase).members.push(worker);}
+  const shownPhases=new Set(displayed.map(worker=>workerPhaseKey(worker)));
+  const placements=new Map(),width=compact?382:Math.max(800,shownPhases.size*210+40);
+  let maxRows=1,column=0;
+  for(const group of groups.values()){
+    const members=group.members.filter(worker=>positions.has(worker.position));maxRows=Math.max(maxRows,members.length);
+    members.forEach((worker,row)=>{const index=displayed.indexOf(worker);placements.set(worker.position,{worker,x:compact?18+index%2*183:28+column*210,y:compact?34+Math.floor(index/2)*132:80+row*132});});
+    if(members.length)column++;
   }
-  const placements = new Map(), groupLayouts = [];
-  let y = 106;
-  for (const [key,{name,members}] of groups) {
-    const height = Math.ceil(members.length / 3) * 110 + 24;
-    groupLayouts.push({key, name, members, y, height });
-    members.forEach((worker, index) => placements.set(worker.position, { x: 290 + index % 3 * 255, y: y + 13 + Math.floor(index / 3) * 110, worker }));
-    y += height + 20;
-  }
-  const svg = svgNode('svg', { viewBox: `0 0 1080 ${Math.max(190, y)}`, role: 'group', 'aria-label': 'Workflow structure and recorded dependencies' });
-  const defs = svgNode('defs');
-  const marker = svgNode('marker', { id: 'dependency-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' });
-  marker.append(svgNode('path', { d: 'M 0 0 L 10 5 L 0 10 z', class: 'arrow-head' })); defs.append(marker); svg.append(defs);
-  svg.append(svgNode('rect', { x: 24, y: 20, width: 240, height: 62, rx: 6, class: 'map-run' }),
-    svgNode('text', { x: 40, y: 45, class: 'map-title' }, 'Workflow'),
-    svgNode('text', { x: 40, y: 65, class: 'map-caption', 'data-status': snapshot.status }, snapshot.availability?.status==='unavailable'?'Execution data unavailable':`Generation ${snapshot.generation} · ${snapshot.status}`));
-  for (const group of groupLayouts) {
-    const allMembers = workers.filter(worker => workerPhaseKey(worker)===group.key);
-    const phaseDone = allMembers.filter(worker => worker.status === 'completed').length;
-    const phaseFailed = allMembers.filter(worker => worker.status === 'failed').length;
-    const phaseUnknown = allMembers.filter(worker => worker.status === 'unknown').length;
-    const phaseActive = allMembers.filter(worker => worker.status === 'running').length;
-    const phaseStatus = phaseUnknown ? 'unknown' : phaseFailed ? 'failed' : phaseDone === allMembers.length ? 'completed' : phaseActive ? 'running' : 'queued';
-    svg.append(svgNode('rect', { x: 16, y: group.y, width: 1048, height: group.height, rx: 6, class: 'map-group' }));
-    svg.append(svgNode('path', { d: `M 35 82 V ${group.y + 40} H 60`, class: 'map-group-link' }));
-    svg.append(svgNode('rect',{x:60,y:group.y+18,width:190,height:94,rx:7,class:'map-phase-node'}));
-    const groupLabel = svgNode('text', { x: 64, y: group.y + 43, class: 'map-phase' }, group.name.length > 24 ? group.name.slice(0, 23) + '…' : group.name);
-    groupLabel.append(svgNode('title', {}, group.name));
-    svg.append(groupLabel,
-      svgNode('text', { x: 64, y: group.y + 64, class: 'map-caption', 'data-status': phaseStatus }, `${phaseStatus} · ${phaseDone}/${allMembers.length} complete`),
-      svgNode('text', { x: 64, y: group.y + 82, class: 'map-caption' }, `${phaseFailed} failed · ${phaseUnknown} unknown`),
-      svgNode('text', { x: 64, y: group.y + 100, class: 'map-caption' }, `${phaseActive} active`));
-    svg.append(svgNode('circle',{cx:250,cy:group.y+39,r:5,class:'map-phase-anchor','data-phase':group.name}));
-    for (const worker of group.members) {
-      const point = placements.get(worker.position);
-      svg.append(svgNode('path', { d: `M 250 ${group.y + 39} H 270 V ${point.y + 32} H ${point.x}`, class: 'map-group-link map-membership','data-position':worker.position,'data-phase':group.name }));
+  const height=compact?Math.max(530,Math.ceil(displayed.length/2)*132+90):Math.max(530,maxRows*132+140);
+  const world=node('div',undefined,'graph-world');world.id='graph-world';world.style.width=`${width}px`;world.style.height=`${height}px`;
+  const svg=svgNode('svg',{class:'map-edges',width,height,viewBox:`0 0 ${width} ${height}`,'aria-hidden':'true'});
+  const marker=svgNode('marker',{id:'dependency-arrow',viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:6,markerHeight:6,orient:'auto'});
+  marker.append(svgNode('path',{d:'M 0 0 L 10 5 L 0 10 z',class:'arrow-head'}));const defs=svgNode('defs');defs.append(marker);svg.append(defs);world.append(svg);
+  column=0;
+  for(const group of groups.values()){
+    const done=group.members.filter(worker=>worker.status==='completed').length,failed=group.members.filter(worker=>worker.status==='failed').length,unknown=group.members.filter(worker=>worker.status==='unknown').length,active=group.members.filter(worker=>worker.status==='running').length;
+    const aggregate=`${group.name}: ${done}/${group.members.length} complete · ${failed} failed · ${unknown} unknown · ${active} active`;
+    const members=group.members.filter(worker=>positions.has(worker.position));
+    const heading=node('div',group.name,members.length?'map-phase':'sr-only');heading.style.left=members.length?`${28+column*210}px`:'0px';heading.title=aggregate;heading.append(node('span',aggregate,'sr-only'));world.append(heading);
+    if(members.length){const first=placements.get(members[0].position),ax=compact?first.x-8:first.x+8,ay=compact?first.y-10:45;
+      svg.append(svgNode('circle',{cx:ax,cy:ay,r:2,class:'map-phase-anchor','data-phase':group.name}));
+      for(const worker of members){const p=placements.get(worker.position);svg.append(svgNode('path',{d:`M ${ax} ${ay} H ${p.x-8} V ${p.y+30} H ${p.x}`,class:'map-group-link map-membership','data-position':worker.position,'data-phase':group.name}));}
     }
+    if(members.length)column++;
   }
-  for (const { x, y: workerY, worker } of placements.values()) {
-    for (const dependency of Array.isArray(worker.dependencies)?worker.dependencies:[]) {
-      const start = placements.get(dependency);
-      if (!start) continue;
-      const sx = start.x + 226, sy = start.y + 33, ey = workerY + 33;
-      svg.append(svgNode('path', { d: `M ${sx} ${sy} C ${sx + 36} ${sy - 42}, ${x - 36} ${ey - 42}, ${x - 5} ${ey}`, class: 'map-dependency', 'marker-end': 'url(#dependency-arrow)' }));
-    }
+  const cardWidth=compact?164:174;
+  for(const p of placements.values())for(const dependency of Array.isArray(p.worker.dependencies)?p.worker.dependencies:[]){
+    const start=placements.get(dependency);if(!start)continue;
+    const sy=start.y+49,ey=p.y+49;
+    let d;
+    if(compact){const same=start.x===p.x,lane=same?(start.x<100?7:375):191,sx=same?(start.x<100?start.x:start.x+cardWidth):(start.x<p.x?start.x+cardWidth:start.x),ex=same?(p.x<100?p.x-4:p.x+cardWidth+4):(start.x<p.x?p.x-4:p.x+cardWidth+4);d=`M ${sx} ${sy} H ${lane} V ${ey} H ${ex}`;}
+    else if(start.x===p.x){const lane=p.x+cardWidth+15;d=`M ${start.x+cardWidth} ${sy} H ${lane} V ${ey} H ${p.x+cardWidth+4}`;}
+    else {const forward=start.x<p.x,sx=forward?start.x+cardWidth:start.x,ex=forward?p.x-4:p.x+cardWidth+4,middle=(sx+ex)/2;d=`M ${sx} ${sy} C ${middle} ${sy}, ${middle} ${ey}, ${ex} ${ey}`;}
+    svg.append(svgNode('path',{d,class:'map-dependency','marker-end':'url(#dependency-arrow)','data-from':dependency,'data-to':p.worker.position}));
   }
-  for (const { x, y: workerY, worker } of placements.values()) {
-    const label = worker.options?.label || `Worker ${worker.position + 1}`;
-    const card = svgNode('g', { class: 'map-worker', tabindex: 0, role: 'button', 'aria-label': `${label}, ${worker.status}${worker.cached ? ', reused result' : ''}`, 'aria-pressed': String(selected === worker.position), 'data-position': worker.position });
-    card.append(svgNode('title',{},label));
-    card.append(svgNode('rect', { x, y: workerY, width: 226, height: 86, rx: 5 }),
-      svgNode('text', { x: x + 12, y: workerY + 25, class: 'map-worker-title' }, `${String(worker.position + 1).padStart(2, '0')}  ${label.length > 23 ? label.slice(0, 22) + '…' : label}`),
-      svgNode('text', { x: x + 12, y: workerY + 48, class: 'map-caption', 'data-status': worker.status }, `${worker.status}${worker.cached ? ' · reused result' : ''}`));
-    const activity=worker.activity?.summary;
-    const caption=svgNode('text',{x:x+12,y:workerY+69,class:'map-caption'},typeof activity==='string'?(activity.length>28?activity.slice(0,27)+'…':activity):'No activity recorded');
-    if(activity)caption.append(svgNode('title',{},activity));card.append(caption);
-    const choose = () => { selected = worker.position; extendedWorker = undefined; $('status-filter').value = ''; $('phase-filter').value = ''; renderWorkers(); renderDetail(); renderMap(); $('detail-heading').scrollIntoView({ block: 'nearest', behavior: 'instant' }); };
-    card.addEventListener('click', choose);
-    card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(); } });
-    svg.append(card);
+  for(const {worker,x,y} of placements.values()){
+    const label=worker.options?.label||`Worker ${worker.position+1}`,card=node('button',undefined,'map-worker');
+    card.type='button';card.dataset.position=worker.position;card.dataset.status=worker.status;card.style.left=`${x}px`;card.style.top=`${y}px`;card.style.width=`${cardWidth}px`;
+    card.setAttribute('aria-pressed',String(selected===worker.position));
+    card.setAttribute('aria-label',`${label}, ${worker.status}${worker.cached?', reused result':''}, phase ${phaseLabel(worker)||'unassigned'}. ${Array.isArray(worker.dependencies)?worker.dependencies.length?`Prerequisites: ${worker.dependencies.map(position=>`worker ${position+1}${positions.has(position)?'':' omitted from map'}`).join(', ')}`:'No prerequisites declared':'Dependency evidence unavailable'}`);
+    const top=node('span',undefined,'node-top');top.append(node('span',`WORKER ${worker.position+1}`,'node-role'),node('span',worker.status,'node-status'));
+    card.append(top,node('strong',label,'map-worker-title'),node('span',worker.activity?.summary||phaseLabel(worker)||'No activity recorded','node-note'));
+    card.title=label;card.addEventListener('click',()=>chooseWorker(worker.position,card));world.append(card);
   }
-  if (!workers.length) svg.append(svgNode('text', { x: 290, y: 60, class: 'map-caption' }, snapshot.availability?.status==='unavailable'?'Worker execution data unavailable.':'Worker components appear as the workflow discovers them.'));
-  const focusPosition = document.activeElement?.closest?.('.map-worker')?.dataset.position;
-  $('workflow-map').replaceChildren(svg);
-  if (focusPosition !== undefined) [...svg.querySelectorAll('.map-worker')].find(card => card.dataset.position === focusPosition)?.focus({ preventScroll: true });
+  if(!workers.length)world.append(node('p',unavailable?'Worker execution data unavailable.':'Workers appear as the workflow discovers them.','empty'));
+  const focused=focusIdentity(document.activeElement);
+  $('workflow-map').replaceChildren(world);
+  if(focused?.kind==='map')restoreFocus(focused);
 }
 function render() {
   const unavailable=snapshot.availability?.status==='unavailable';
@@ -596,7 +708,7 @@ function render() {
       output.append(load);
     }
     if (Object.hasOwn(snapshot, 'result')) evidence(output, 'Workflow result', snapshot.result);
-    else output.append(node('p', 'No workflow result has been accepted.', 'muted'));
+    else output.append(node('p', 'No workflow result recorded.', 'muted'));
     if (snapshot.error) evidence(output, 'Run error', snapshot.error, true);
   }
   updateButtons();
@@ -692,13 +804,14 @@ async function poll() {
     if(!unavailable&&!autoArmed&&snapshot.monitor?.run&&snapshot.monitor.run.runId===snapshot.monitor.pinnedRunId){controlTarget={...snapshot.monitor.run,generation:snapshot.generation};autoArmed=true;}
     $('connection').textContent = unavailable?health?'Dashboard connected; execution data unavailable':'Dashboard health and execution data unavailable':health?'Dashboard connected · run snapshot fresh':'Dashboard health unavailable · run snapshot fresh';
     if(!health)stale=true;
-    notice(actionNotice); render();
+    if(actionNotice)notice(actionNotice);
+    notice(snapshot.error ? valueText(snapshot.error) : actionNotice); render();
     void loadNavigation();
   } catch (error) {
     if(viewed!==viewRun)return;
     stale = true;
     $('connection').textContent = authenticated ? health?'Dashboard connected; run data unavailable':'Dashboard connection unavailable' : 'Authentication required';
-    notice(`${error.message}${authenticated && lastGood ? ` Displaying the last snapshot from ${dateText(lastGood)}. Controls are disabled until a fresh snapshot arrives.` : ''}`);
+    notice(`${error.message}${authenticated && lastGood ? ` Displaying the last snapshot from ${dateText(lastGood)}. Controls are disabled until a fresh snapshot arrives.` : ''}`,error.message);
   } finally {
     polling = false; updateButtons();
     if (!disposed && authenticated && !document.hidden) timer = setTimeout(poll, 1000);

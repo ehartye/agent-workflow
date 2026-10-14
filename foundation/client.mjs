@@ -29,6 +29,28 @@ export function remoteDiagnostic(error) {
   return `Codex reported a failure (code ${Number.isInteger(error?.code) ? error.code : 'unknown'}); untrusted details excluded`;
 }
 
+// Classify only the helper's fixed wire vocabulary. This is diagnostic evidence,
+// separate from the strict exit/receipt predicate that admits job drain below.
+function jobHostFacts({closed,exitCode,signal,text,overflow,shared}) {
+  const prefix=shared?'WORKFLOW_SESSION0_DESKTOP_APPLIED\n':'',ready=prefix+'WORKFLOW_JOB_READY\n';
+  let receipt=overflow?'overflow':text===''?'missing':text===ready+'WORKFLOW_JOB_DRAINED\n'?'drained':text===ready?'ready-only'
+    :shared&&text==='WORKFLOW_SESSION0_DESKTOP_REJECTED\n'?'rejected-before-spawn':'malformed';
+  let nativeErrorCode;
+  if(receipt==='malformed'){
+    // Failure before READY is possible; arbitrary exception names/messages are
+    // excluded. IOException alone does not identify which native wait failed.
+    const failure=text.startsWith(ready)?text.slice(ready.length):text;
+    if(failure==='WORKFLOW_JOB_FAILED:IOException\n')receipt='failed-io';
+    else{
+      const match=/^WORKFLOW_JOB_FAILED:Win32Exception:(-?[0-9]{1,10})\n$/.exec(failure);
+      if(match&&Number(match[1])>=-2147483648&&Number(match[1])<=2147483647){receipt='failed-win32';nativeErrorCode=Number(match[1]);}
+    }
+  }
+  return{closeObserved:closed,exitCode:Number.isInteger(exitCode)&&exitCode>=-2147483648&&exitCode<=4294967295?exitCode:null,
+    signal:!closed?'unobserved':signal==null?'none':['SIGKILL','SIGTERM','SIGINT'].includes(signal)?signal:'other',receipt,
+    ...(nativeErrorCode===undefined?{}:{nativeErrorCode})};
+}
+
 // A connection owns one server. It makes no claim about arbitrary descendants.
 export class AppServer {
   #child;
@@ -46,7 +68,9 @@ export class AppServer {
   #maxBytes;
   #jobOwned;
   #jobReceipt='';
+  #jobReceiptOverflow=false;
   #exitCode;
+  #exitSignal;
   #session0Desktop;
 
   get desktopCompatibility(){
@@ -79,8 +103,9 @@ export class AppServer {
     this.#jobOwned=Boolean(jobHost);
     this.#child = spawn(jobHost??command, jobHost?[...(session0Desktop==='shared'?['--session0-desktop']:[]),command,...args]:args, { cwd, env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.#exited = new Promise(resolve => {
-      this.#child.once('close', code => {
+      this.#child.once('close', (code,signal) => {
         this.#exitCode=code;
+        this.#exitSignal=signal;
         this.#closed = true;
         this.#fail(fault('SERVER_EXIT', 'Codex server connection closed'));
         resolve();
@@ -93,7 +118,7 @@ export class AppServer {
     if(this.#jobOwned){
       // Child diagnostics go to NUL in the host. Only the host owns this pipe.
       this.#child.stderr.setEncoding('utf8');
-      this.#child.stderr.on('data',chunk=>{this.#jobReceipt=(this.#jobReceipt+chunk).slice(0,256);});
+      this.#child.stderr.on('data',chunk=>{const text=this.#jobReceipt+chunk;this.#jobReceiptOverflow||=text.length>256;this.#jobReceipt=text.slice(0,256);});
     }else this.#child.stderr.resume();
     this.#child.stdout.setEncoding('utf8');
     this.#child.stdout.on('data', chunk => this.#read(chunk));
@@ -211,6 +236,7 @@ export class AppServer {
     const expected=(this.#session0Desktop==='shared'?'WORKFLOW_SESSION0_DESKTOP_APPLIED\n':'')+'WORKFLOW_JOB_READY\nWORKFLOW_JOB_DRAINED\n';
     const rejectedBeforeSpawn=this.#session0Desktop==='shared'&&this.#exitCode===2&&this.#jobReceipt==='WORKFLOW_SESSION0_DESKTOP_REJECTED\n';
     const jobEmpty=this.#jobOwned&&this.#closed&&(this.#exitCode===0&&this.#jobReceipt===expected||rejectedBeforeSpawn);
-    return { serverExited: this.#jobOwned?jobEmpty:this.#closed && Boolean(this.#child.pid), forced, descendants:'notVerified',...(this.#jobOwned?{jobEmpty,ownershipScope:'windows-job-members'}: {}),...(this.desktopCompatibility?{desktopCompatibility:this.desktopCompatibility}:{}) };
+    return { serverExited: this.#jobOwned?jobEmpty:this.#closed && Boolean(this.#child.pid), forced, descendants:'notVerified',...(this.#jobOwned?{jobEmpty,ownershipScope:'windows-job-members',
+      jobHost:jobHostFacts({closed:this.#closed,exitCode:this.#exitCode,signal:this.#exitSignal,text:this.#jobReceipt,overflow:this.#jobReceiptOverflow,shared:this.#session0Desktop==='shared'})}: {}),...(this.desktopCompatibility?{desktopCompatibility:this.desktopCompatibility}:{}) };
   }
 }

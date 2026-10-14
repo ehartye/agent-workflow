@@ -5,58 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>Agent Workflow · Run monitor</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%23ffc16a'/%3E%3Cpath d='M9 7v13h15m-5-5 5 5-5 5' fill='none' stroke='%2308121e' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%2317477f'/%3E%3Cpath d='M9 7v13h15m-5-5 5 5-5 5' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.mjs"></script>
 </head>
 <body>
-  <a class="skip" href="#workers">Skip to workers</a>
-  <header class="masthead">
-    <div class="brand"><svg class="brand-mark" viewBox="0 0 32 32" width="32" height="32" fill="none" aria-hidden="true"><path d="M8 16h8m0 0V7h8m-8 9v9h8" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><rect x="3" y="11" width="10" height="10" rx="3" fill="currentColor"/><circle cx="25" cy="7" r="4" fill="currentColor"/><circle cx="25" cy="25" r="4" fill="currentColor"/></svg> Workflow <span class="edition">Run monitor</span></div>
-    <div class="connection"><span id="connection">Connecting…</span><button id="refresh" type="button">Refresh</button><div class="settings">
-      <button id="settings-toggle" type="button" aria-label="Settings" title="Settings" aria-expanded="false" aria-controls="settings-panel"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m9 3-.5 2.3-2 1.2L4.2 6 2 9.8l1.8 1.5v2.4L2 15.2 4.2 19l2.3-.5 2 1.2L9 22h4l.5-2.3 2-1.2 2.3.5 2.2-3.8-1.8-1.5v-2.4L20 9.8 17.8 6l-2.3.5-2-1.2L13 3Z" transform="translate(1 -0.5)"/><circle cx="12" cy="12" r="3.2"/></svg></button>
-      <section id="settings-panel" class="settings-panel" aria-label="Settings" hidden><label class="theme-label" for="theme">Theme<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></section>
-    </div><button id="close-monitor" type="button">Close</button></div>
+  <a class="skip" href="#workflow-map">Skip to workflow map</a>
+  <header class="run-bar">
+    <div class="run-identity"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M8 16h8V7h8M16 16v9h8" stroke="currentColor" stroke-width="2.5" fill="none"/><rect x="3" y="11" width="10" height="10" rx="3" fill="currentColor"/><circle cx="25" cy="7" r="4" fill="currentColor"/><circle cx="25" cy="25" r="4" fill="currentColor"/></svg><h1 id="run-title">Connecting to your run</h1><span id="run-status" class="badge">Loading</span></div>
+    <div class="run-actions"><button id="messages-toggle" type="button" aria-expanded="false" aria-controls="messages-panel">Messages <b id="message-count">0</b></button><button id="workers-toggle" type="button" aria-expanded="false" aria-controls="worker-tray">Workers</button><button id="pause" type="button" disabled>Pause</button><button id="more-toggle" type="button" aria-expanded="false" aria-controls="more-panel">More</button></div>
   </header>
   <main>
-    <div id="notice" class="notice" role="status" hidden></div>
-    <nav class="session-navigation" aria-label="Originating session runs"><label for="run-picker">View run<select id="run-picker" disabled><option value="">This run</option></select></label><label class="check-label"><input id="follow-run" type="checkbox" disabled>Follow current run</label><button id="more-runs" type="button" hidden>More runs</button><a id="run-permalink" href="/">Pinned run link</a><span id="session-counts" class="muted">Session counts unavailable</span><span id="navigation-reason" class="muted">Session navigation adapter unavailable.</span></nav>
-    <section class="run-heading" aria-labelledby="run-title">
-      <div><p class="eyebrow" id="generation">Saved workflow</p><h1 id="run-title">Connecting to your run</h1><p id="description" class="muted">Waiting for persisted run evidence.</p></div>
-      <div class="run-controls"><span id="run-status" class="badge">Loading</span><div class="button-row"><button id="pause" type="button" disabled>Pause</button><button id="stop" type="button" class="danger" disabled>Stop</button><button id="resume" type="button" class="primary" disabled>Resume</button></div></div>
-    </section>
-    <div class="control-selection"><span id="control-target">Control target: awaiting snapshot</span><button id="arm-control" type="button" disabled>Select viewed run for control</button></div>
-    <section class="record-controls" aria-label="Record visibility and pruning"><label class="check-label"><input id="show-hidden" type="checkbox">Show hidden</label><span id="visibility-count">0 hidden · 0 unknown</span><span id="lifecycle-reason" class="muted">Lifecycle adapter unavailable.</span><details class="record-settings"><summary>Manage records</summary><div class="button-row"><button id="hide-run" type="button" disabled>Hide run</button><button id="archive-run" type="button" disabled>Archive run</button><button id="restore-run" type="button" disabled>Restore run</button><button id="review-prune" type="button" disabled>Review prune</button></div><label for="lifecycle-note">Pruning review reason<input id="lifecycle-note" type="text" maxlength="2000"></label><div id="lifecycle-preview" hidden></div><div id="lifecycle-receipt" role="status" hidden></div><button id="inspect-lifecycle" type="button" hidden>Inspect lifecycle receipt</button></details></section>
-    <dl class="vitals" aria-label="Run evidence">
-      <div><dt>Executions completed</dt><dd id="completed">—</dd></div>
-      <div><dt>Reused results</dt><dd id="cached">—</dd></div>
-      <div><dt>Worker attempts</dt><dd id="attempts">—</dd></div>
-      <div class="cleanup"><dt>Process cleanup</dt><dd id="cleanup">Awaiting evidence</dd></div>
-    </dl>
-    <div class="dashboard-grid"><section class="flow-panel" aria-labelledby="flow-heading">
-      <div class="section-heading"><div><h2 id="flow-heading">Workflow map</h2><p id="flow-progress" class="muted">Waiting for discovered workers.</p></div><div class="flow-legend"><span><i class="group-line" aria-hidden="true"></i>Grouping</span><span><i class="dependency-line" aria-hidden="true"></i>Dependency →</span></div></div>
-      <div class="progress-track" role="progressbar" aria-label="Completed executions among discovered workers" aria-valuemin="0" aria-valuemax="100" id="progress"><span id="progress-fill"></span></div>
-      <div id="workflow-map" class="workflow-map" tabindex="0" aria-label="Scrollable workflow map"></div>
-      <p class="map-scroll-hint">Scroll horizontally to inspect the map.</p>
-      <p id="map-note" class="map-note">Grouping does not imply execution order.</p>
-    </section>
-    <div class="workspace">
-      <section class="worker-panel" aria-labelledby="workers-heading" id="workers" tabindex="-1">
-        <div class="section-heading"><h2 id="workers-heading">Workers</h2><span id="worker-count" class="utility">0 recorded</span></div>
-        <div class="filters"><label>State<select id="status-filter"><option value="">All states</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>unknown</option></select></label><label>Phase<select id="phase-filter"><option value="">All phases</option></select></label></div>
-        <p class="rail-caption">Dispatch order · select a worker to inspect</p>
-        <ol id="worker-list" class="worker-list" aria-label="Ordered workers"></ol>
-        <p id="empty" class="empty">Workers appear here when the workflow requests them.</p>
+    <div class="work-area">
+      <section class="flow-panel" aria-labelledby="flow-heading">
+        <div class="map-toolbar"><div><h2 id="flow-heading">Workflow map</h2><p id="flow-progress" class="muted">Waiting for discovered workers.</p></div><div class="button-row"><button id="fit-map" type="button" title="Scroll to map origin">Fit</button><button id="focus-active" type="button">Active</button></div></div>
+        <div class="progress-track" role="progressbar" aria-label="Completed executions among discovered workers" aria-valuemin="0" aria-valuemax="100" id="progress"><span id="progress-fill"></span></div>
+        <div id="workflow-map" class="workflow-map" tabindex="0" aria-label="Scrollable workflow map" aria-describedby="map-note"></div>
+        <details id="coverage-disclosure" class="coverage-disclosure"><summary>Coverage &amp; dependencies</summary><p id="coverage-breakdown"></p><p id="map-note">Grouping does not imply execution order.</p><div class="flow-legend"><span>⋯ Grouping</span><span>→ Dependency</span></div></details>
       </section>
-      <section class="inspector" aria-labelledby="detail-heading">
-        <div class="section-heading"><h2 id="detail-heading">Worker details</h2><span id="detail-status" class="badge" hidden></span></div>
-        <div id="detail"><p class="empty">Select a worker to read its prompt, result and execution evidence.</p></div>
-      </section>
+      <aside class="inspector" id="inspector-panel" aria-labelledby="inspector-label"><div class="panel-header"><strong id="inspector-label">Worker details</strong><button id="close-inspector" type="button" aria-label="Close inspector">×</button></div><div class="inspector-identity"><h2 id="detail-heading">Worker details</h2><span id="detail-status" class="badge" hidden></span></div><div id="detail"><p class="empty">Select a worker to inspect its evidence.</p></div></aside>
+      <section class="worker-panel" id="worker-tray" aria-labelledby="workers-heading" hidden><div class="panel-header"><h2 id="workers-heading">Workers</h2><span id="worker-count" class="utility">0 recorded</span><button id="close-tray" type="button" aria-label="Close worker tray">×</button></div><div id="workers" tabindex="-1"><div class="filters"><label>State<select id="status-filter"><option value="">All states</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>unknown</option></select></label><label>Phase<select id="phase-filter"><option value="">All phases</option></select></label></div><p class="rail-caption">Dispatch order · select a worker to inspect</p><ol id="worker-list" class="worker-list" aria-label="Ordered workers"></ol><p id="empty" class="empty">Workers appear here when requested.</p></div></section>
+      <section id="more-panel" class="drawer" aria-labelledby="more-heading" hidden><div class="panel-header"><h2 id="more-heading">Run controls &amp; records</h2><button id="close-more" type="button" aria-label="Close More">×</button></div><div class="drawer-body">
+        <p id="generation" class="utility">Saved workflow</p><p id="description" class="muted">Waiting for persisted run evidence.</p>
+        <nav class="session-navigation" aria-label="Originating session runs"><label for="run-picker">View run<select id="run-picker" disabled><option value="">This run</option></select></label><label class="check-label"><input id="follow-run" type="checkbox" disabled>Follow current run</label><button id="more-runs" type="button" hidden>More runs</button><a id="run-permalink" href="/">Pinned run link</a><span id="session-counts" class="muted">Session counts unavailable</span><span id="navigation-reason" class="muted">Session navigation adapter unavailable.</span></nav>
+        <div class="control-selection"><span id="control-target">Control target: awaiting snapshot</span><button id="arm-control" type="button" disabled>Select viewed run for control</button></div><div class="button-row"><button id="stop" type="button" class="danger" disabled>Stop</button><button id="resume" type="button" disabled>Resume</button><button id="refresh" type="button">Refresh</button></div><p id="connection" class="utility">Connecting…</p>
+        <div class="settings"><button id="settings-toggle" type="button" aria-expanded="false" aria-controls="settings-panel">Theme settings</button><section id="settings-panel" aria-label="Settings" hidden><label for="theme">Theme<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></section></div>
+        <details><summary>Execution metadata</summary><dl class="vitals" aria-label="Run evidence"><div><dt>Executions completed</dt><dd id="completed">—</dd></div><div><dt>Reused results</dt><dd id="cached">—</dd></div><div><dt>Worker attempts</dt><dd id="attempts">—</dd></div><div><dt>Process cleanup</dt><dd id="cleanup">Awaiting evidence</dd></div></dl></details>
+        <section class="record-controls" aria-label="Record visibility and pruning"><label class="check-label"><input id="show-hidden" type="checkbox">Show hidden</label><p id="visibility-count">0 hidden · 0 unknown</p><p id="lifecycle-reason" class="muted">Lifecycle adapter unavailable.</p><details class="record-settings"><summary>Manage records</summary><div class="button-row"><button id="hide-run" type="button" disabled>Hide run</button><button id="archive-run" type="button" disabled>Archive run</button><button id="restore-run" type="button" disabled>Restore run</button><button id="review-prune" type="button" disabled>Review prune</button></div><label for="lifecycle-note">Pruning review reason<input id="lifecycle-note" type="text" maxlength="2000"></label><div id="lifecycle-preview" hidden></div><div id="lifecycle-receipt" role="status" hidden></div><button id="inspect-lifecycle" type="button" hidden>Inspect lifecycle receipt</button></details></section>
+        <section class="artifacts" aria-label="Run artifacts"><details><summary>Workflow result &amp; errors</summary><div id="run-evidence"><p class="muted">No run evidence loaded.</p></div></details><details id="script-panel"><summary>Saved workflow script</summary><p class="muted">Displayed exactly as saved.</p><button id="load-script" type="button">Read script</button><pre id="script" tabindex="0" hidden></pre></details></section>
+        <button id="close-monitor" type="button">Close dashboard</button>
+      </div></section>
+      <section id="messages-panel" class="drawer" aria-labelledby="messages-heading" hidden><div class="panel-header"><h2 id="messages-heading">Messages &amp; receipts</h2><button id="close-messages" type="button" aria-label="Close Messages">×</button></div><div class="drawer-body"><p id="message-history-limit" class="muted">Local history retains at most 32 distinct messages. Execution evidence remains in records.</p><ol id="message-history" aria-label="Retained local messages"></ol><section class="receipts" aria-labelledby="receipts-heading"><h2 id="receipts-heading">Control receipts</h2><p class="muted">Acceptance and completion are separate</p><p id="receipt-empty" class="muted">Pause lets active workers finish. Stop requests interruption. Receipts record whether the runner applied your request.</p><ol id="receipt-list"></ol></section></div></section>
+      <div id="notice" class="notice" role="status" hidden><span id="notice-text"></span><button id="dismiss-notice" type="button" aria-label="Dismiss notice; retain in Messages">×</button></div>
     </div>
-    </div>
-    <section class="receipts" aria-labelledby="receipts-heading"><div class="section-heading"><h2 id="receipts-heading">Control receipts</h2><span class="muted">Acceptance and completion are separate</span></div><p id="receipt-empty" class="muted">Pause lets active workers finish. Stop requests interruption. Receipts record whether the runner applied your request.</p><ol id="receipt-list"></ol></section>
-    <section class="artifacts" aria-label="Run artifacts"><details><summary>Workflow result &amp; errors</summary><div id="run-evidence"><p class="muted">No run evidence loaded.</p></div></details><details id="script-panel"><summary>Saved workflow script</summary><p class="muted">The script is displayed exactly as saved.</p><button id="load-script" type="button">Read script</button><pre id="script" tabindex="0" hidden></pre></details></section>
-    <footer><span>Agent Workflow / local run monitor</span><span id="updated">No snapshot received</span></footer>
+    <footer class="run-footer"><button id="tray-toggle" type="button" aria-expanded="false" aria-controls="worker-tray">Workers <b id="tray-count">0</b> ⌃</button><span id="updated">No snapshot received</span></footer>
+    <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
   </main>
 </body>
 </html>

@@ -12,14 +12,20 @@ import { parseHTML } from 'linkedom';
 const html = await readFile(new URL('../engine/monitor/index.html', import.meta.url), 'utf8');
 const script = await readFile(new URL('../engine/monitor/app.mjs', import.meta.url), 'utf8');
 const worker = (position, status = 'completed', extra = {}) => ({ position, status, prompt: `Prompt ${position}`, phase: 'Build', options: { label: `Task ${position}` }, ...extra });
-async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, run = {}, response, light = false } = {}) {
+async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, run = {}, response, light = false, phone = false } = {}) {
   const { document, window } = parseHTML(html);
   // LinkeDOM omits these browser interfaces; implement their DOM semantics.
   Object.defineProperty(window.HTMLSelectElement.prototype, 'value', {configurable:true,
     get() { return [...this.options].find(option => option.hasAttribute('selected'))?.value ?? this.options[0]?.value ?? ''; },
     set(value) { for (const option of this.options) option.toggleAttribute('selected', option.value === value); },
   });
-  window.Element.prototype.scrollIntoView = () => {};
+  let focused = document.body;
+  const scrolls = [];
+  Object.defineProperty(document, 'activeElement', { configurable: true, get: () => focused });
+  Object.defineProperty(window.HTMLElement.prototype, 'open', { configurable:true, get() { return this.hasAttribute('open'); }, set(value) { this.toggleAttribute('open',Boolean(value)); } });
+  window.Element.prototype.focus = function() { focused = this; };
+  window.Element.prototype.scrollIntoView = function(options) { scrolls.push({ element: this, options }); };
+  window.Element.prototype.scrollTo = function({ left, top }) { this.scrollLeft = left; this.scrollTop = top; };
   Object.defineProperty(document, 'hidden', { value: false, writable: true });
   const calls = [], history = [], session = new Map(savedToken ? [['agent-workflow.monitor.token', savedToken]] : []);
   const local = new Map(savedTheme ? [['agent-workflow.monitor.theme', savedTheme]] : []), timers = new Map();
@@ -27,7 +33,7 @@ async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, 
   const storage = map => ({ getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) });
   const context = vm.createContext({ document, window, URLSearchParams, AbortController, location: { hash, pathname: '/', search: '' },
     history: { replaceState: (...args) => history.push(args) }, sessionStorage: storage(session), localStorage: storage(local),
-    matchMedia: () => ({ matches: light, addEventListener() {} }), confirm: () => false,
+    matchMedia: query => ({ matches: query.includes('max-width') ? phone : light, addEventListener() {} }), confirm: () => false,
     Option: function(text, value) { const option = document.createElement('option'); option.textContent = text; option.value = value; return option; },
     setTimeout: (callback, delay) => { timers.set(++timerId, { callback, delay }); return timerId; }, clearTimeout: id => timers.delete(id),
     fetch: async (path, input) => {
@@ -43,8 +49,9 @@ async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, 
   const flush = async () => { await new Promise(resolve => setImmediate(resolve)); };
   await flush();
   const get = id => document.getElementById(id);
-  const click = async element => { element.dispatchEvent(new window.Event('click')); await flush(); };
-  return { document, window, context, get, calls, history, session, local, timers, flush, click,
+  const click = async element => { assert.ok(element, 'Requested user control exists'); element.dispatchEvent(new window.Event('click')); await flush(); };
+  return { document, window, context, get, calls, history, session, local, timers, scrolls, flush, click,
+    escape: async () => { const event = new window.Event('keydown'); event.key = 'Escape'; document.dispatchEvent(event); await flush(); },
     refresh: async () => { await click(get('refresh')); },
     change: async (id, value) => { get(id).value = value; get(id).dispatchEvent(new window.Event('change')); await flush(); },
     update: value => { snapshot = { ...snapshot, ...value }; },
@@ -106,6 +113,13 @@ test('visibility filtering preserves counts and discloses hidden prerequisites; 
   assert.equal(view.get('worker-list').children.length,1);assert.match(view.get('visibility-count').textContent,/1 hidden.*1 unknown/);
   assert.match(view.get('map-note').textContent,/omitted prerequisite/);assert.equal(view.get('hide-run').disabled,true);assert.match(view.get('lifecycle-reason').textContent,/unavailable/i);
   view.get('show-hidden').checked=true;view.get('show-hidden').dispatchEvent(new view.window.Event('change'));await view.flush();assert.equal(view.get('worker-list').children.length,2);
+  await view.click(view.get('workflow-map').querySelector('[data-position="1"]'));
+  view.get('show-hidden').checked=false;view.get('show-hidden').dispatchEvent(new view.window.Event('change'));await view.flush();
+  await view.click(view.get('detail').querySelector('[data-prerequisite="0"]'));
+  assert.equal(view.get('detail-heading').textContent,'Task 0');
+  assert.equal(view.get('detail-status').textContent,'unknown');
+  assert.match(view.get('detail').textContent,/Disposition: hidden/);
+  assert.equal(view.get('worker-list').children.length,1,'Navigation does not alter visibility');
 });
 
 test('manual Close calls only authenticated close, and unavailable navigation cannot imply another run',async()=>{
@@ -251,9 +265,12 @@ test('workflow graph separates declared dependencies from grouping and preserves
   assert.equal(view.get('workflow-map').querySelectorAll('.map-dependency').length, 1);
   assert.equal(view.get('workflow-map').querySelectorAll('.map-worker').length, 3);
   assert.match(view.get('map-note').textContent, /unavailable for 1/);
-  assert.match(view.get('flow-progress').textContent, /33%.*1 \/ 3.*1 failed.*1 unknown/);
+  assert.equal(view.get('flow-progress').textContent, '1 / 3 complete · 0 active');
+  assert.match(view.get('coverage-disclosure').textContent, /1 failed.*1 unknown/);
+  assert.match(view.get('coverage-disclosure').textContent, /discover more workers/);
   assert.match(view.get('workflow-map').textContent, /1\/3 complete/);
   assert.match(view.get('workflow-map').textContent, /1 failed · 1 unknown/);
+  assert.equal(view.get('workflow-map').querySelectorAll('.map-run,.map-phase-node').length,0);
   const card = view.get('workflow-map').querySelectorAll('.map-worker')[1];
   await view.click(card);
   assert.equal(view.get('detail-heading').textContent, 'Task 1');
@@ -277,6 +294,87 @@ test('capped workflow map keeps phase aggregates truthful about workers outside 
   assert.match(view.get('map-note').textContent, /first 60 of 62/);
   assert.match(view.get('workflow-map').textContent, /60\/62 complete/);
   assert.match(view.get('workflow-map').textContent, /1 failed · 1 unknown/);
+  await view.click(view.get('tray-toggle'));
+  assert.equal(view.get('worker-list').children.length,62);
+  for(const position of [60,61]){
+    await view.click(view.get('worker-list').querySelector(`[data-position="${position}"]`));
+    assert.equal(view.get('detail-heading').textContent,`Task ${position}`);
+    assert.equal(view.get('inspector-panel').hidden,false);
+  }
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('map inspector, More, Messages and worker tray restore rebuilt initiating controls without losing records',async()=>{
+  const view=await monitor();
+  const card=()=>view.get('workflow-map').querySelector('.map-worker[data-position="1"]');
+  await view.click(card());
+  assert.ok(view.get('inspector-panel'),'Closable inspector exists');
+  assert.equal(view.get('inspector-panel').hidden,false);
+  assert.equal(view.document.activeElement,view.get('close-inspector'));
+  view.update({workers:[worker(0),worker(1,'running',{activity:{summary:'New evidence'}})]});await view.refresh();
+  await view.escape();
+  assert.equal(view.get('inspector-panel').hidden,true);
+  assert.equal(view.document.activeElement,card());
+  view.update({workers:[worker(0,'failed'),worker(1,'running',{activity:{summary:'Polling after closing'}})]});await view.refresh();
+  assert.equal(view.document.activeElement===card(),true,'Polling retains focus on a rebuilt map control');
+  for(const [toggle,panel,close] of [['more-toggle','more-panel','close-more'],['messages-toggle','messages-panel','close-messages'],['tray-toggle','worker-tray','close-tray']]){
+    await view.click(view.get(toggle));assert.equal(view.get(panel).hidden,false);
+    await view.refresh();await view.click(view.get(close));
+    assert.equal(view.get(panel).hidden,true);assert.equal(view.document.activeElement,view.get(toggle));
+    assert.equal(view.get('worker-list').children.length,2);
+  }
+  await view.click(view.get('workers-toggle'));
+  await view.escape();
+  assert.equal(view.get('worker-tray').hidden,true,'Escape closes the foreground tray before the inspector');
+  assert.equal(view.get('inspector-panel').hidden,true);
+  await view.click(card());await view.click(view.get('workers-toggle'));await view.escape();
+  assert.equal(view.get('worker-tray').hidden,true);
+  assert.equal(view.get('inspector-panel').hidden,false,'Closing the tray preserves the open inspector');
+  assert.equal(view.document.activeElement,view.get('workers-toggle'));
+  await view.click(view.get('workers-toggle'));
+  const trayWorker=()=>view.get('worker-list').querySelector('[data-position="1"]');
+  await view.click(trayWorker());await view.refresh();await view.escape();
+  assert.equal(view.get('worker-tray').hidden,false);assert.equal(view.document.activeElement,trayWorker());
+  assert.equal(view.get('run-title').closest('.run-bar')?.className,'run-bar');
+  assert.equal(view.get('stop').closest('#more-panel')?.id,'more-panel');
+  assert.equal(view.get('theme').closest('#more-panel')?.id,'more-panel');
+  await view.click(view.get('more-toggle'));await view.click(view.get('settings-toggle'));
+  assert.equal(view.document.activeElement,view.get('theme'));await view.escape();
+  assert.equal(view.get('settings-panel').hidden,true);assert.equal(view.document.activeElement,view.get('settings-toggle'));
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('Fit scrolls origin and Active selects actual running evidence including outside the preview',async()=>{
+  const view=await monitor({run:{workers:[worker(0),worker(1,'queued')]}});
+  view.get('workflow-map').scrollLeft=220;view.get('workflow-map').scrollTop=330;
+  await view.click(view.get('fit-map'));
+  assert.equal(view.get('workflow-map').scrollLeft,0);assert.equal(view.get('workflow-map').scrollTop,0);
+  await view.click(view.get('focus-active'));
+  assert.match(view.get('announcement').textContent,/No running worker/);
+  const workers=Array.from({length:62},(_,i)=>worker(i,i===61?'running':'completed'));
+  view.update({workers});await view.refresh();await view.click(view.get('focus-active'));
+  assert.equal(view.get('detail-heading').textContent,'Task 61');
+  assert.equal(view.get('worker-tray').hidden,false);
+  assert.equal(view.scrolls.at(-1).element.dataset.position,'61');
+  view.update({workers:[worker(0,'running',{attempts:1})],lifecycle:{revision:1,workers:[{target:{generation:4,position:0,attempt:1},visibility:'hidden'}]}});await view.refresh();await view.click(view.get('focus-active'));
+  assert.equal(view.get('detail-heading').textContent,'Task 0');
+  assert.match(view.get('announcement').textContent,/hidden.*inspector/i);assert.equal(Boolean(view.get('show-hidden').checked),false);
+});
+
+test('phone map uses readable two-column cards across phases and a closable bottom sheet',async()=>{
+  const view=await monitor({phone:true,run:{workers:[worker(0,'completed',{phase:'Discover'}),worker(1,'running',{phase:'Make'}),worker(2,'queued',{phase:'Verify'})]}});
+  const cards=[...view.get('workflow-map').querySelectorAll('.map-worker')];
+  assert.equal(cards[0].tagName,'BUTTON');
+  assert.equal(cards[0].style.width,'164px');
+  assert.equal(cards[0].style.top,cards[1].style.top);
+  assert.notEqual(cards[0].style.left,cards[1].style.left);
+  assert.notEqual(cards[1].style.top,cards[2].style.top);
+  assert.equal(view.get('graph-world').style.width,'382px');
+  await view.click(cards[1]);await view.click(view.get('close-inspector'));
+  assert.equal(view.get('inspector-panel').hidden,true);assert.equal(view.document.activeElement,view.get('workflow-map').querySelector('.map-worker[data-position="1"]'));
+  const css=await readFile(new URL('../engine/monitor/style.css',import.meta.url),'utf8');
+  assert.match(css,/@media\s*\(max-width:\s*599px\)/);
+  assert.match(css,/height:\s*57%/);assert.match(css,/font-size:\s*15px/);assert.match(css,/font-size:\s*23px/);
 });
 
 test('live tool activity appears in graph and paged inspector without hiding discarded evidence',async()=>{
@@ -378,6 +476,14 @@ test('untrusted evidence stays text and full worker, result and script reads are
   await view.refresh();
   assert.equal(view.get('detail-status').textContent, 'completed');
   assert.match(view.get('detail').textContent, /Newly accepted result/);
+  const result=view.get('detail').querySelector('[data-disclosure="result"]');assert.ok(result,'Raw worker output has deliberate disclosure');
+  assert.equal(result.open,false);assert.equal(result.querySelector('summary').textContent,'Worker result');
+  assert.match(view.get('detail').querySelector('.worker-summary').textContent,/Newly accepted result/);
+  assert.doesNotMatch(view.get('detail').textContent,/Accepted result|No result has been accepted/);
+  const steering=view.get('steer-text').closest('details');assert.ok(steering,'Steering is collapsible');
+  steering.open=true;result.open=true;
+  view.update({workers:[worker(0,'completed',{prompt:payload,result:'Newly accepted result',activity:{summary:'Later activity'}})]});await view.refresh();
+  assert.equal(view.get('detail').querySelector('[data-disclosure="result"]').open,true,'Polling retains deliberate disclosure');
   view.update({ generation: 5 });
   await view.refresh();
   assert.doesNotMatch(view.get('run-evidence').textContent, /generation four suffix/, 'Equal bounded previews must not retain expanded evidence from an old generation');
@@ -385,13 +491,55 @@ test('untrusted evidence stays text and full worker, result and script reads are
   await view.click(view.get('run-evidence').querySelector('button'));
   assert(view.calls.some(call => call.path === '/api/result?generation=5'));
   assert.match(view.get('run-evidence').textContent, /generation five suffix/);
+  assert.equal(view.get('detail').querySelector('[data-disclosure="result"]').open,false,'New generation does not retain raw-result expansion');
+});
+
+test('polling retains keyboard focus within disclosures, prerequisites and message history',async()=>{
+  let readFailure=true;
+  const view=await monitor({run:{workers:[worker(0,'running',{dependencies:[1]}),worker(1)]},response:path=>path==='/api/run'&&readFailure?{ok:false,status:503,json:async()=>({message:'Temporary snapshot failure'})}:undefined});
+  readFailure=false;await view.refresh();
+  const summary=()=>view.get('detail').querySelector('[data-disclosure="execution"] summary');
+  summary().focus();view.update({workers:[worker(0,'running',{dependencies:[1],activity:{summary:'New command'}}),worker(1)]});await view.refresh();
+  assert.equal(view.document.activeElement===summary(),true,'Disclosure focus survives polling');
+  const prerequisite=()=>view.get('detail').querySelector('[data-prerequisite="1"]');
+  prerequisite().focus();view.update({workers:[worker(0,'running',{dependencies:[1],activity:{summary:'Next command'}}),worker(1)]});await view.refresh();
+  assert.equal(view.document.activeElement===prerequisite(),true,'Prerequisite focus survives polling');
+  await view.click(view.get('messages-toggle'));
+  const dismiss=()=>view.get('message-history').querySelector('button');
+  dismiss().focus();await view.refresh();assert.equal(view.document.activeElement===dismiss(),true,'Message focus survives polling');
+  await view.click(dismiss());assert.equal(view.document.activeElement,view.get('close-messages'),'Dismissal leaves focus in the message panel');
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('late full worker reads cannot replace a newer attempt in the same generation',async()=>{
+  let release;
+  const view=await monitor({run:{workers:[worker(0,'completed',{attempts:1,result:'Short',truncations:['result']})]},response:path=>path.startsWith('/api/worker/')?new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>worker(0,'completed',{attempts:1,result:'Old full result'})});}):undefined});
+  const pending=view.click([...view.get('detail').querySelectorAll('button')].find(button=>button.textContent==='Load worker details'));await view.flush();
+  view.update({workers:[worker(0,'running',{attempts:2,result:undefined})]});await view.refresh();release();await pending;await view.flush();
+  assert.equal(view.get('detail-status').textContent,'running');assert.doesNotMatch(view.get('detail').textContent,/Old full result/);
+});
+
+test('new run failures remain visible and retained after an earlier read notice',async()=>{
+  const view=await monitor({run:{workers:[worker(0,'completed',{truncations:['prompt']})]},response:path=>path.startsWith('/api/worker/')?{ok:false,status:503,json:async()=>({message:'Earlier detail read failed'})}:undefined});
+  await view.click([...view.get('detail').querySelectorAll('button')].find(button=>button.textContent==='Load worker details'));
+  view.update({status:'failed',error:{code:'NEW_FAILURE',message:'New execution failure'}});[...view.timers.values()].find(timer=>timer.delay===1000).callback();await view.flush();
+  assert.match(view.get('notice').textContent,/New execution failure/);assert.match(view.get('message-history').textContent,/Earlier detail read failed/);assert.match(view.get('message-history').textContent,/New execution failure/);
+});
+
+test('structured worker previews show a concise summary while raw evidence stays available',async()=>{
+  const view=await monitor({run:{workers:[worker(0,'completed',{result:JSON.stringify({summary:'Layout ready',checks:['<img src=x>']})})]}});
+  assert.equal(view.get('detail').querySelector('.worker-summary').textContent,'Layout ready');
+  assert.match(view.get('detail').querySelector('[data-disclosure="result"]').textContent,/checks/);
+  view.update({workers:[worker(0,'completed',{result:'{"summary":"Long truncated',truncations:['result']})]});await view.refresh();
+  assert.match(view.get('detail').querySelector('.worker-summary').textContent,/Structured result preview/);assert.equal(view.document.querySelectorAll('img').length,0);
 });
 
 test('lost control responses are not retried and stale polling disables controls until fresh evidence arrives', async () => {
   let failRead = false;
+  let readMessage = 'Snapshot unavailable';
   const view = await monitor({ response: (path, input) => {
     if (input.method === 'POST') throw new Error('Connection lost after request');
-    if (failRead && path === '/api/run') throw new Error('Snapshot unavailable');
+    if (failRead && path === '/api/run') throw new Error(readMessage);
   } });
   await view.click(view.get('pause'));
   assert.equal(view.calls.filter(call => call.method === 'POST').length, 1);
@@ -399,6 +547,17 @@ test('lost control responses are not retried and stale polling disables controls
   failRead = true; await view.refresh();
   assert.equal(view.get('pause').disabled, true);
   assert.match(view.get('notice').textContent, /last snapshot/);
+  await view.click(view.get('dismiss-notice'));await view.refresh();
+  assert.equal(view.get('notice').hidden,true,'Unchanged stale polls stay dismissed');
+  assert.equal(view.get('pause').disabled,true,'Dismissal cannot arm stale controls');
+  assert.match(view.get('message-history').textContent,/Dismissed.*Snapshot unavailable|Snapshot unavailable.*Dismissed/);
+  assert.match(view.get('message-history-limit').textContent,/32/);
+  readMessage='Distinct fresh read failure';await view.refresh();
+  assert.equal(view.get('notice').hidden,false);assert.match(view.get('notice').textContent,/Distinct fresh read failure/);
+  await view.click(view.get('dismiss-notice'));failRead=false;await view.refresh();failRead=true;await view.refresh();
+  assert.equal(view.get('notice').hidden,true,'A later last-good timestamp does not revive the same dismissed error');
+  await view.click(view.get('dismiss-notice'));view.update({generation:5});failRead=false;await view.refresh();
+  failRead=true;await view.refresh();assert.equal(view.get('notice').hidden,false,'New generation has a distinct notice identity');
   failRead = false; await view.refresh();
   assert.equal(view.get('pause').disabled, false);
   view.document.hidden = true;

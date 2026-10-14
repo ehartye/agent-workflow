@@ -1,6 +1,8 @@
 # Verification record
 
-The 0.3.3 candidate's final local rerun passed 485/485 tests, package checks, smoke, clean production installation and a zero-vulnerability production audit. Its installed command-only parent-policy doctor passed with zero inference requests and confirmed owned-job cleanup. Earlier Windows runner failures produced verified short-path and PowerShell module-discovery fixes; final Windows PR/tag verification and publication remain pending. The [PlanetForge friction report](../reports/planetforge-friction-033.md) records current scopes, earlier failures, native skill evidence and the unaccepted authoring drafts/game objectives.
+The 0.3.4 dashboard case study records reviewed clean-writer capture, fresh independent verification, five meaningful failing regression checks before fixes, 42 affected monitor checks and 81 final painted-browser checks. See [the bounded delivery evidence](../reports/map-inspector-034.md) and [browser report](../reports/map-inspector-browser-034.json). Full release gates and installed verification remain separate from those observations.
+
+Version 0.3.3 was published after 485/485 local tests, package checks, smoke, clean production installation, a zero-vulnerability production audit and Windows PR/tag verification. Its installed command-only parent-policy doctor passed with zero inference requests and confirmed owned-job cleanup. Earlier Windows runner failures produced verified short-path and PowerShell module-discovery fixes. The [PlanetForge friction report](../reports/planetforge-friction-033.md) records its scopes, earlier failures, native skill evidence and the unaccepted authoring drafts/game objectives.
 
 Published [0.3.2](https://github.com/ehartye/agent-workflow/releases/tag/v0.3.2) records the earlier Windows Session 0 acceptance. The checkpoints below retain their original pre-release context; their pending statements are historical rather than the current release status.
 
