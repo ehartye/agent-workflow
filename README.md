@@ -2,7 +2,7 @@
 
 Run durable JavaScript workflows with parallel Codex workers, ordered replay and an authenticated local monitor. Workers use the existing managed ChatGPT subscription through pinned native Codex App Server. The fresh runtime exposes CLI and dashboard surfaces; it has no custom MCP server or API-key fallback.
 
-This is the **0.3.1 implementation**. Publication is recorded in [GitHub Releases](https://github.com/ehartye/agent-workflow/releases); broader Ultracode parity remains tracked separately. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
+This is the **0.3.3 implementation**. Publication is recorded in [GitHub Releases](https://github.com/ehartye/agent-workflow/releases); broader Ultracode parity remains tracked separately. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
 
 ## Install and start
 
@@ -40,7 +40,7 @@ Use the agent-workflow skill or CLI. Starts and mutating run controls, including
 
 ```powershell
 node "<plugin-root>/bin/launch.mjs" read plugin:item-audit --cwd "C:/path/to/project"
-node "<plugin-root>/bin/launch.mjs" run plugin:item-audit --cwd "C:/path/to/project" --session "<originating-session>" --args '{"items":[{"id":"src","scope":"src/"}]}'
+node "<plugin-root>/bin/launch.mjs" run plugin:item-audit --cwd "C:/path/to/project" --session "<originating-session>" --access restricted --args '{"items":[{"id":"src","scope":"src/"}]}'
 node "<plugin-root>/bin/launch.mjs" status "<returned-run-id>"
 node "<plugin-root>/bin/launch.mjs" watch "<returned-run-id>" --session "<originating-session>" --generation "<returned-generation>" --jsonl
 node "<plugin-root>/bin/launch.mjs" result "<returned-run-id>"
@@ -53,7 +53,9 @@ Workflows have no overall wall deadline by default; they continue until completi
 
 Open the **complete returned dashboard URL**, including its authentication fragment. The page removes that fragment from browser history and retains the token in tab session storage. Keep the URL private. The monitor provides stable run links and originating-session navigation, and stays available until explicitly closed. Viewing another run does not arm its controls. `dashboard ID --current-ui` explicitly selects current presentation while reads and controls still use each original runtime. Closing a tab does not stop the run or monitor process. The graph separates phase membership from declared dependencies, and execution from task delivery. The gear button selects System, Light or Dark theme.
 
-Workers default to read-only, no network and approvals never. Authorized edits require --writable and the verified Windows MXC backend. Each writer gets a separate worktree from captured run inputs; dependencies do not import predecessor edits. Inspect returned patches before separately authorized integration. There is no automatic merge or publication.
+New runs default to parent execution authority and require `--parent-access file` containing the actual originating-session permission snapshot. Missing or unsupported authority fails closed; see [the exact access contract](docs/api.md#cli). Parent runs automatically provision original enabled native plugin/skill roots. The audit examples explicitly use `--access restricted` for read-only commands, no network and approvals never. Doctor also defaults restricted.
+
+Authorized writers require `--writable`. Parent writers retain parent execution permissions and get independent worktrees for ownership, capture and review; these worktrees are not filesystem security isolation. Restricted writers retain the verified Windows MXC workspace-write ceiling. Dependencies do not import predecessor edits. Inspect returned patches before separately authorized integration. There is no automatic merge or publication.
 
 Use an explicit immutable `--capture-policy file` to omit approved generated directories while protecting assigned source outputs. Inspect excluded metadata through CLI/dashboard pages; omitted payload bytes are not retained. Reversible hide/archive preserves active, failed and unknown outcomes. Separate reviewed prune plans retire only safely eligible payloads, retaining audit and recovery evidence. See [session delivery, capture and retirement](docs/session-delivery.md) and [worker prerequisites](skills/agent-workflow/references/worker-prerequisites.md).
 
@@ -66,7 +68,7 @@ Scripts begin with literal exported meta and run as an async body with top-level
 ```powershell
 node "<plugin-root>/bin/launch.mjs" validate "C:/path/to/audit.mjs"
 node "<plugin-root>/bin/launch.mjs" save project:audit --script "C:/path/to/audit.mjs" --cwd "C:/path/to/project" --command
-node "<plugin-root>/bin/launch.mjs" run project:audit --cwd "C:/path/to/project" --session "<originating-session>" --args '{"items":[]}'
+node "<plugin-root>/bin/launch.mjs" run project:audit --cwd "C:/path/to/project" --session "<originating-session>" --access restricted --args '{"items":[]}'
 ```
 
 Discovery searches project .agents/workflows from cwd to the nearest Git root, then personal .agents/workflows, then bundled definitions. A non-Git directory searches only its cwd for project definitions. Use project:, personal: or plugin: to select a scope. Existing definitions require explicit --overwrite; bundled definitions are read-only. --command generates a scoped workflow-name skill delegating to the installed main skill; unrelated skills are never replaced.
