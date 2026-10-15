@@ -108,6 +108,28 @@ for(const parentAccess of [false,true])for(const completionSource of ['missing',
  assert.ok(methods.indexOf('command/exec')<turn);assert.ok(methods.lastIndexOf('command/exec')>turn);assert.equal(methods.filter(method=>method==='turn/start').length,1);
 });
 
+test('a newly bound run retains native skill sources when its original cache resource disappears during the model turn',async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,nativeSkills:true,retainSources:true,worker:{completionSource:'missing'}});
+ assert.equal(report.ok,true,JSON.stringify(report.primary));
+ assert.equal(report.value,'BACKEND_OK');assert.equal(report.workerEvidence.capabilities.completionSources.status,'passed');
+ assert.equal(report.workerEvidence.capabilities.native.activation.status,'complete');
+ const roots=report.trace.find(event=>event.method==='thread/start').roots;
+ const actual=roots.find(root=>root.id==='native-fixture').location.path;
+ assert.notEqual(actual,report.selectedRoot);assert.match(actual,/source-packages-v1/);
+ assert.ok(report.parentCapabilities.roots.every(root=>root.location.path.includes('source-packages-v1')),'full parent packages are retained too');
+ assert.equal(report.capabilitySources.version,1);assert.match(report.capabilitySources.sha256,/^[a-f0-9]{64}$/);
+ assert.equal(report.workerEvidence.capabilitySources.before,'passed');assert.equal(report.workerEvidence.capabilitySources.completion,'passed');
+ assert.equal(report.cleanup.serverExited,true);assert.equal(report.workerEvidence.cleanup.nativeTerminals.inventoryEmpty,true);
+ assert.equal(report.trace.filter(event=>event.method==='turn/start').length,1,'no replacement model turn');
+});
+
+test('retained-source workers refuse changed native integration configuration before a thread or model turn',async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,nativeSkills:true,retainSources:true,worker:{integrationDrift:true}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'CAPABILITY_ENVIRONMENT_CHANGED');
+ assert.equal(report.trace.some(event=>event.method==='thread/start'||event.method==='turn/start'),false);
+ assert.equal(report.noInference,true);assert.equal(report.evidence.cleanup.serverExited,true);
+});
+
 test('partial required native read and disappeared source retain both observations without repeating the model',async t=>{
  const report=await construct(t,{execute:true,nativeSkills:true,worker:{completionSource:'missing',nativeCalls:'unpaired'}});
  assert.equal(report.ok,false);assert.equal(report.primary.code,'CAPABILITY_SOURCE_CHANGED');

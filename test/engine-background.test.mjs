@@ -88,6 +88,32 @@ test('detached capability admission persists its bundle and resume rejects overr
  assert.equal((await readdir(runDir)).length,count);
 });
 
+test('detached retained-source replay survives cache deletion and never redispatches a completed writer',async t=>{
+ const {startBackground}=await import('../engine/background.mjs'),{createHash}=await import('node:crypto');
+ const base=await mkdtemp(join(tmpdir(),'workflow-retained-replay-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
+ const cwd=join(base,'retention'),source=join(base,'cache','plugin'),selected=join(source,'skills','native'),runDir=join(base,'run');
+ await mkdir(cwd);await mkdir(selected,{recursive:true});await writeFile(join(cwd,'owned.txt'),'original\n');
+ for(const args of [['init','-q'],['add','owned.txt'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']])await exec('git',args,{cwd,windowsHide:true});
+ const path=join(selected,'SKILL.md'),body='native fixture source';await writeFile(path,body);
+ const workerCapabilities={version:1,skills:[{id:'native',name:'native',root:source,path,sha256:createHash('sha256').update(body).digest('hex'),references:[]}],tools:[]};
+ const settings={runnerPath:fileURLToPath(new URL('./fixtures/engine-background.mjs',import.meta.url))};
+ const receipt=await startBackground({runDir,sessionId:'s',codex:process.execPath,cwd,workerCapabilities,script:'export const meta={name:"retained",description:"writer replay"};return await agent("Write",{workspace:"isolated",skills:["native"]});'},settings);
+ const first=await until(()=>readRun(runDir),state=>state.status==='completed');await until(()=>readFile(receipt.resultPath,'utf8'),()=>true);
+ assert.equal(first.launch.capabilitySources.version,1);assert.deepEqual(first.workerCapabilities,workerCapabilities);
+ const patch=await readFile(first.workers[0].workspace.patchPath),manifest=first.workers[0].workspace.manifestHash;
+ assert.equal(await readFile(join(base,'retention-calls.txt'),'utf8'),'1');
+ await rm(source,{recursive:true});
+ const resumed=await startBackground({runDir,sessionId:'s',resume:true},settings);
+ const second=await until(()=>readRun(runDir),state=>state.generation===2&&state.status==='completed');await until(()=>readFile(resumed.resultPath,'utf8'),()=>true);
+ assert.equal(second.coverage.cached,1);assert.equal(second.attempts,first.attempts);assert.equal(await readFile(join(base,'retention-calls.txt'),'utf8'),'1');
+ assert.equal(second.workers[0].workspace.manifestHash,manifest);assert.deepEqual(await readFile(second.workers[0].workspace.patchPath),patch);
+ assert.equal(await readFile(join(cwd,'owned.txt'),'utf8'),'original\n');
+ await writeFile(join(cwd,'change-backend-identity'),'changed configuration');
+ const changed=await startBackground({runDir,sessionId:'s',resume:true},settings).then(()=>null,error=>error);
+ assert.ok(changed,'changed backend identity refuses replay');assert.deepEqual(await readRun(runDir),second);
+ assert.equal(await readFile(join(base,'retention-calls.txt'),'utf8'),'1');
+});
+
 test('detached admission persists immutable capture policy and resume cannot replace it',async t=>{
   const {startBackground}=await import('../engine/background.mjs');
   const {validateCapturePolicy}=await import('../engine/workspace-policy.mjs');

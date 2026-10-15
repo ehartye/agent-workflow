@@ -109,7 +109,7 @@ export async function main(tokens=process.argv.slice(2)){
   preflightRunInput({script,args,launch,...(capabilities?{workerCapabilitySources:capabilities.toolSources}:{})});
   const binding=await bindRun({dataDir:p.dataDir,runtime,sessionId:p.sessionId}),input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
   try{if(!o.foreground){print(backgroundReceipt(binding.id,await startBackground(input),p));return 0;}
-   const backend=await createManagedBackend({executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,session0Desktop,accessPolicy,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
+   const backend=await createManagedBackend({runDir:binding.runDir,retainSources:true,executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,session0Desktop,accessPolicy,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}
  }
  const runDir=owner.runDir;

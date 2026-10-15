@@ -60,7 +60,7 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','notifications.mjs','run-lifecycle.mjs','deadlines.mjs','live-deadline.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','access-policy.mjs','parent-capabilities.mjs','worker-session.mjs','worker-capabilities.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/tool-observation.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/native/job-host-policy.json','../foundation/native/win32-x64/manifest.json','../foundation/native/win32-x64/workflow-job-host.exe','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  const files = ['controller.mjs','notifications.mjs','run-lifecycle.mjs','deadlines.mjs','live-deadline.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','access-policy.mjs','parent-capabilities.mjs','capability-sources.mjs','worker-session.mjs','worker-capabilities.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/tool-observation.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/native/job-host-policy.json','../foundation/native/win32-x64/manifest.json','../foundation/native/win32-x64/workflow-job-host.exe','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
   return hash(process.version + [...files,'append.mjs'].map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
@@ -203,6 +203,10 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     }
     if(normalizedAccess?.fingerprint!==backendAccess?.fingerprint)throw fault('ACCESS_POLICY','Backend did not confirm the admitted access policy');
     if(normalizedAccess)launch={...launch,accessPolicy:normalizedAccess};
+    const capabilitySources=backend.capabilitySources;
+    if(previous&&previous.launch?.capabilitySources===undefined&&capabilitySources!==undefined)throw fault('CAPABILITY_IDENTITY','Saved descriptorless runs cannot acquire retained source bindings');
+    if(previous?.launch?.capabilitySources!==undefined&&canonical(previous.launch.capabilitySources)!==canonical(capabilitySources??null)||launch?.capabilitySources!==undefined&&canonical(launch.capabilitySources)!==canonical(capabilitySources??null))throw fault('CAPABILITY_IDENTITY','Saved source packages require their exact admitted backend binding');
+    if(capabilitySources!==undefined)launch={...launch,capabilitySources};
     // Catalog drift is an authority/source change, not a model-default cache miss.
     // Take its identity only from the admitted backend, before any new generation.
     let parentCapabilitiesHash;
@@ -212,7 +216,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     }else if(previous?.parentCapabilitiesHash!==undefined)throw fault('PARENT_CAPABILITIES_CHANGED','Saved parent native catalog requires its original parent access');
     if(previous&&(workerCapabilities!==undefined||launch?.workerCapabilities!==undefined&&canonical(launch.workerCapabilities)!==canonical(previous.workerCapabilities??null)))throw fault('CAPABILITY_OVERRIDE','Resume/restart retain their original worker capability bundle');
     const capabilityValue=previous?previous.workerCapabilities:workerCapabilities??launch?.workerCapabilities;
-    const capabilities=capabilityValue===undefined?null:await freezeCapabilities(capabilityValue);
+    const capabilities=capabilityValue===undefined?null:await freezeCapabilities(capabilityValue,{runDir,capabilitySources});
     if(previous?.workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==previous.workerCapabilitiesHash||workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==workerCapabilitiesHash||launch?.workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==launch.workerCapabilitiesHash||capabilities&&backend.workerCapabilitiesHash!==undefined&&backend.workerCapabilitiesHash!==capabilities.fingerprint)throw fault('CAPABILITY_IDENTITY','Capability ceiling fingerprint changed or is inconsistent');
     if(previous&&capabilities&&(previous.workerCapabilitySources===undefined||canonical(previous.workerCapabilitySources)!==canonical(capabilities.toolSources)))throw fault('CAPABILITY_IDENTITY','Declared tool source availability changed or is missing; cached results cannot be reused');
     if(capabilities&&launch)launch={...launch,workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint};
@@ -233,6 +237,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     }
     if (previous && !restartAdmission && (previous.cleanup?.serverExited!==true || ['running','pausing','stopping','finishing'].includes(previous.status) || previous.workers.some(worker => ['running','unknown'].includes(worker.status)))) throw fault('REPLAY_UNKNOWN', 'Unknown execution prevents automatic replay');
     if (previous && previous.runtimeIdentity !== runtimeIdentity) throw fault('REPLAY_RUNTIME', 'Saved results require their original runtime version');
+    if(previous?.launch?.capabilitySources!==undefined&&previous.backendIdentity!==backend.identity)throw fault('CAPABILITY_ENVIRONMENT_CHANGED','Retained-source replay requires the original admitted backend identity; no completed work was redispatched');
     reuse = !previous || previous.backendIdentity === backend.identity;
     const oldWorkers = previous?.workers ?? [];
     if(oldWorkers.some(worker=>worker.origin?.kind==='append')&&(previous.backendIdentity!==backend.identity||previous.maxAgents!==maxAgents||previous.concurrency!==concurrency))throw fault('APPEND_IDENTITY','Saved additions retain their original backend, lifetime budget and concurrency ceiling');
