@@ -63,6 +63,33 @@ test('writer workspaces capture exact local inputs and keep two writers and sour
 });
 
 const capturePolicy={version:1,excludeDirs:['generated/'],protectedPaths:['assigned/','binary.dat','note.txt']};
+
+test('non-UTF-8 text diffs retain exact replayable bytes without claiming a text preview',async t=>{
+  const {root,source,artifacts}=await fixture(t),legacy=join(source,'legacy.txt');
+  const bytes=value=>Buffer.from([0x63,0x61,0x66,value,0x0a]);
+  await writeFile(legacy,bytes(0xe9));await git(source,'add','legacy.txt');await git(source,'commit','-qm','legacy bytes');
+  await writeFile(legacy,bytes(0xf1));
+  const inputs=await captureInputs({source,artifactsDir:join(artifacts,'inputs'),capturePolicy:{version:1,excludeDirs:[],protectedPaths:['legacy.txt']}});
+  const writer=await createWorkspace({inputs,artifactsDir:join(artifacts,'writer')});
+  await writeFile(join(writer.cwd,'legacy.txt'),bytes(0xe8));
+  const result=await collectWorkspace(writer);
+  assert.deepEqual(result.changedFiles,['legacy.txt']);assert.equal(await verifyWorkspace(result),true);
+  for(const [basis,path,hash]of [['inputs',result.patchPath,result.patchHash],['base',result.basePatchPath,result.basePatchHash]]){
+    const patch=await readFile(path);
+    assert.throws(()=>new TextDecoder('utf-8',{fatal:true}).decode(patch));
+    assert.equal(createHash('sha256').update(patch).digest('hex'),hash);
+    const preview=await workspaces.readWorkspacePatch(result,{basis});
+    assert.equal(preview.patch,'');assert.equal(preview.previewUnavailable,'non-utf8');
+    assert.equal(preview.sha256,hash);assert.equal(preview.bytes,patch.length);assert.equal(preview.truncated,false);
+  }
+  const replay=await createWorkspace({inputs,artifactsDir:join(artifacts,'replay')});
+  await git(replay.cwd,'apply',result.patchPath);assert.deepEqual(await readFile(join(replay.cwd,'legacy.txt')),bytes(0xe8));
+  const base=join(root,'base-review');await git(source,'worktree','add','--detach',base,inputs.base);
+  await git(base,'apply',result.basePatchPath);assert.deepEqual(await readFile(join(base,'legacy.txt')),bytes(0xe8));
+  const inputPreview=await workspaces.readWorkspacePatch(result,{previewBytes:16});
+  assert.equal(inputPreview.truncated,true);assert.equal(inputPreview.previewUnavailable,undefined);
+});
+
 async function sparse(path,bytes=128*1024*1024+1){const handle=await open(path,'w');try{await handle.truncate(bytes);}finally{await handle.close();}}
 
 test('512 MiB capture budgets retain and replay generated binary above 128 MiB with a diff above 32 MiB',async t=>{

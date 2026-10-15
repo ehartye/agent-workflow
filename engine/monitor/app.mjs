@@ -802,10 +802,11 @@ function renderWorkspace(container, worker, sourceGeneration) {
           const disclosure = node('details', undefined, 'patch-disclosure'); disclosure.open = true;
           disclosure.setAttribute('open', '');
           disclosure.append(node('summary', item.basis === 'inputs' ? 'Worker-only diff' : 'Diff from base'));
-          disclosure.append(node('p', patch.truncated ? `Preview truncated · full patch ${patch.bytes} bytes. Read the saved artifact for the complete diff.` : `Complete patch · ${patch.bytes} bytes.`, patch.truncated ? 'truncation' : 'muted'));
+          const unavailable=patch.previewUnavailable==='non-utf8';
+          disclosure.append(node('p', unavailable ? `UTF-8 text preview unavailable · full patch ${patch.bytes} bytes. The saved artifact preserves the original bytes.` : patch.truncated ? `Preview truncated · full patch ${patch.bytes} bytes. Read the saved artifact for the complete diff.` : `Complete patch · ${patch.bytes} bytes.`, unavailable||patch.truncated ? 'truncation' : 'muted'));
           const hash = node('p', undefined, 'patch-hash'); hash.append(node('span', 'Full artifact SHA-256'), node('code', patch.sha256));
           disclosure.append(hash, node('p', item.path, 'workspace-path'));
-          const pre = node('pre', patch.patch || 'No differences recorded for this comparison.', 'patch-content'); pre.tabIndex = 0;
+          const pre = node('pre', unavailable ? 'Read the saved byte artifact with an appropriate encoding. This preview cannot be used as an applicable text patch.' : patch.patch || 'No differences recorded for this comparison.', 'patch-content'); pre.tabIndex = 0;
           disclosure.append(pre); section.append(disclosure);
         }
       }

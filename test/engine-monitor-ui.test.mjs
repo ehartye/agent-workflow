@@ -771,6 +771,17 @@ test('writer diffs disclose bounded text only on request and bind current and hi
   assert.doesNotMatch(view.get('detail').textContent, /current change/, 'Late patch responses cannot appear under a newer generation');
 });
 
+test('non-UTF-8 diff previews distinguish preserved byte artifacts from an empty or complete text diff', async () => {
+  const workspace={cwd:'C:/owned/writer',changedFiles:['legacy.txt'],patchPath:'C:/owned/changes.patch',patchHash:'a'.repeat(64)};
+  const view=await monitor({run:{workers:[worker(0,'completed',{workspace})]},response:path=>path.startsWith('/api/patch/')?{ok:true,json:async()=>({basis:'inputs',patch:'',previewUnavailable:'non-utf8',sha256:'a'.repeat(64),bytes:1234,truncated:false,cwd:workspace.cwd,changedFiles:workspace.changedFiles})}:undefined});
+  await view.click(view.get('detail').querySelector('[data-basis="inputs"]'));
+  const panel=view.get('detail').querySelector('.workspace-review');
+  assert.match(panel.textContent,/UTF-8 text preview unavailable/);
+  assert.match(panel.textContent,/1234 bytes/);assert.match(panel.textContent,/Full artifact SHA-256/);
+  assert.match(panel.textContent,/C:\/owned\/changes.patch/);
+  assert.doesNotMatch(panel.textContent,/No differences recorded|Complete patch/);
+});
+
 test('workspace previews and unfinished patch capture do not imply a reviewable diff exists', async () => {
   const view = await monitor({ run: { workers: [worker(0, 'running', { workspace: 'Workspace preview…', truncations: ['workspace'] })] } });
   assert.match(view.get('detail').textContent, /Load worker details.*workspace|workspace.*Load worker details/i);
