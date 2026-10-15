@@ -58,9 +58,9 @@ Own engine/monitor/app.mjs, index.html/style.css only as needed, existing monito
 Own skill authoring/setup references, docs/api.md, verification/review documents and evaluation inputs/results. Read Yoda before edits. Correct current-policy/setup/strict-key overclaims; require supported commands, genuine per-role selection, artifact checkpoint, capture review, coordinator integration, fresh verification, watch cursor and both missing-package/changed-catalog recovery decisions.
 
 - [x] V1 complete artifacts, native activation/captures, blind grading and independent API checks retained. Both plans failed acceptance; no guidance-improvement claim follows from engine completion or the grade alone.
-- [x] Targeted guidance revised for supported thunk calls, checkout-scoped definitions, complete recovery closure and deliberate lifetime policy. V2 prompt/rubric and simultaneous conditions prepared; pair `525e0816…` is active at this checkpoint.
-- [ ] Verify both v2 complete artifact captures, exact paths/hashes/bytes, native activation/source guards and positive cleanup after terminal. Do not replace the failed v1 record.
-- [ ] Obtain and review fresh blind grading against the frozen v2 rubric and supported public API. Report missing criteria, budgets and limits; no general causality or automatic-trigger claim.
+- [x] Targeted guidance revised for supported thunk calls, checkout-scoped definitions, complete recovery closure and deliberate lifetime policy. V2 pair `525e0816…` completed without follow-up steer.
+- [x] Both v2 full captures passed exact path/blob/input/tree/patch/hash/byte checks, selected native main/source guards and positive owned cleanup. Baseline native activation was not observed; this cannot prove absence of every possible ordinary read. Original failed v1 remains unchanged.
+- [x] Fresh blind grader `adf8732f…` and blinded independent coordinator review accepted both complete plans, 12/12 each, before revealing conditions. All byte ranges, 94 plan excerpts and 32 public-reference excerpts were checked. No score advantage or general causal/automatic-trigger claim follows. Full artifacts and qualified observer gaps are in `docs/reviews/2026-10-15/authoring-v2/`.
 
 ## 6. Live worker deadlines — core and coordinator integration
 
@@ -73,11 +73,11 @@ Own skill authoring/setup references, docs/api.md, verification/review documents
 
 ## 7. Integrate, verify and ship — coordinator
 
-- [x] Integrated producer captures were checked for native skill activation, selected-source guards, terminal/owned cleanup and exact artifact paths/hashes/preimages. Original incomplete/failed attempts remain distinct. This does not accept the active v2 authoring pair or prove final combined runtime behavior.
+- [x] Integrated producer captures were checked for native skill activation, selected-source guards, terminal/owned cleanup and exact artifact paths/hashes/preimages. Original incomplete/failed attempts remain distinct. The v2 planning evaluation has its own acceptance above; neither proves final combined runtime behavior.
 - [x] Append/facts/observer/deadline implementation, shared CLI/source identity and read projections have meaningful affected coverage and independent reviews. Their receipts are component checkpoints; later edits require appropriate fresh verification.
-- [ ] Finish combined documentation/source checkpoint and consistent 0.4.0 version metadata. Do not label the installed 0.3.6 runtime as supporting these engine additions.
-- [ ] Fetch/rebase latest and reconcile the already delivered 0.3.6 changes before final combined verification and push.
-- [ ] Run fresh npm.cmd test, npm.cmd run check and npm.cmd run smoke, then clean-package node scripts/check-install.mjs and npm.cmd audit --omit=dev against the final combined bytes. Prior 544/544 release and component test counts do not satisfy this gate.
+- [x] Checkpointed exact reviewed source and prepared consistent 0.4.0 version metadata. Owner setup was rechecked separately: unchanged 0.3.6, zero-inference doctor passed, 29 earlier runtime directories retained.
+- [x] Rebased the unpublished feature branch onto remote main `09bd255…`, preserving delivered 0.3.6 behavior and resolving documentation wording. Fetch again before push if remote changes.
+- [x] Fresh combined 0.4.0 suite passed 622/622 with zero failures/skips; check, smoke, isolated clean native plugin installation and production audit passed (zero vulnerabilities). Existing browser harness was corrected with meaningful RED and real installed-dashboard GREEN; candidate-only presentation fields also passed a separately labeled GET fixture. Native acceptance below remains independent.
 - [ ] Complete bounded native candidate append/deadline/observation acceptance with reviewed outputs and owned cleanup; complete v2 authoring evaluation separately.
 - [ ] Commit only exact reviewed paths, push the feature branch and open the next PR. Squash merge only after applicable gates and any explicitly authorized release exception are recorded. Keep Actions disabled; do not infer permission to bypass protection from the historical 0.3.6 exception.
 - [ ] Publish/install exact accepted version when release requirements are met; keep old runtimes and saved runs intact. Synchronize canonical wiki with actual delivered state and any remaining release blocker.

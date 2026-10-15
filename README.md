@@ -2,7 +2,7 @@
 
 Run durable JavaScript workflows with parallel Codex workers, ordered replay and an authenticated local monitor. Workers use the existing managed ChatGPT subscription through pinned native Codex App Server. The fresh runtime exposes CLI and dashboard surfaces; it has no custom MCP server or API-key fallback.
 
-This is the **0.3.6 implementation**, with Current run selection, worker evidence popovers and bounded input/output improvements. See the [release scope and local verification checkpoint](docs/releases/0.3.6.md); this working tree is not publication evidence. Publication is recorded in [GitHub Releases](https://github.com/ehartye/agent-workflow/releases); broader Ultracode parity remains tracked separately. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
+This is the **0.4.0 candidate**, adding live independent tasks, worker deadline controls and durable execution/observer evidence to the 0.3.6 dashboard and bounded handoffs. See the [candidate scope](docs/releases/0.4.0.md); this working tree is not publication evidence. Publication is recorded in [GitHub Releases](https://github.com/ehartye/agent-workflow/releases); broader Ultracode parity remains tracked separately. See [verification](docs/verification.md), [limits](docs/limitations.md) and the [acceptance ledger](docs/codex-parity.md).
 
 ## Install and start
 
