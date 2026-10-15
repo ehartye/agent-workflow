@@ -12,8 +12,10 @@
 
 - **Shipped and installed:** original dashboard layout, input/output improvements and final run-picker refinements in 0.3.6, repository PR #11 / tag `v0.3.6`, marketplace PR #173. The owner selected a local-verification exception for that release; protection was restored and GitHub Actions remains disabled. The delivery receipt is `reports/release-0.3.6-delivery.json`. That exception is recorded history, not an invented hosted-CI pass or a blanket exception for the next release.
 - **Implemented, affected-tested and independently reviewed; not released:** append admission/scheduling/replay, command facts, consumer receipts, and deadline core plus CLI controls. Section checkmarks below describe those bounded milestones, not combined release acceptance. Earlier incomplete producer reports and RED evidence remain preserved alongside coordinator integration results.
-- **Authoring evaluation:** v1 failed plan acceptance; its complete artifacts, blind grade and coordinator findings remain in `docs/reviews/2026-10-15/authoring-coordinator.md`. At this coordinator checkpoint the fresh v2 pair `525e0816…` is active. No v2 acceptance, superiority or automatic-trigger claim is made.
-- **Pending:** final combined gates and source checkpoint, fresh native candidate acceptance, complete v2 artifact/grading review, latest-main rebase, consistent 0.4.0 metadata, push/PR, publication/installation and canonical wiki closeout.
+- **Authoring evaluation complete within scope:** v1 failed plan acceptance and remains preserved. V2 pair `525e0816…`, fresh blind grading and independent full-artifact review accepted both plans at 12/12. No score advantage, general causal benefit or automatic-trigger claim follows. Evidence is in `docs/reviews/2026-10-15/authoring-v2/`.
+- **Native candidate acceptance complete within scope:** run `11684a6e…` verified same-turn deadline controls and one idempotent independent append with two actual native workers, retained command facts, consumed terminal and positive unforced cleanup. The earlier unsupported-timeout-field probe remains not accepted. Exact source and scope are in `reports/native-live-controls-0.4.0.json`.
+- **Canonical package verified:** after the text-identical monitor newline normalization, 622/622 tests, check, smoke, isolated clean installation, production audit (zero vulnerabilities) and zero-inference parent-access doctor passed. Both earlier candidate runtimes and the owner-selected 0.3.6 installation were preserved. The native-tested and canonical digests remain distinct in `docs/releases/0.4.0.md` and `reports/release-0.4.0-local.json`.
+- **Pending:** final reviewed source checkpoint/push/PR, publication/installation and canonical wiki closeout. The unpublished branch was rebased and 0.4.0 metadata prepared; refresh remote state before delivery.
 
 ## 1. Live independent additions — isolated writer
 
@@ -25,7 +27,7 @@ Own engine/controller.mjs, engine/controls.mjs, engine/restart.mjs, engine/backg
 - [x] Admission versus completion/Pause/Stop, accepted queue drain, failure aggregation, unknown dispatch and capability/input ceilings covered without uncertain-effect retry.
 - [x] Captures integrated, affected tests and independent spec/quality reviews completed. The original writer receipt in `docs/reviews/2026-10-15/live-append.md` remains its historical checkpoint, including then-pending work.
 - [x] Shared `projectAdditionWorkers` read projection used by saved-run and monitor readers. Committed active intent without confirmed running evidence is unknown, not queued; row-count and 2 MiB-per-row guards reject corrupt/excess records before payload parsing. The focused projection review passed; the later shared-dispatch affected run passed 154/154, not the full combined suite.
-- [ ] Verify a fresh native candidate append with exact retained-runtime/session identity, genuine required skills and positive owned cleanup.
+- [x] Fresh native read-only append verified exact retained-runtime/session identity, actual overlap, duplicate request identity, wrong-session/generation refusal, two total starts and positive unforced owned cleanup. No task-specific skills were required or activated; this is not skill-grant or writer-append acceptance.
 
 ## 2. Durable command evidence — isolated writer
 
@@ -35,7 +37,7 @@ Own engine/activity.mjs, foundation/turn.mjs only if required for sanitized meta
 - [x] Separate bounded sanitized facts integrated, including identity/fingerprint or explicit omission, reported exit/timeout outcome, count/byte budgets and durable eviction counters. No raw shell bodies, reasoning or credentials retained.
 - [x] Facts exposed through the existing activity read contract; exact schema, coordinates, outcome consistency, stored byte sizes and aggregate budgets validate before records are exposed.
 - [x] Affected activity/turn owners passed 57/57 after review corrections; independent spec and quality review completed. See `docs/durable-command-facts.md` and the historical source receipt `docs/reviews/2026-10-15/command-facts.md`.
-- [ ] Complete combined candidate/native verification; retained command reports do not prove effects or recover missing old payloads.
+- [x] Combined pre-normalization gates and scoped native command-fact verification completed: six retained lifecycle facts for three observed commands, zero drops. Retained command reports do not prove arbitrary effects or recover missing old payloads; final canonical gates remain separate below.
 
 ## 3. Observer coverage — coordinator
 
@@ -44,7 +46,7 @@ Implemented in `engine/observer-coverage.mjs` with existing watch and dedicated 
 - [x] RED/GREEN tests cover launch/consumed attachment, last actually processed cursor, terminal replay, disconnect/reconnect gaps, cancellation, bounded receipts and corruption refusal.
 - [x] Versioned receipt written atomically only after the named consumer handles each record. Strict field/state/identity validation preserves prior unknown connections using detection time rather than fabricating disconnect time; preattachment intervals stay missing. Independent spec and quality review completed.
 - [x] Public contract distinguishes `processed(record)` from a producer's stdout write, and terminal processing from host-message delivery. See `docs/observer-coverage.md`.
-- [ ] Complete fresh candidate observation acceptance with exact watch arguments, consumed attachment, processed cursor, failures/unknowns and terminal; retain every real preattachment/reconnect gap.
+- [x] Fresh candidate consumer used exact watch arguments, consumed attachment and terminal cursor 3. The 11.313-second preattachment interval remains missing; no disconnect was recorded. Initial failed acceptance remains retained. Consumer processing does not certify host-chat delivery.
 
 ## 4. Run-picker error — coordinator
 
@@ -69,7 +71,7 @@ Own skill authoring/setup references, docs/api.md, verification/review documents
 - [x] CLI `worker-deadline` implemented with originating session/generation/position/attempt/nullable turn/revision checks and committed applying intent before mutation. Snapshot or receipt persistence loss remains unknown and is not retried. Read-only monitor snapshots added; no HTTP deadline mutation or form is included.
 - [x] Pause waits without a guessed worker lifetime; Stop, fatal cancellation and explicit run wall limits retain bounded drain. Startup, protocol, individual commands, interruption, evaluator safeguards and cleanup have their separate bounds.
 - [x] Core/integration affected tests and independent spec/quality reviews completed; the frozen nine-owner integration run passed 183/183. Managed source identity includes `engine/live-deadline.mjs`. See `docs/worker-session-control.md`; the later shared read-projection change has separate review evidence.
-- [ ] Verify the combined installed candidate and actual same-worker native live control before making release/native-acceptance claims. Installed 0.3.6 retains its earlier deadline contract.
+- [x] Isolated native candidate accepted default-null and same-turn set/extend/clear with revisions 1/2/3, stale refusal and unchanged original options/replay identity. No live elapsed-timeout, Pause/Stop or restarted-worker acceptance is inferred. Owner-selected 0.3.6 remains unchanged.
 
 ## 7. Integrate, verify and ship — coordinator
 
@@ -78,6 +80,7 @@ Own skill authoring/setup references, docs/api.md, verification/review documents
 - [x] Checkpointed exact reviewed source and prepared consistent 0.4.0 version metadata. Owner setup was rechecked separately: unchanged 0.3.6, zero-inference doctor passed, 29 earlier runtime directories retained.
 - [x] Rebased the unpublished feature branch onto remote main `09bd255…`, preserving delivered 0.3.6 behavior and resolving documentation wording. Fetch again before push if remote changes.
 - [x] Fresh combined 0.4.0 suite passed 622/622 with zero failures/skips; check, smoke, isolated clean native plugin installation and production audit passed (zero vulnerabilities). Existing browser harness was corrected with meaningful RED and real installed-dashboard GREEN; candidate-only presentation fields also passed a separately labeled GET fixture. Native acceptance below remains independent.
-- [ ] Complete bounded native candidate append/deadline/observation acceptance with reviewed outputs and owned cleanup; complete v2 authoring evaluation separately.
+- [x] Bounded native append/deadline/observation acceptance completed on source `a1aa023cd7b364e7397483fac14626dbc96e25cba44887a3ff772eacbf5dec7c`; v2 authoring acceptance completed separately with both conditions at 12/12. Earlier failures remain preserved.
+- [x] Canonical package gates passed for digest `967cd6160299faad254eee70618864b3be95716692051e652c78969791854ca5`: 622/622 tests, check, smoke, isolated clean installation, audit with zero vulnerabilities and zero-inference doctor with positive unforced cleanup. The only runtime-byte change after native acceptance is one CRLF→LF normalization in monitor HTML (13,289→13,288 bytes, text-identical); all other 96 runtime files are unchanged. The native report is not relabeled as another model execution.
 - [ ] Commit only exact reviewed paths, push the feature branch and open the next PR. Squash merge only after applicable gates and any explicitly authorized release exception are recorded. Keep Actions disabled; do not infer permission to bypass protection from the historical 0.3.6 exception.
 - [ ] Publish/install exact accepted version when release requirements are met; keep old runtimes and saved runs intact. Synchronize canonical wiki with actual delivered state and any remaining release blocker.

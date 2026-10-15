@@ -1,5 +1,7 @@
 # Live worker deadlines
 
+This is the unpublished 0.4.0 candidate contract. The owner's selected 0.3.6 installation retains its recorded earlier behavior; it was not replaced by candidate verification.
+
 The core worker wall budget defaults to `null` (unbounded). An explicitly supplied positive safe integer remains a finite budget in milliseconds; there is no 30-minute ceiling. A worker can still finish, fail, or be cancelled. This does not remove startup, protocol acknowledgement, individual command, interruption, or cleanup bounds.
 
 ## Core interface
@@ -48,3 +50,7 @@ Pause closes new admission and waits for accepted work to settle, without summin
 ## Verification scope
 
 Tests use deterministic clock advancement for unbounded duration, large timer chunks, stale revisions, shortening, expiry and close. Existing process fixtures verify readiness changes, a single native turn surviving extend/clear, cancellation, expiry interruption, terminal evidence and positive owned cleanup. Controller tests use real SQLite and a separate evaluator, with a native protocol process fixture for same-turn controls. Controlled SQLite failures verify committed intent, unknown receipts and no repeated mutation. CLI tests verify exact arguments, runtime routing and durable pending receipts. These are synthetic protocol/process acceptance tests, not live model or installed-release evidence.
+
+Separate [native candidate acceptance](../reports/native-live-controls-0.4.0.json), run `11684a6e-290c-4728-a9e2-17cf7484ea75`, observed one actual native turn with an initial null budget. Public controls set 240000 ms at revision 0, extended by 60000 ms at revision 1, and cleared at revision 2; all three durable receipts were applied and the final revision was 3. A deliberately stale clear was refused without a control row, extra revision or attempt. Original options, replay key and native turn identity remained unchanged. Both workers and the run ended with positive unforced owned cleanup; worker native-terminal inventories were empty.
+
+The accepted scope is same-turn set/extend/clear on native-tested source `a1aa023cd7b364e7397483fac14626dbc96e25cba44887a3ff772eacbf5dec7c`. It does not establish live elapsed-timeout, Pause/Stop, restarted-worker or arbitrary-descendant behavior. The probe's explicit eight-minute run wall and six-minute operator Stop limit are acceptance safeguards, not default worker policy. Its reviewed helper bounded each read wait; native `yield_time_ms` was treated only as an observation wait, not an execution timeout. The [earlier unsupported-field refusal](../reports/native-live-controls-0.4.0-initial.json) remains not accepted. Final package and publication status are recorded in the [release checkpoint](releases/0.4.0.md).

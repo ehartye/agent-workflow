@@ -1,6 +1,6 @@
 # Live append candidate
 
-This source candidate adds independent tasks to an active workflow. Installed 0.3.6 and retained runtimes without append support do not provide these commands. This document is a development contract, not native acceptance or release evidence. The original writer receipt and its incomplete outcome are preserved in [the writer receipt](reviews/2026-10-15/live-append.md); subsequent coordinator integration and verification do not rewrite that attempt.
+This unpublished 0.4.0 candidate adds independent tasks to an active workflow. Installed 0.3.6 and retained runtimes without append support do not provide these commands. The contract below has scoped [native candidate acceptance](../reports/native-live-controls-0.4.0.json); publication remains separate. The original writer receipt and its incomplete outcome are preserved in [the writer receipt](reviews/2026-10-15/live-append.md); subsequent coordinator integration and verification do not rewrite that attempt.
 
 Use the public managed launcher with the run's original data directory and originating session:
 
@@ -32,3 +32,9 @@ Default writers require the run's existing verified captured input manifest. App
 Guest invocation ordinals are separate from physical slots. Worker origins identify either a guest ordinal or an originating generation/request/task tuple. Guest dependency hashes use those stable origins. Replay copies record `sourceGeneration`, `sourcePosition` and `reusedFrom`; physical slots can change. Restart previews retain every affected old physical suffix origin, including interleaved additions and later guests.
 
 Normal completion closes admission transactionally after guest completion and accepted task settlement. An append admitted first joins the drain; an append arriving after closure rejects. Pause and Stop close admission in their request transaction. Pause permits accepted additions to settle. Stop interrupts active execution and retains cancelled or unknown evidence. Terminal publication follows owned backend cleanup.
+
+## Native acceptance scope
+
+Run `11684a6e-290c-4728-a9e2-17cf7484ea75`, generation 1, admitted one independent read-only task while the initial native worker remained active. The same request ID and payload returned the original position without additional capacity; wrong-session and wrong-generation requests were refused and absent from the final request table. Actual native overlap was observed, and the addition completed before the coordinator released the initial worker. Both workers completed with two total attempts, zero remaining reservations, verified fixture results and positive unforced owned-job/server cleanup plus empty worker native-terminal inventories.
+
+This proves the bounded two-worker fixture on native-tested source `a1aa023cd7b364e7397483fac14626dbc96e25cba44887a3ff772eacbf5dec7c`. It does not establish native writer append, replay/restart, new skill grants or arbitrary external effects. No task-specific skills were required or activated. The [initial probe](../reports/native-live-controls-0.4.0-initial.json) remains not accepted: its prompt required an unsupported command-timeout field and the worker reported blocked before the control sequence. See the [release checkpoint](releases/0.4.0.md) for final package identity and pending publication gates.
