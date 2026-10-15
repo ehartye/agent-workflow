@@ -24,11 +24,11 @@ async function boundedRead(path,limit=maxBytes){
     return Buffer.concat(chunks,size);
   }finally{await handle.close();}
 }
-function git(cwd,args,{input,index,maxBuffer=maxMetadata}={}){
+function git(cwd,args,{input,index,maxBuffer=maxMetadata,raw=false}={}){
   return new Promise((done,reject)=>{
     const child=execFile('git',['--no-pager','--no-replace-objects','-c',`core.hooksPath=${noHooks}`,'-c','core.fsmonitor=false',...args],
       {cwd,env:{...gitEnv,...(index?{GIT_INDEX_FILE:index}:{})},windowsHide:true,timeout:20000,maxBuffer,encoding:'buffer'},
-      (error,stdout)=>{if(error)reject(fault('WORKSPACE_GIT','Git workspace operation failed'));else{try{done(new TextDecoder('utf-8',{fatal:true}).decode(stdout));}catch{reject(fault('WORKSPACE_GIT','Git paths or output are not valid UTF-8'));}}});
+      (error,stdout)=>{if(error)reject(fault('WORKSPACE_GIT','Git workspace operation failed'));else if(raw)done(stdout);else{try{done(new TextDecoder('utf-8',{fatal:true}).decode(stdout));}catch{reject(fault('WORKSPACE_GIT','Git paths or output are not valid UTF-8'));}}});
     child.stdin.on('error',()=>{});child.stdin.end(input);
   });
 }
@@ -312,8 +312,10 @@ export async function collectWorkspace(workspace){
     const built=await tree(workspace.cwd,captured,capturedDir);
     stage='diff';
     const diffArgs=['diff','--binary','--no-ext-diff','--no-textconv','--no-renames','--no-color','--src-prefix=a/','--dst-prefix=b/'];
-    const patch=await git(workspace.cwd,[...diffArgs,workspace.inputTree,built.tree,'--'],{maxBuffer:maxPatch});
-    const basePatch=await git(workspace.cwd,[...diffArgs,workspace.base,built.tree,'--'],{maxBuffer:maxPatch});
+    // Git text hunks may contain legacy encodings. Retain their bytes exactly;
+    // path listings and object identities still require strict UTF-8 decoding.
+    const patch=await git(workspace.cwd,[...diffArgs,workspace.inputTree,built.tree,'--'],{maxBuffer:maxPatch,raw:true});
+    const basePatch=await git(workspace.cwd,[...diffArgs,workspace.base,built.tree,'--'],{maxBuffer:maxPatch,raw:true});
     const changedFiles=names(await git(workspace.cwd,['diff','--name-only','-z','--no-ext-diff','--no-textconv','--no-renames',workspace.inputTree,built.tree,'--']));
     stage='persist';
     const patchPath=join(capturedDir,'changes.patch'),basePatchPath=join(capturedDir,'from-base.patch');
@@ -418,7 +420,10 @@ export async function readWorkspacePatch(workspace,{basis='inputs',previewBytes=
     const bytes=await boundedRead(path,maxPatch);
     if(digest(bytes)!==sha256)throw Error('hash');
     // TextDecoder's streaming mode omits an incomplete UTF-8 character at the preview boundary.
-    const truncated=bytes.length>previewBytes,patch=new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(0,previewBytes),{stream:truncated});
-    return{basis,patch,sha256,bytes:bytes.length,truncated,cwd:workspace.cwd,changedFiles:workspace.changedFiles};
+    const truncated=bytes.length>previewBytes;
+    let patch='',previewUnavailable;
+    try{patch=new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(0,previewBytes),{stream:truncated});}
+    catch{previewUnavailable='non-utf8';}
+    return{basis,patch,sha256,bytes:bytes.length,truncated,cwd:workspace.cwd,changedFiles:workspace.changedFiles,...(previewUnavailable?{previewUnavailable}:{})};
   }catch(error){throw Object.assign(fault('WORKSPACE_ARTIFACT','Saved patch is missing or changed'),{cause:error});}
 }
