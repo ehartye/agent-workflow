@@ -1,6 +1,6 @@
 # Large inputs and bounded batches
 
-Record the input decision before saving or starting. Check the installed runtime's help/API: this working-tree candidate adds `run --args-file path`. Installed 0.3.5 does not support that flag until a future release and explicit installation; it already supports small manifest path/hash/range references through `--args JSON`. Saved runtimes retain their own API and identity. Do not edit their records to claim support.
+Record the input decision before saving or starting. Check the installed runtime's help/API: `run --args-file path` is available from 0.3.6. Installed 0.3.5 does not support that flag and requires an explicit update; it already supports small manifest path/hash/range references through `--args JSON`. Saved runtimes retain their own API and identity. Do not edit their records to claim support.
 
 | Choice | Use | Time | Risk | Complexity | Best practice | Maintainability |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -19,7 +19,7 @@ Record the input decision before saving or starting. Check the installed runtime
 | Args source file | At most 2 MiB raw bytes, regular UTF-8 JSON; the combined envelope may reject smaller files (`bin/command.mjs`) |
 | Saved header / detached launch request | Separate 2 MiB serialized-record limits; the header includes full source **and parsed metadata**, args and duplicated launch/capability/policy fields (`engine/controller.mjs`, `engine/background.mjs`) |
 | Broker message / response | 1 MiB serialized UTF-8 bytes each, including result messages (`engine/evaluate.mjs`) |
-| Native Codex transport | Installed 0.3.5 defaults to 1 MiB per inbound UTF-8 JSON frame; this unreleased candidate raises it to 16 MiB (`foundation/client.mjs`). This is not cumulative observed output. |
+| Native Codex transport | Version 0.3.6 defaults to 16 MiB per inbound UTF-8 JSON frame; installed 0.3.5 retains its 1 MiB default (`foundation/client.mjs`). This is not cumulative observed output. |
 | Native answer / retained previews | Separate 512 KiB final-answer text budget and 1 MiB combined retained item previews (`foundation/turn.mjs`); unchanged by transport headroom |
 | Worker prompt | 65536 UTF-16 code units; an astral character uses two (`engine/controller.mjs`) |
 | `parallel` / `pipeline` collection | At most 4096 entries; separate from worker quota (`engine/evaluator-child.mjs`) |

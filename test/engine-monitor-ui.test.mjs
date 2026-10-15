@@ -314,6 +314,47 @@ test('malformed and blocked host preferences fall back safely without breaking t
   assert.ok(view.get('inspector-resize'),'Resize separator exists');await view.key(view.get('inspector-resize'),'ArrowLeft');assert.equal(Number(view.get('inspector-resize').getAttribute('aria-valuenow')),316);
 });
 
+test('Change run shows catalog failures and retries in the open selection dialog',async()=>{
+  const ref={dataInstanceId:'data',runId:'current',runtimeId:'runtime'};let fail=true,hold=false,release;
+  const view=await monitor({savedPolling:'manual',run:{monitor:{run:ref,capabilities:{sessionNavigation:true}}},response:async path=>{
+    if(path.startsWith('/api/session/runs'))return fail?{ok:false,status:503,json:async()=>({error:'Catalog temporarily unavailable'})}:hold?new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>({items:[],nextCursor:null})});}):{ok:true,json:async()=>({items:[],nextCursor:null})};
+  }});
+  await view.click(view.get('run-picker'));
+  const error=view.get('run-picker-error');assert.ok(error,'Catalog error is inside Change run');
+  assert.equal(error.closest('#run-popover'),view.get('run-popover'));assert.equal(error.hidden,false);assert.match(error.textContent,/unavailable|503/i);
+  assert.equal(view.get('more-panel').hidden,true);assert.equal(view.document.activeElement,view.get('run-search'));
+  fail=false;hold=true;view.get('retry-runs').focus();await view.click(view.get('retry-runs'));
+  assert.equal(view.document.activeElement===view.get('run-search'),true,'Move focus before disabling the pending retry control');release();await view.flush();
+  assert.equal(error.hidden,true);assert.equal(view.document.activeElement===view.get('run-search'),true,'Successful retry keeps focus in the open dialog');assert.equal(view.get('run-popover').hidden,false);assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('Change run retries the failed pagination page without losing loaded choices',async()=>{
+ const ref=id=>({dataInstanceId:'data',runId:id,runtimeId:'runtime'});let fail=true;
+ const view=await monitor({savedPolling:'manual',run:{monitor:{run:ref('current'),capabilities:{sessionNavigation:true}}},response:path=>{
+  if(!path.startsWith('/api/session/runs'))return;
+  if(path.includes('cursor=page-2'))return fail?{ok:false,status:503,json:async()=>({error:'Page unavailable'})}:{ok:true,json:async()=>({items:[{ref:ref('later'),title:'Later run',executionStatus:'failed'}],nextCursor:null})};
+  return{ok:true,json:async()=>({items:[{ref:ref('current'),title:'Current run',executionStatus:'running'}],nextCursor:'page-2'})};
+ }});
+ await view.click(view.get('run-picker'));const current=view.document.querySelector('[data-run-id="current"]');
+ await view.click(view.get('more-runs'));assert.equal(view.get('run-picker-error').hidden,false);
+ fail=false;await view.click(view.get('retry-runs'));
+ assert.ok(view.document.querySelector('[data-run-id="later"]'),'Retry loads the originally failed page');
+ assert.equal(view.document.querySelector('[data-run-id="current"]'),current);assert.equal(view.get('run-popover').hidden,false);
+});
+
+test('automatic head polling preserves the exact failed page and visible retry',async()=>{
+ const ref=id=>({dataInstanceId:'data',runId:id,runtimeId:'runtime'});let fail=true,headReads=0;
+ const view=await monitor({run:{monitor:{run:ref('current'),capabilities:{sessionNavigation:true}}},response:path=>{
+  if(!path.startsWith('/api/session/runs'))return;
+  if(path.includes('cursor=page-2'))return fail?{ok:false,status:503,json:async()=>({error:'Page unavailable'})}:{ok:true,json:async()=>({items:[{ref:ref('recovered'),title:'Recovered original page',executionStatus:'completed'}],nextCursor:null})};
+  return{ok:true,json:async()=>({items:[{ref:ref('current'),title:'Current run',executionStatus:'running'}],nextCursor:++headReads===1?'page-2':'new-head-page'})};
+ }});
+ await view.click(view.get('run-picker'));await view.click(view.get('more-runs'));assert.equal(view.get('run-picker-error').hidden,false);
+ await view.tick(2000);assert.equal(view.get('run-picker-error').hidden,false,'Unrelated successful head refresh cannot hide failed-page evidence');
+ fail=false;await view.click(view.get('retry-runs'));assert.ok(view.document.querySelector('[data-run-id="recovered"]'),'Retry uses the original failed cursor, not the refreshed head cursor');
+ assert.equal(view.get('run-picker-error').hidden,true);
+});
+
 test('Manual navigation coalesces Show hidden changes during a pending GET into the latest scope',async()=>{
   const ref=runId=>({dataInstanceId:'data',runId,runtimeId:'runtime'});
   let release,active=0,peak=0;

@@ -1,6 +1,6 @@
 # Worker output limits and artifact handoff
 
-This source candidate raises the default inbound App Server JSON frame ceiling
+Version 0.3.6 raises the default inbound App Server JSON frame ceiling
 from 1 MiB to **16 MiB (16,777,216 bytes)** in `foundation/client.mjs`.
 The ceiling applies to each UTF-8 JSON line, excluding its LF delimiter, and to
 the buffered unterminated line. It is not a cumulative turn-output allowance.
@@ -9,7 +9,7 @@ An explicit `maxMessageBytes` still selects a smaller ceiling.
 The owner reported a Fallow read-only review ending unknown with `PROTOCOL_LIMIT`
 after 2,070,688 observed bytes across 509 messages. Those are aggregate counters;
 the offending frame was not retained. They do not establish its exact size or
-prove that this candidate resolves that historical run. That unknown remains
+prove that this change resolves that historical run. That unknown remains
 unknown.
 
 ## Separate limits
@@ -99,8 +99,8 @@ Implications of this recommended handoff:
 - **Maintainability:** explicit formats and provenance make later inspection
   repeatable, with schema/version and capture-identity checks still required.
 
-This candidate does not change host workflow evaluation, streaming contracts,
-signed helpers, MCP surfaces, or effect-retry behavior. Publication and explicit
-installation are future work. Installed 0.3.5 remains unchanged. Local fixture
+Version 0.3.6 does not change host workflow evaluation, streaming contracts,
+signed helpers, MCP surfaces, or effect-retry behavior. Installed 0.3.5 retains
+its existing limits until an explicit update. Local fixture
 results and remaining limits are recorded in
 [`output-headroom.md`](reviews/2026-10-14/output-headroom.md).

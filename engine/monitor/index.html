@@ -49,6 +49,7 @@
       <div class="run-dialog-options"><div id="run-filters" class="run-filters" role="group" aria-label="Filter loaded runs"><button type="button" data-filter="all" aria-pressed="true">All</button><button type="button" data-filter="active" aria-pressed="false">Active</button><button type="button" data-filter="completed" aria-pressed="false">Completed</button><button type="button" data-filter="attention" aria-pressed="false">Needs attention</button></div><label class="check-label"><input id="run-show-hidden" type="checkbox">Include hidden records</label></div>
       <p id="run-scope" class="utility">Search and filters apply to loaded pages. The current run stays visible.</p>
       <div class="run-columns utility" aria-hidden="true"><span>Title</span><span>Execution / record</span><span>Created</span></div>
+      <div id="run-picker-error" role="status" class="failure" hidden><span id="run-picker-error-text"></span> <button id="retry-runs" type="button">Retry loading runs</button></div>
       <div id="run-options" role="group" aria-label="Loaded session runs"></div><p id="run-filter-empty" class="muted" hidden>No matching runs in the loaded pages.</p><button id="more-runs" type="button" hidden>More runs</button>
     </section>
   </div>

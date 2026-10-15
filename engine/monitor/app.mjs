@@ -281,7 +281,7 @@ let selectedRunAuthority=null;
 let navigationCounts=null;
 let runFilter='all',messageKey='',pruneKey='';
 const runRows=new Map(),messageRows=new Map();
-let navigationTail=[],tailCursor=null,navigationError='',navigationScope=false;
+let navigationTail=[],tailCursor=null,navigationError='',navigationScope=false,navigationFailure=null;
 let pruneReview=null,lifecycleReceipt=null,lifecycleUncertain=false;
 const runDrafts=new Map();
 const runKey=()=>viewRun??snapshot?.monitor?.run?.runId??'pinned';
@@ -550,6 +550,9 @@ function renderRunPicker(){
   textChanged($('run-scope'),`${navigation.length} runs in loaded pages only. Search and filters apply to loaded pages. The current run stays visible; focused context is retained.${navigationTail.length?' Later loaded pages are retained; automatic polling refreshes the first page.':''}`);
   $('run-filter-empty').hidden=matches>0;
   $('more-runs').hidden=!nextRunCursor;
+  if(!navigationError&&!$('run-picker-error').hidden&&$('run-picker-error').contains(document.activeElement))$('run-search').focus({preventScroll:true});
+  $('run-picker-error').hidden=!navigationError;
+  textChanged($('run-picker-error-text'),navigationError);
 }
 function valueText(value) { return typeof value === 'string' ? value : JSON.stringify(value, null, 2); }
 function activityType(value) { return ({commandExecution:'Command',agentMessage:'Response',userMessage:'Instruction',fileChange:'File change',mcpToolCall:'Tool call',nativeTool:'Native tool',webSearch:'Web search',usage:'Token usage',turn:'Worker turn',plan:'Plan'})[value]??value??'Event'; }
@@ -1174,25 +1177,31 @@ function renderExperienceControls(){
   if(lifecycleReceipt)textChanged(receiptPanel,`Lifecycle receipt: ${valueText(lifecycleReceipt).slice(0,6000)}`);
   $('inspect-lifecycle').hidden=!lifecycleReceipt||!snapshot.monitor?.capabilities?.lifecycleReceipt;
 }
-async function loadNavigation(append=false){
+async function loadNavigation(append=false,retry=null){
   if(closed||disposed||document.hidden||!authenticated||!snapshot?.monitor?.capabilities?.sessionNavigation)return;
   const includeHidden=Boolean($('show-hidden').checked);
   if(navigationLoading){navigationScopePending=includeHidden!==navigationScope;return;}
-  if(navigationScope!==includeHidden){navigationScope=includeHidden;navigationTail=[];tailCursor=null;nextRunCursor=null;append=false;}
+  if(navigationScope!==includeHidden){navigationScope=includeHidden;navigationTail=[];tailCursor=null;nextRunCursor=null;append=false;navigationFailure=null;navigationError='';retry=null;}
+  if(retry){if(retry.includeHidden!==includeHidden)return;append=retry.append;}
+  const requestedCursor=retry?retry.cursor:append?nextRunCursor:null;
   navigationLoading=true;
+  if(document.activeElement===$('retry-runs'))$('run-search').focus({preventScroll:true});
+  $('retry-runs').disabled=true;
   try{
-    const page=await api(`/api/session/runs?limit=25&includeHidden=${includeHidden}${append&&nextRunCursor?`&cursor=${encodeURIComponent(nextRunCursor)}`:''}`);
+    const page=await api(`/api/session/runs?limit=25&includeHidden=${includeHidden}${requestedCursor?`&cursor=${encodeURIComponent(requestedCursor)}`:''}`);
     if(!Array.isArray(page.items))throw new Error('Session navigation evidence unavailable.');
     if(closed||disposed||document.hidden||!authenticated||Boolean($('show-hidden').checked)!==includeHidden)return;
-    navigationCounts=page;navigationError='';
+    navigationCounts=page;
+    if(!navigationFailure||navigationFailure.includeHidden===includeHidden&&navigationFailure.cursor===requestedCursor&&navigationFailure.append===append){navigationError='';navigationFailure=null;}
     if(append){navigationTail=[...new Map([...navigationTail,...page.items].map(item=>[item.ref.runId,item])).values()].slice(0,975);tailCursor=page.nextCursor??null;}
     const head=append?[...new Map([...navigation,...page.items].map(item=>[item.ref.runId,item])).values()]:page.items,headIds=new Set(head.map(item=>item.ref.runId));
     navigation=[...head,...navigationTail.filter(item=>!headIds.has(item.ref.runId))].slice(0,1000);
     nextRunCursor=navigationTail.length?tailCursor:page.nextCursor;
     if(snapshot)renderExperienceControls();
     if($('follow-run').checked&&!busy&&$('run-popover').hidden){const newest=[...navigation].sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt))[0];if(newest&&newest.ref.runId!==snapshot?.monitor?.run?.runId)switchView(newest.ref.runId);}
-  }catch(error){navigationError=error.message;textChanged($('navigation-reason'),navigationError);updateButtons();}finally{
+  }catch(error){if(!navigationFailure||retry)navigationFailure={includeHidden,cursor:requestedCursor,append,error:error.message};navigationError=navigationFailure.error;textChanged($('navigation-reason'),navigationError);renderRunPicker();updateButtons();}finally{
     navigationLoading=false;
+    $('retry-runs').disabled=false;
     if(navigationScopePending){navigationScopePending=false;void loadNavigation();}
   }
 }
@@ -1304,6 +1313,7 @@ async function restartWorker(){
 for (const action of ['pause', 'stop', 'resume']) $(action).addEventListener('click', () => mutate(action));
 $('follow-run').addEventListener('change',()=>{if($('follow-run').checked)void loadNavigation();});
 $('more-runs').addEventListener('click',()=>loadNavigation(true));
+$('retry-runs').addEventListener('click',()=>loadNavigation(false,navigationFailure));
 $('show-hidden').addEventListener('change',()=>{if(snapshot){listKey=mapKey=detailKey='';render();void loadNavigation();}});
 for(const action of ['hide','archive','restore'])$(`${action}-run`).addEventListener('click',()=>mutateLifecycle(action));
 $('review-prune').addEventListener('click',()=>mutateLifecycle('planPrune'));
