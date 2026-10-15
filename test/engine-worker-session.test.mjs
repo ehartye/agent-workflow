@@ -13,6 +13,21 @@ const settings={model:'fixture-model',effort:'low',maxAttempts:5};
 async function runner(){const module=await import('../engine/worker-session.mjs').catch(()=>null);assert.ok(module?.runWorkerSession,'Worker session must exist');return module.runWorkerSession;}
 const result=(text,id='t')=>({text,threadId:'thread',turnId:id,status:'completed',items:[{type:'commandExecution',status:'completed',exitCode:0}]});
 
+test('initial and correction turns receive the actual schema byte budget without repeating tools',async()=>{
+  const run=await runner(),seen=[];
+  const {compileSchema}=await import('../engine/schema.mjs');
+  const limit=compileSchema(schema).limits?.maxSerializedBytes;
+  const value=await run({}, {threadId:'thread',prompt:'Count. Requested answer budget: 160 KB.',schema,settings,reserveRetry:async()=>{},turn:async(client,input)=>{
+    seen.push(input);return result(seen.length===1?'invalid':'{"count":2}');
+  }});
+  for(const input of seen){
+    assert.match(input.prompt,new RegExp(`at most ${limit} UTF-8 bytes`));
+    assert.match(input.prompt,/lower task or native limits/);
+  }
+  assert.match(seen[1].prompt,/Do not run commands or use tools/);
+  assert.deepEqual(value.evidence.structuredOutputLimits,{maxSerializedBytes:limit});
+});
+
 test('native structured answers exclude progress while invalid explicit output retains diagnostics without JSON salvage',async t=>{
   const run=await runner();
   for(const mode of ['turn-phase-explicit','turn-phase-invalid']){

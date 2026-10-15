@@ -82,13 +82,16 @@ export function compileSchema(input){
   // Conservative work admission prevents large enum/branch validation from
   // monopolizing the controller's event loop and delaying stop controls.
   const cost=nodes+enumEntries+literalBytes;
+  const maxResultBytes=1024*1024,maxValidationWork=8*1024*1024;
+  const limits=Object.freeze({maxSerializedBytes:Math.min(maxResultBytes,Math.floor(maxValidationWork/cost))});
   return{
     schema,
+    limits,
     validate(value){
       let text;try{text=strictJson(value);}catch{throw fault('RESULT_JSON','Structured result must be JSON');}
       if(text===undefined)throw fault('RESULT_JSON','Structured result must be JSON');
-      if(Buffer.byteLength(text)>1024*1024)throw fault('RESULT_SIZE','Structured result exceeds 1 MiB');
-      if(cost*Buffer.byteLength(text)>8*1024*1024)throw fault('RESULT_LIMIT','Structured validation exceeds its work limit');
+      if(Buffer.byteLength(text)>maxResultBytes)throw fault('RESULT_SIZE','Structured result exceeds 1 MiB');
+      if(cost*Buffer.byteLength(text)>maxValidationWork)throw fault('RESULT_LIMIT','Structured validation exceeds its work limit');
       return validate(value);
     },
     errors:()=>validate.errors?.slice(0,8).map(error=>({path:error.instancePath.slice(0,300),keyword:error.keyword,message:error.message?.slice(0,300)}))??[],

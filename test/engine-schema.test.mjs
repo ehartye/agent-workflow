@@ -63,3 +63,17 @@ test('non-JSON values are rejected without normalization',async()=>{
     assert.throws(()=>compile({type:'object'}).validate({x:value}),{code:'RESULT_JSON'});
   }
 });
+
+test('advertised structured byte budget matches the UTF-8 validation boundary',async()=>{
+  const compile=await compiler();
+  const compiled=compile({type:'object',properties:{text:{type:'string'},kind:{enum:Array.from({length:128},(_,i)=>`kind-${i}`)}},required:['text','kind'],additionalProperties:false});
+  const limit=compiled.limits?.maxSerializedBytes;
+  assert.ok(Number.isSafeInteger(limit)&&limit>100&&limit<100000,'schema-dependent byte budget must be available before generating output');
+  assert.ok(Object.isFrozen(compiled.limits));
+  const base={text:'',kind:'kind-0'},overhead=Buffer.byteLength(JSON.stringify(base));
+  const remaining=limit-overhead;
+  const value={...base,text:'é'.repeat(Math.floor(remaining/2))+'a'.repeat(remaining%2)};
+  assert.equal(Buffer.byteLength(JSON.stringify(value)),limit);
+  assert.equal(compiled.validate(value),true);
+  assert.throws(()=>compiled.validate({...value,text:value.text+'a'}),{code:'RESULT_LIMIT'});
+});

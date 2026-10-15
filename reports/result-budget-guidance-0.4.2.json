@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "pluginVersion": "0.4.2",
+  "node": "v24.21.0",
+  "sourceDigest": "2fd329af8c0cb4a6fc43f1c7e0237a32ebb6604b8bf467a3e750c6d4f6ec778c",
+  "base": "95c8e037cac498cebfcab15da29c650b74642ff8",
+  "scope": "Expose unchanged structured validation budget before generation and in retained evidence. Scope clean-install checks to bundled and owned project definitions rather than personal definitions.",
+  "gates": {
+    "baselineFocused": 19,
+    "redNewTests": 2,
+    "finalFocused": 21,
+    "full": {
+      "tests": 630,
+      "pass": 630,
+      "fail": 0,
+      "skips": 0
+    },
+    "pluginCheck": "passed",
+    "offlineSmoke": "passed",
+    "cleanNativeInstall": "passed after owned assertion correction",
+    "productionAudit": {
+      "vulnerabilities": 0
+    },
+    "independentReview": "No findings across production code, tests, docs, version metadata and subsequent clean-install owner fix."
+  },
+  "logs": [
+    {
+      "name": "workflow-result-budget-final-tests.log",
+      "bytes": 62098,
+      "sha256": "47012ec380c4a0041b4d9756fc925c7b9f100cb65b55bb0077a5d485a6c1a7f1"
+    },
+    {
+      "name": "workflow-result-budget-clean-install.log",
+      "bytes": 820,
+      "sha256": "3871edf3fb7057bbee7c40d633041a31fed96e713184e4644e185a57037312d0"
+    },
+    {
+      "name": "workflow-result-budget-clean-install-corrected.log",
+      "bytes": 243,
+      "sha256": "db3f97b364b73c95ab9526d574beffe3b39dfa1f74f473c795a2bad1b64f6299"
+    }
+  ],
+  "originalFailure": {
+    "run": "c7eb05d7-df0d-489a-b1d9-23c4a84e6093",
+    "generation": 1,
+    "position": 1,
+    "error": "RESULT_LIMIT",
+    "answerBytes": 68242,
+    "schemaMaxSerializedBytes": 42799,
+    "outcome": "failed and unaccepted; unchanged"
+  },
+  "limitations": [
+    "No new native inference acceptance claimed by these fixture tests and zero-inference clean installation.",
+    "Read-only native Git failure cause and generic tool-specific source readiness remain open.",
+    "No game UI adoption or deployment is established by this tool release.",
+    "GitHub Actions remains disabled; no hosted CI pass."
+  ],
+  "publication": {
+    "merged": false,
+    "tagged": false,
+    "released": false,
+    "marketplaceUpdated": false
+  }
+}
