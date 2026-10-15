@@ -9,6 +9,8 @@ export async function runWorkerSession(client,{threadId,prompt,schema,settings,e
   const maxAttempts=compiled?settings.maxAttempts:1;
   if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>5||timeoutMs!==null&&(!Number.isSafeInteger(timeoutMs)||timeoutMs<=0)||deadline!==undefined&&!Number.isFinite(deadline))throw Object.assign(fault('WORKER_SETTINGS','Invalid worker attempt limit or deadline'),{notStarted:true});
   const evidence={commands:[],commandCoverage:'retainedItemsOnly',attempts:[]};
+  const outputGuidance=compiled?`Schema validation accepts at most ${compiled.limits.maxSerializedBytes} UTF-8 bytes of serialized JSON; lower task or native limits still apply. Keep the answer concise and report missing coverage explicitly; never silently omit required items to fit.`:null;
+  if(compiled)evidence.structuredOutputLimits=compiled.limits;
   if(capabilities)evidence.capabilities=structuredClone(capabilities);
   const ownedDeadline=!liveDeadline;
   let terminalObserved=false;
@@ -29,7 +31,8 @@ export async function runWorkerSession(client,{threadId,prompt,schema,settings,e
       if(remaining<=0)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');
       const attempt={number,status:'running'};evidence.attempts.push(attempt);
       terminalObserved=false;
-      const result=await turn(client,{threadId,prompt:number===1?[prompt,capabilities?.instructions].filter(Boolean).join('\n\n'):'Correct your previous answer to match the supplied output schema. Return only the JSON object. Do not run commands or use tools; revise the answer from existing evidence.',timeoutMs:remaining===Infinity?null:remaining,liveDeadline,signal,model:settings.model,effort:settings.effort,execution,...(compiled?{outputSchema:compiled.schema}:{}),onActive,onEvent});
+      const taskPrompt=number===1?[prompt,capabilities?.instructions].filter(Boolean).join('\n\n'):'Correct your previous answer to match the supplied output schema. Return only the JSON object. Do not run commands or use tools; revise the answer from existing evidence.';
+      const result=await turn(client,{threadId,prompt:[taskPrompt,outputGuidance].filter(Boolean).join('\n\n'),timeoutMs:remaining===Infinity?null:remaining,liveDeadline,signal,model:settings.model,effort:settings.effort,execution,...(compiled?{outputSchema:compiled.schema}:{}),onActive,onEvent});
       terminalObserved=true;
       attempt.turnId=result.turnId;
       if(result.output)attempt.output=result.output;

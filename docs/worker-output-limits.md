@@ -14,7 +14,9 @@ unknown.
 
 ## Separate limits
 
-These values were checked against source; only the first row changes here.
+These values were checked against source. Version 0.3.6 changed the transport row;
+the 0.4.2 candidate advertises the existing structured-validation budget without
+increasing any ceiling.
 MiB means 1,048,576 bytes and KiB means 1,024 bytes.
 
 | Boundary | Ceiling and scope | Source |
@@ -26,6 +28,7 @@ MiB means 1,048,576 bytes and KiB means 1,024 bytes.
 | Background launch request | 2 MiB serialized request | `engine/background.mjs`, `serialized` check |
 | Evaluator broker traffic | 1 MiB per evaluator message or broker response | `engine/evaluate.mjs`, message handler and response check |
 | Final answer | 512 KiB retained answer-text budget; exceeding it fails with `TURN_OUTPUT_LIMIT` | `foundation/turn.mjs`, `retain` |
+| Structured JSON validation | At most 1 MiB serialized UTF-8 JSON, further limited by `floor(8 MiB / schema cost)`; exceeding work admission fails with `RESULT_LIMIT` | `engine/schema.mjs`, `compileSchema` |
 | Retained turn previews | 1 MiB combined serialized item previews, at most 1,024 items; ordinary long fields previewed at 4,000 JS characters | `foundation/turn.mjs`, `itemPreview`, `retain` |
 | Ordinary activity record | 16,000 serialized bytes, with field reduction; this is slightly less than 16 KiB | `engine/activity.mjs`, `normalized` loop; native tool projections use their own allowlisted bounds |
 
@@ -34,6 +37,23 @@ It does not enlarge any retention, answer, evaluator, capture, or activity budge
 Parsing may temporarily use more memory and CPU than the retained preview.
 Total observed output can exceed a frame ceiling while every individual frame
 remains below it.
+
+## Structured answer budget
+
+The 0.4.2 candidate sends the exact schema-dependent maximum serialized byte
+count to both the initial worker turn and any admitted answer-only correction.
+The same count is retained as `evidence.structuredOutputLimits.maxSerializedBytes`.
+It describes validator admission, not a promise that every schema-valid answer
+fits the native answer, task, persisted record or combined evaluator response.
+Those limits remain separate and may be lower. JSON property names, quoting,
+escapes and multibyte text all count toward the serialized byte total.
+
+An observed 68,242-byte game inventory failed an approximately 42 KiB effective
+validation budget even though it fit the generic 512 KiB native answer limit.
+The original failed run remains failed. Advertised limits help authors choose
+smaller summaries or an owned artifact handoff before inference; they do not
+automatically retry, truncate, recover or accept earlier outputs. Workers must
+report missing coverage explicitly rather than silently dropping required items.
 
 ## Failure semantics
 
