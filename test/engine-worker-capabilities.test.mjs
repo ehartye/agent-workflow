@@ -1,5 +1,6 @@
 // @lane merge
 // @subject engine/worker-capabilities.mjs
+// @subject test/fixtures/capability-source-swap.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';
@@ -127,6 +128,12 @@ test('retention rejects a plugin manifest changed after native catalog discovery
   const parentCapabilities={roots:[{id:'plugin',location:{type:'environment',environmentId:'local',path:f.source}}],inventory:{plugins:[{id:'fixture@owned',rootId:'plugin',manifestSha256:digest('{"name":"fixture"}')}],skills:[]},coverage:{complete:true},fingerprint:'a'.repeat(64)};
   await writeFile(join(f.source,'.codex-plugin','plugin.json'),'{"name":"fixture","version":"changed"}');
   await assert.rejects(captureCapabilitySources({runDir:f.runDir,manifest:f.manifest,parentCapabilities}),{code:'CAPABILITY_SOURCES'});
+});
+
+test('an intermediate destination junction is rejected before any file is created outside its retained package',async()=>{
+  const result=await promisify(execFile)(process.execPath,[fileURLToPath(new URL('./fixtures/capability-source-swap.mjs',import.meta.url))],{windowsHide:true,timeout:10000,maxBuffer:8192});
+  const observed=JSON.parse(result.stdout);assert.equal(observed.swapped,true);assert.equal(observed.error,'CAPABILITY_SOURCES');
+  assert.equal(observed.outsideCreated,false,'rejection after writing through the junction is too late');
 });
 test('duplicate IDs names paths and unbounded references are rejected',async t=>{
   const {verifySkillSources}=await resolver(),{skill}=await fixture(t);

@@ -33,12 +33,35 @@ async function ordinary(path,directory){
   }
 }
 
-async function fileIdentity(path,limits,{copyTo}={}){
-  await ordinary(path,false);const input=await open(path,'r');let output;
+// A traversal checks each directory identity, rather than resolving every
+// absolute ancestor again for every resource. Final revalidation still rejects
+// persistent ancestor replacement/links; handles bind each actual file read.
+async function traversalGuard(root,{mutable=false}={}){
+  await ordinary(root,true);const identities=new Map();
+  const prefixes=[];let current=parse(root).root;
+  for(const part of relative(current,root).split(/[\\/]/).filter(Boolean)){current=join(current,part);prefixes.push(current);}
+  const check=async path=>{
+    if(!within(root,path)&&!within(path,root))fail();const stat=await lstat(path),before=identities.get(key(path));
+    if(stat.isSymbolicLink()||!stat.isDirectory()||before&&(stat.dev!==before.dev||stat.ino!==before.ino||stat.mode!==before.mode||within(root,path)&&!mutable&&(stat.mtimeMs!==before.mtimeMs||stat.ctimeMs!==before.ctimeMs)))fail();
+    if(!before)identities.set(key(path),stat);
+  };
+  const directory=async(path,{absolute=true}={})=>{
+    if(!within(root,path))fail();
+    if(absolute)for(const prefix of prefixes)await check(prefix);else await check(root);
+    let current=root;for(const part of relative(root,path).split(/[\\/]/).filter(Boolean)){current=join(current,part);await check(current);}
+  };
+  await directory(root);
+  return {check,directory,async parent(path,options){await directory(dirname(path),options);},async finish(){for(const path of identities.keys())await check(path);await ordinary(root,true);}};
+}
+
+async function fileIdentity(path,limits,{copyTo,sourceGuard,targetGuard}={}){
+  if(sourceGuard)await sourceGuard.parent(path);else await ordinary(path,false);
+  const entryBefore=await lstat(path);if(entryBefore.isSymbolicLink()||!entryBefore.isFile()||entryBefore.nlink!==1)fail();
+  const input=await open(path,'r');let output;
   try{
     const before=await input.stat();
-    if(!before.isFile()||before.nlink!==1||before.size>MAX_BYTES||limits.bytes+before.size>MAX_BYTES)fail();
-    if(copyTo){await ordinary(dirname(copyTo),true);output=await open(copyTo,'wx',before.mode&0o777);}
+    if(!before.isFile()||before.nlink!==1||!same(entryBefore,before)||before.size>MAX_BYTES||limits.bytes+before.size>MAX_BYTES)fail();
+    if(copyTo){if(targetGuard)await targetGuard.parent(copyTo);else await ordinary(dirname(copyTo),true);output=await open(copyTo,'wx',before.mode&0o777);}
     const digest=createHash('sha256'),buffer=Buffer.alloc(64*1024);let bytes=0;
     while(true){const {bytesRead}=await input.read(buffer,0,buffer.length,null);if(!bytesRead)break;bytes+=bytesRead;
       if(bytes>before.size||limits.bytes+bytes>MAX_BYTES)fail();const chunk=buffer.subarray(0,bytesRead);digest.update(chunk);
@@ -46,25 +69,27 @@ async function fileIdentity(path,limits,{copyTo}={}){
     }
     const after=await input.stat(),entry=await lstat(path);
     if(bytes!==before.size||!same(before,after)||!same(before,entry)||entry.isSymbolicLink())fail();
-    await ordinary(path,false);limits.bytes+=bytes;
+    if(sourceGuard)await sourceGuard.parent(path,{absolute:false});else await ordinary(path,false);limits.bytes+=bytes;
     if(output){await output.sync();await output.close();output=null;await chmod(copyTo,before.mode&0o777);}
+    if(copyTo&&targetGuard)await targetGuard.parent(copyTo,{absolute:false});
     return {bytes,mode:before.mode&0o777,sha256:digest.digest('hex')};
   }finally{await output?.close();await input.close();}
 }
 
 async function inventory(root,limits){
-  const files=[],directories=[],pending=[{path:root,depth:0}];
-  while(pending.length){const {path,depth}=pending.pop();await ordinary(path,true);const stat=await lstat(path);
+  const files=[],directories=[],pending=[{path:root,depth:0}],guard=await traversalGuard(root);
+  while(pending.length){const {path,depth}=pending.pop();await guard.directory(path);const stat=await lstat(path);
     directories.push({path:relative(root,path).replaceAll('\\','/'),mode:stat.mode&0o777});
     for await(const entry of await opendir(path)){
       if(++limits.entries>MAX_ENTRIES||/[\u0000-\u001f\u007f]/.test(entry.name)||entry.name.includes(':'))fail();
       const child=join(path,entry.name),info=await lstat(child);
       if(info.isSymbolicLink())fail();
       if(info.isDirectory()){if(depth>=32)fail();pending.push({path:child,depth:depth+1});}
-      else{if(!info.isFile()||info.nlink!==1)fail();files.push({path:relative(root,child).replaceAll('\\','/'),...await fileIdentity(child,limits)});}
+      else{if(!info.isFile()||info.nlink!==1)fail();files.push({path:relative(root,child).replaceAll('\\','/'),...await fileIdentity(child,limits,{sourceGuard:guard})});}
     }
-    await ordinary(path,true);
+    await guard.directory(path,{absolute:false});
   }
+  await guard.finish();
   files.sort((a,b)=>order(a.path,b.path));directories.sort((a,b)=>order(a.path,b.path));
   return {files,directories};
 }
@@ -101,7 +126,9 @@ export async function captureCapabilitySources({runDir,manifest=null,parentCapab
     for(const originalRoot of roots){
       const tree=await inventory(originalRoot,beforeBudget),root=targetFor(store,originalRoot);
       for(const dir of [...tree.directories].sort((a,b)=>a.path.length-b.path.length))await mkdir(join(root,dir.path),{mode:0o700});
-      for(const file of tree.files){const copied=await fileIdentity(join(originalRoot,file.path),copyBudget,{copyTo:join(root,file.path)});if(canonical(copied)!==canonical({bytes:file.bytes,mode:file.mode,sha256:file.sha256}))fail();}
+      const sourceGuard=await traversalGuard(originalRoot),targetGuard=await traversalGuard(root,{mutable:true});
+      for(const file of tree.files){const copied=await fileIdentity(join(originalRoot,file.path),copyBudget,{copyTo:join(root,file.path),sourceGuard,targetGuard});if(canonical(copied)!==canonical({bytes:file.bytes,mode:file.mode,sha256:file.sha256}))fail();}
+      await sourceGuard.finish();await targetGuard.finish();
       // Directory creation is subject to umask; establish the admitted modes.
       for(const dir of [...tree.directories].reverse())await chmod(join(root,dir.path),dir.mode);
       packages.push({originalRoot,root,tree,treeSha256:sha(canonical(tree))});
