@@ -78,6 +78,21 @@ function boundedWorkerClient(client,signal,deadline){
   }};
 }
 
+// Native inventory waits for configured MCP startup. Its RPC allowance must
+// include that startup budget instead of expiring at the ordinary 15-second
+// transport bound. Worker wall deadlines/cancellation still race this request.
+function integrationInventoryTimeoutMs(config){
+  const protocolAllowanceMs=15000,maxTimerMs=2147483647;
+  let timeoutMs=protocolAllowanceMs;
+  for(const server of Object.values(config.mcp_servers??{})){
+    if(server.enabled===false||server.startup_timeout_sec===undefined)continue;
+    const seconds=server.startup_timeout_sec,milliseconds=Math.ceil(seconds*1000);
+    if(typeof seconds!=='number'||!Number.isFinite(seconds)||seconds<0||!Number.isSafeInteger(milliseconds)||milliseconds>maxTimerMs-protocolAllowanceMs)throw fault('MCP_STARTUP_TIMEOUT','Configured MCP startup budget exceeds the supported RPC timer range');
+    timeoutMs=Math.max(timeoutMs,milliseconds+protocolAllowanceMs);
+  }
+  return timeoutMs;
+}
+
 export async function createManagedBackend({ executable, cwd, backend = 'configured', defaults={},workerCapabilities,workerCapabilitiesHash,session0Desktop='inherit',accessPolicy,runDir,capabilitySources,retainSources=false }) {
   accessPolicy=accessPolicy===undefined?undefined:validateAccessPolicy(accessPolicy);
   if(defaults.permissions?.sandbox==='workspace-write'&&(process.platform!=='win32'||backend!=='mxc'))throw fault('WORKSPACE_BACKEND','Writers require the verified Windows MXC backend; select --backend mxc');
@@ -268,7 +283,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
         }
         if(closing||signal?.aborted)throw Object.assign(fault('RUN_STOPPED','Worker admission is closed'),{notStarted:true,noProcessStarted:true});
         let started = false;
-        let ownedThread,result,primary,workerClient,capabilities,nativeSkills,observedIntegrations,liveDeadline;
+        let ownedThread,result,primary,workerClient,capabilities,nativeSkills,observedIntegrations,liveDeadline,nativeInventory;
         const parentNative=parentCapabilities?{catalog:'notObserved',read:'notObserved',exposure:directSkills?'effectiveDirectModelOnly':'notSelected'}:undefined;
         const finishNative=()=>{nativeSkills?.finish();if(capabilities&&parentNative)Object.assign(capabilities.native,parentNative);};
         const workerEnv=createLaunch({executable:launch.command,cwd:workerCwd,backend,env:launch.env,capabilityEnvironment:selection?.environment}).env;
@@ -305,14 +320,20 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
           capabilities=await admitWorkerCapabilities(boundedClient,{cwd:workerCwd,selection,signal,...(parent?{sandboxPolicy:policy.turn.sandboxPolicy}:{})});
           if(capabilities)capabilities.native.exposure=directSkills?'effectiveDirectModelOnly':'notSelected';
           if(parentNative||capabilities)nativeSkills=observeNativeSkills(workerClient,ownedThread,parentNative??capabilities.native,{skills:selection?.skills??[]});
-          const tools = await boundedClient.request('mcpServerStatus/list', {threadId:thread.thread.id,detail:'toolsAndAuthOnly',limit:100},{timeoutMs:15000});
-          if(parent){
-            observedIntegrations=integrationFacts(workerConfig.config,tools);
-            observedIntegrations.authentication=observedIntegrations.servers.map(server=>({name:server.name,status:['unknown','unsupported','notLoggedIn','bearerToken','oAuth'].includes(tools.data.find(item=>item.name===server.name)?.authStatus)?tools.data.find(item=>item.name===server.name).authStatus:'unknown'}));
-            const {fingerprint:priorFingerprint,...facts}=observedIntegrations;
-            observedIntegrations.fingerprint=fingerprint(facts);
-          }
-          if(!parent)assertDisabledInventory(tools);
+          const inventoryTimeoutMs=integrationInventoryTimeoutMs(workerConfig.config),inventoryStarted=performance.now();
+          nativeInventory={status:'running',timeoutMs:inventoryTimeoutMs,elapsedMs:0};
+          try{
+            const tools=await boundedClient.request('mcpServerStatus/list',{threadId:thread.thread.id,detail:'toolsAndAuthOnly',limit:100},{timeoutMs:inventoryTimeoutMs});
+            if(parent){
+              observedIntegrations=integrationFacts(workerConfig.config,tools);
+              observedIntegrations.authentication=observedIntegrations.servers.map(server=>({name:server.name,status:['unknown','unsupported','notLoggedIn','bearerToken','oAuth'].includes(tools.data.find(item=>item.name===server.name)?.authStatus)?tools.data.find(item=>item.name===server.name).authStatus:'unknown'}));
+              const {fingerprint:priorFingerprint,...facts}=observedIntegrations;
+              observedIntegrations.fingerprint=fingerprint(facts);
+            }
+            if(!parent)assertDisabledInventory(tools);
+            nativeInventory.status='passed';
+          }catch(error){nativeInventory.status='failed';throw error;}
+          finally{nativeInventory.elapsedMs=performance.now()-inventoryStarted;}
           if (signal?.aborted) throw fault('RUN_STOPPED', 'Workflow admission is closed');
           remaining();
           started = true;
@@ -347,6 +368,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
             }
           }
           result.evidence.settings=effective;
+          if(nativeInventory)result.evidence.nativeInventory={...nativeInventory};
           if(observedIntegrations)result.evidence.nativeIntegrations=observedIntegrations;
           return result;
         } catch (error) {
@@ -357,6 +379,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
           if(sourceEvidence)error.evidence.capabilitySources={...sourceEvidence};
           if(parentCapabilities)error.evidence.parentCapabilities={...structuredClone(parentCapabilities),selectedRoots:structuredClone(roots),native:{...parentNative}};
           if(observedIntegrations)error.evidence.nativeIntegrations=observedIntegrations;
+          if(nativeInventory)error.evidence.nativeInventory={...nativeInventory};
           if(error.capabilities)error.evidence.capabilities=error.capabilities;
           else if(capabilities)error.evidence.capabilities={...(error.evidence.capabilities??capabilities),native:{...capabilities.native}};
           throw error;
