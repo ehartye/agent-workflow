@@ -1,6 +1,8 @@
 # Fresh CLI and monitor API
 
-This describes the 0.3.4 API, including parent access, automatic native catalog provisioning, signed packaged job ownership, 512 MiB capture and completion skill checks. Version 0.3.4 adds the Map + inspector presentation and bounded job-helper cleanup diagnostics; execution authority and strict drain requirements remain unchanged. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
+This describes the 0.3.6 API, including parent access, automatic native catalog provisioning, signed packaged job ownership, 512 MiB capture and completion skill checks. Version 0.3.5 introduced the Map + inspector presentation and bounded job-helper cleanup diagnostics; execution authority and strict drain requirements remain unchanged. Version-specific additions are identified below; publication is recorded in GitHub Releases, not inferred from this document. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
+
+`--args-file` is available from **0.3.6**. An installed **0.3.5** runtime does not support it and remains unchanged until an explicit update. Users of 0.3.5 can already pass small manifest path/hash/range references through `--args JSON`; saved runs keep their recorded runtime and supported API. Check the installed help before choosing either transport.
 
 ## CLI
 
@@ -13,7 +15,7 @@ All commands accept --data-dir. Otherwise state selection uses AGENT_WORKFLOW_DA
 | workflows / read [scope:]name | --cwd |
 | save [scope:]name | --script, --cwd, --command, --overwrite |
 | validate file | Alternatively --script file |
-| run [scope:]name | Alternatively --script file; --cwd, --session, --args JSON, --concurrency, --model, --effort, --max-attempts, --access parent\|restricted, --parent-access file, --writable, --foreground, --backend, --worker-timeout-ms, --run-timeout-ms, --capture-policy file, --worker-capabilities file |
+| run [scope:]name | Alternatively --script file; --cwd, --session, --args JSON or --args-file path, --concurrency, --model, --effort, --max-attempts, --access parent\|restricted, --parent-access file, --writable, --foreground, --backend, --worker-timeout-ms, --run-timeout-ms, --capture-policy file, --worker-capabilities file |
 | list / status ID / result ID | Inspect persisted runs; list accepts --show-hidden |
 | watch ID | --session, --generation, --jsonl; optional --after, --idle-ms, --poll-ms |
 | worker ID | --position, --generation, optional --source-generation |
@@ -43,6 +45,18 @@ Parent runs separately retain `parentCapabilitiesHash` from the admitted backend
 Worker deadlines default to 600,000 ms, with an explicit range of 1–1,800,000 ms. Overall run wall deadlines default to disabled (0), with an optional limit up to 86,400,000 ms. Completion/manual Stop owns the default run lifetime; evaluator CPU, memory and no-pending-work idle protections still apply. Persisted deadline values retain their original meaning on replay. Explicit capture policy is immutable after new-run admission; resume/restart reject policy overrides. See [capture and lifecycle](session-delivery.md) for policy syntax, inventories, exact revision targets and lost-response inspection.
 
 Normal run returns a detached startup receipt. --foreground waits and returns a nonzero exit code unless the run completed with complete worker coverage. Read-only status exit zero means the read succeeded, not the run. result returns retained result/error; inspect status for coverage and cleanup.
+
+### New-run argument input
+
+Use `run ... --args JSON` for small values or `run ... --args-file path` for larger UTF-8 JSON. They are mutually exclusive; resume/restart accept neither input override. File paths resolve from the invoking process directory, independently of `--cwd`. The CLI reads a regular file boundedly (at most 2 MiB raw bytes), rejects malformed JSON/invalid UTF-8/nonregular/oversized input, and snapshots the parsed **value** into saved args. Editing or removing the source file after start cannot retarget replay. JSON whitespace is not preserved; Unicode and JSON data values are. Omitted args remain `null`.
+
+Both forms preflight the exact serialized evaluator start envelope before `bindRun`, backend creation or inference. Its existing 2 MiB UTF-8 limit includes script body, args, JSON escaping and envelope overhead; a smaller file can still exceed it. Scripts remain limited to 1 MiB. Broker messages/responses (including final results) remain 1 MiB each; worker prompts remain 65536 UTF-16 code units. Collections allow 4096 entries, but worker requests and lifetime starts/attempts are capped at 1000 per run; broker calls are capped at 10000. Limits are not raised and input is not truncated. Both flags are available in 0.3.6; saved runs still select their recorded runtime/API identities.
+
+Bulk data belongs in frozen/hash-verified project manifests and chunks, with small args carrying paths, hashes, counts and assigned ranges. The evaluator has no filesystem. Workers verify input identity and read only their assigned records. Cached replay does not verify current external bytes; a path alone is insufficient for freshness. See [large inputs and bounded batches](../skills/workflow-authoring/references/large-inputs-and-batches.md) for input-choice tradeoffs, bounded rounds, separate concurrency/batch size, total call budgets and missing-result preservation.
+
+The persisted run header and detached launch request have separate 2 MiB serialized-record limits. The CLI also checks the known persisted input before binding: full script **and parsed metadata**, args, launch and duplicated declared capability/policy fields. This is a lower bound, not complete admission: backend/runtime/catalog/workspace/lifecycle facts and detached request fields add overhead later. Passing input preflight does not guarantee the final record fits. Leave headroom and use small manifest descriptors for bulk work; inspect any later refusal rather than retrying an uncertain start.
+
+Large worker outputs use a separate [output handoff and limit contract](worker-output-limits.md). Version 0.3.6 raises the native inbound Codex frame default from 1 MiB to 16 MiB; installed 0.3.5 retains its existing limit until an explicit update. The 512 MiB captured-file/diff limits, 512 KiB native answer limit, 1 MiB retained previews and evaluator-response bounds remain separate. Return bounded summaries and verified artifact references for bulk results.
 
 ## Attached observation
 
@@ -153,9 +167,9 @@ dashboard starts a separate loopback server bound to 127.0.0.1 on port 0. Its fu
 
 POST bodies require application/json and are capped at 40,000 bytes. Unknown fields on control/resume/restart reject. Generation conflicts return 409; malformed inputs return 400. Controls return receipts; resume/restart return startup acknowledgement. The authenticated monitor uses the run's recorded session after launcher ownership validation. Edited-script resume is a CLI operation.
 
-Activity retains at most 256 records per worker and 4,096 per generation, each at most 16 KiB. Pages disclose discarded records and shortened fields; raw reasoning is excluded. Cached activity identifies its original source generation. Prior worker/patch/activity reads require a linked prior execution. Runtime inspection makes no model call.
+Activity retains at most 256 records per worker and 4,096 per generation, each at most 16,000 bytes. Pages disclose discarded records and shortened fields; raw reasoning is excluded. Cached activity identifies its original source generation. Prior worker/patch/activity reads require a linked prior execution. Runtime inspection makes no model call.
 
-Session-bound monitors additionally expose authenticated `/api/session/runs` and `/api/runs/ID/...` scoped reads/controls, lifecycle operations and receipt inspection. `/runs/ID` and `/session` are presentation routes; choosing a view does not arm execution controls. `/api/health` describes dashboard health independently of saved execution outcomes. The HTTP surface has no global workflow-start, configuration or approval service: worker policy remains approvals never. Typed task reports remain unverified claims without an authenticated acceptance receipt; see [evidence meanings](session-delivery.md#session-dashboard-and-evidence-meanings).
+Session-bound monitors additionally expose authenticated `/api/session/runs` and `/api/runs/ID/...` scoped reads/controls, lifecycle operations and receipt inspection. `/runs/ID` and `/session` are presentation routes. In the 0.3.6 Current run flow, opening or filtering Change run is read-only; deliberately choosing a row selects that run and enables available controls only after a fresh matching run/runtime/data-instance/generation snapshot. Automatic following does not select a control target, and selecting a run sends no mutation. Version 0.3.5 retains its separate control-selection step. `/api/health` describes dashboard health independently of saved execution outcomes. The HTTP surface has no global workflow-start, configuration or approval service: worker policy remains approvals never. Typed task reports remain unverified claims without an authenticated acceptance receipt; see [evidence meanings](session-delivery.md#session-dashboard-and-evidence-meanings).
 
 ## Session 0 desktop compatibility
 

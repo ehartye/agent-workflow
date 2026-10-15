@@ -4,7 +4,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile,cp,appendFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile,cp,appendFile,stat } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { fileURLToPath,pathToFileURL } from 'node:url';
@@ -29,6 +29,20 @@ async function setup(t) {
 }
 // Synthetic backend observations; these tests make no model, Windows job or descendant claim.
 const backend = execute => ({ identity: 'fixture-v1', execute, close: async () => ({ serverExited: true, descendants: 'notVerified' }) });
+
+test('new-run persisted input overflow refuses before creating state artifacts',async t=>{
+ const {runDir:root,runWorkflow}=await setup(t),runDir=join(root,'unbound');let calls=0;
+ const script=`export const meta={name:"large",description:${JSON.stringify('m'.repeat(600000))}};return args;`;
+ await assert.rejects(runWorkflow({runDir,sessionId:'s',script,args:'x'.repeat(1500000),backend:backend(async()=>{calls++;return{value:null,terminalObserved:true};})}),error=>error.code==='RESULT_SIZE'&&/persisted run input.*2 MiB/.test(error.message));
+ assert.equal(calls,0);await assert.rejects(stat(runDir),{code:'ENOENT'});
+});
+
+test('oversized worker prompt retains AGENT_INPUT with file-backed guidance before execution',async t=>{
+ const {runDir,runWorkflow}=await setup(t);let calls=0;
+ const run=await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent(args);',args:'🙂'.repeat(32769),backend:backend(async()=>{calls++;return{value:'unexpected',terminalObserved:true};})});
+ assert.equal(calls,0);assert.equal(run.error.code,'AGENT_INPUT');
+ assert.match(run.error.message,/65536 UTF-16/);assert.match(run.error.message,/file.*hash.*range/i);
+});
 
 test('parent catalog drift refuses replay before repeating a completed writer or changing retained artifacts',async t=>{
   const {runDir:root,runWorkflow,readRun}=await setup(t);

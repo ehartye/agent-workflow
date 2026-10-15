@@ -1,6 +1,10 @@
 import { createInterface } from 'node:readline';
+import { appendFileSync } from 'node:fs';
 
 const mode = process.argv[2];
+const deliveryLog = process.argv[3];
+const record = method => { if (deliveryLog) appendFileSync(deliveryLog, `${method}\n`); };
+record('server-start');
 const commandResultMode = /^command-result-(buffered|streamed|pty)-(.+)$/.exec(mode);
 const commands = new Map();
 const turns = new Map();
@@ -12,6 +16,7 @@ const reply = (id, result) => process.stdout.write(`${JSON.stringify({ id, resul
 const notification = (method, params) => process.stdout.write(`${JSON.stringify({ method, params })}\n`);
 createInterface({ input: process.stdin }).on('line', line => {
   const req = JSON.parse(line);
+  record(req.method ?? 'server-response');
   if (req.id === 'approval') { reply(approvalRequest, { rejected: Boolean(req.error) }); return; }
   if (req.method === 'initialize') {capabilities=req.params.capabilities;return reply(req.id, { userAgent: 'codex/0.162.1' });}
   if(req.method==='capabilities')return reply(req.id,capabilities);
@@ -39,6 +44,13 @@ createInterface({ input: process.stdin }).on('line', line => {
     return process.stdout.write(`${JSON.stringify({ id: 'approval', method: 'item/commandExecution/requestApproval', params: {} })}\n`);
   }
   if (req.method === 'hang') return;
+  if (req.method === 'frame') {
+    const message = { method: 'frame-output', params: { text: 'FRAME_SECRET_SENTINEL café 🧪', tail: '' } };
+    message.params.tail = 'x'.repeat(req.params.bytes - Buffer.byteLength(JSON.stringify(message)));
+    process.stdout.write(JSON.stringify(message) + (req.params.terminated ? '\n' : ''));
+    if (req.params.terminated) reply(req.id, { bytes: req.params.bytes });
+    return;
+  }
   if (req.method === 'bad') return process.stdout.write('not-json\n');
   if (req.method === 'big') return process.stdout.write('x'.repeat(2048));
   if (req.method === 'exit') return process.exit(7);
@@ -65,6 +77,19 @@ createInterface({ input: process.stdin }).on('line', line => {
       notification('item/completed',{threadId,turnId,item:answer});
       notification('turn/completed',{threadId,turn:{id:turnId,status:'completed',items:mode==='turn-phase-snapshot'?[progress,answer].map(({phase,...item})=>item):[]}});
       return reply(req.id,{turn:{id:turnId}});
+    }
+    if(mode==='turn-large-frame'){
+      reply(req.id,{turn:{id:turnId}});
+      return setTimeout(()=>{
+        const prefix='café 🧪|',suffix='|fin 🧪';
+        const output=prefix+'x'.repeat(2*1024*1024-Buffer.byteLength(prefix+suffix))+suffix;
+        const item={id:'read',type:'commandExecution',status:'completed',exitCode:0,aggregatedOutput:output};
+        const answer={id:'answer',type:'agentMessage',phase:'final_answer',text:'Read complete.'};
+        notification('item/commandExecution/outputDelta',{threadId,turnId,itemId:'read',delta:output});
+        notification('item/completed',{threadId,turnId,item});
+        notification('item/completed',{threadId,turnId,item:answer});
+        notification('turn/completed',{threadId,turn:{id:turnId,status:'completed',items:[item,answer]}});
+      },20);
     }
     if(mode==='turn-verbose'||mode==='turn-answer-limit'){
       reply(req.id,{turn:{id:turnId}});

@@ -30,6 +30,25 @@ function json(value) {
   if (text == null || Buffer.byteLength(text) > 2 * 1024 * 1024) throw fault('RESULT_SIZE', 'Workflow record exceeded its limit');
   return text;
 }
+// A necessary lower bound, not a prediction of the final header: backend,
+// runtime, workspace and lifecycle facts are added during execution.
+export function preflightRunInput({script,args=null,launch=null,workerCapabilities,workerCapabilitiesHash,workerCapabilitySources,capturePolicy}) {
+  const {meta}=parseScript(script),record={meta,script,args,launch};
+  const capabilities=workerCapabilities??launch?.workerCapabilities;
+  if(capabilities!==undefined){
+    record.workerCapabilities=capabilities;
+    const fingerprint=workerCapabilitiesHash??launch?.workerCapabilitiesHash;
+    if(fingerprint!==undefined)record.workerCapabilitiesHash=fingerprint;
+    if(workerCapabilitySources!==undefined)record.workerCapabilitySources=workerCapabilitySources;
+  }
+  if(launch?.accessPolicy!==undefined)record.accessPolicy=launch.accessPolicy;
+  const policy=capturePolicy??launch?.capturePolicy;
+  if(policy!==undefined){record.capturePolicy=policy;if(launch?.capturePolicyHash!==undefined)record.capturePolicyHash=launch.capturePolicyHash;}
+  try{json(record);}catch(error){
+    if(error.code==='RESULT_SIZE')throw fault('RESULT_SIZE','Known persisted run input exceeds the 2 MiB record limit; use file-backed manifests with hashes and bounded ranges');
+    throw error;
+  }
+}
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
@@ -138,6 +157,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if(!Number.isFinite(drainTimeoutMs)||drainTimeoutMs<=0)throw fault('RUN_INPUT','A positive drain deadline is required');
     if (!isAbsolute(runDir ?? '') || typeof sessionId !== 'string' || !sessionId || sessionId.length > 256 || !backend || typeof backend.execute !== 'function' || typeof backend.close !== 'function' || typeof backend.identity !== 'string' || !backend.identity || !Number.isInteger(concurrency) || concurrency < 1 || concurrency > 256 || !Number.isInteger(maxAgents) || maxAgents < 1 || maxAgents > 1000) throw fault('RUN_INPUT', 'Invalid workflow identity, backend or limits');
     json(args);
+    if(!resume)preflightRunInput({script,args,launch,workerCapabilities,workerCapabilitiesHash,capturePolicy});
     if(resume&&accessPolicy!==undefined)throw fault('ACCESS_OVERRIDE','Resume/restart retain their original access policy');
     const checkedAccess=value=>value===undefined?undefined:validateAccessPolicy(value,{sessionId});
     const inputAccess=checkedAccess(accessPolicy),launchAccess=checkedAccess(launch?.accessPolicy),backendAccess=checkedAccess(backend.accessPolicy);
@@ -287,6 +307,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     };
     controlTimer=setInterval(()=>{try{applyControls();}catch(error){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();for(const resolve of waiters.splice(0))resolve();}},25);
     const dispatch = async ({ prompt, options = {} }) => {
+      if (typeof prompt === 'string' && prompt.length > 65536) throw fault('AGENT_INPUT', 'Worker prompt exceeds 65536 UTF-16 code units; keep bulk data in project files and pass file paths, hashes and assigned ranges');
       if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['id','dependsOn','label','phase','timeoutMs','schema','model','effort','maxAttempts','permissions','workspace','skills','requireTools'].includes(key)) || options.workspace!==undefined&&options.workspace!=='isolated' || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > MAX_WORKER_TIMEOUT_MS)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
       const capabilitySelection=selectCapabilities(capabilities?.manifest,options);
       options={...options,timeoutMs:options.timeoutMs??workerTimeoutMs};

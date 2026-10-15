@@ -1,0 +1,270 @@
+{
+  "acceptedAt": "2026-10-15T03:09:52.114Z",
+  "status": "locallyVerifiedUnpublished",
+  "publishedInstalledVersion": "0.3.5",
+  "sourceManifest": "reports/review-current-source-2026-10-14.json",
+  "sources": [
+    {
+      "path": "engine/monitor/app.mjs",
+      "sha256": "6e8ede5d5265b61db7a62806aee5b009035464aed6810d98c3b55293210a31ae"
+    },
+    {
+      "path": "engine/monitor/index.html",
+      "sha256": "b41e61f8b22725ba6a3d7ec7af613648c17c3a74907c334810a9649f423c012a"
+    },
+    {
+      "path": "engine/monitor/style.css",
+      "sha256": "fe83f3b4d95f7bc2494cf7e019c575f6d7bd41c1463c4e09d66e919defb4a82f"
+    },
+    {
+      "path": "test/engine-monitor-ui.test.mjs",
+      "sha256": "2d077e5078a48d3a296fb00d8d3b7a80e63b792b56b57e9090449b2c09147df0"
+    },
+    {
+      "path": "test/engine-monitor.test.mjs",
+      "sha256": "448a8941d90767c24a38a390cd70f82fa99f74aae8232998813a6aebdc792671"
+    },
+    {
+      "path": "bin/arguments.mjs",
+      "sha256": "73fabac7a5ee52c95812c209a75b91c20224d1ea5baeccb0229a7eeb1db8d1e4"
+    },
+    {
+      "path": "bin/command.mjs",
+      "sha256": "38ece2b7719fb2d2b93a7456ab86f5fdb6aaa59f81a88960598a6fc56e736d98"
+    },
+    {
+      "path": "engine/evaluate.mjs",
+      "sha256": "3d6bc4abd4041f66e0bcbe13468e34e651ba17217d336abedaa3c416ab8fda9f"
+    },
+    {
+      "path": "engine/controller.mjs",
+      "sha256": "ce909b5b3c1efaf2a12bf76726da18e08965457a2e60489e224c3b9218609db2"
+    },
+    {
+      "path": "engine/background.mjs",
+      "sha256": "ffe465e603610acce0577ff8385d134b265f7032f44d69d9f79c365152164330"
+    },
+    {
+      "path": "foundation/client.mjs",
+      "sha256": "3b2a79a053960cc80d1cd205f903c6249f163eddd1a8396deb0361bbaaa068a9"
+    },
+    {
+      "path": "test/managed-entry.test.mjs",
+      "sha256": "1812faa63cfa2399b492414a186658e69cd2266c201322d8e5cef32deb82b559"
+    },
+    {
+      "path": "test/engine-evaluator.test.mjs",
+      "sha256": "b1a150e1c80cf5a9c28f7dfec57cfb649ed0e2914308720b57b179a5f9e500c3"
+    },
+    {
+      "path": "test/engine-controller.test.mjs",
+      "sha256": "ae2d86a3b2470f81278b6f5f7a6bf795bd4b1eab863d7bd244700fb4af5b12bc"
+    },
+    {
+      "path": "test/codex-foundation.test.mjs",
+      "sha256": "0e57003d1e4cc5452b545b7cbd3442848b2535ee2afe1be88fe573d053274fcf"
+    },
+    {
+      "path": "test/codex-turn.test.mjs",
+      "sha256": "52de5cce12529c2fd4ae213b706c5b6d19625325a06e0ff4f70baa692ccf50f5"
+    },
+    {
+      "path": "test/fixtures/foundation-server.mjs",
+      "sha256": "90ffd1c906b575c3324010630eaf24858d6d5d4e7203f54fb2997ac0ef5b17c1"
+    },
+    {
+      "path": "docs/monitor-design.md",
+      "sha256": "1d9810ac57f0ad6315f9884f9560fdd849da066c989e20b9e74c49aa494bbccd"
+    },
+    {
+      "path": "docs/api.md",
+      "sha256": "2940f50bf44c571da479b1c320134bc764627fd09c0980b0ff166e1c006ea98d"
+    },
+    {
+      "path": "docs/worker-output-limits.md",
+      "sha256": "4eb5f42d3b74f2243e1720f5df16bde8d8f422abc2736175aafad88d590e7c2b"
+    },
+    {
+      "path": "skills/workflow-authoring/SKILL.md",
+      "sha256": "cd1d1981f13707dead2b96e1d9fc8a37b019bca8444e698fd68daf2080389c2b"
+    },
+    {
+      "path": "skills/workflow-authoring/references/large-inputs-and-batches.md",
+      "sha256": "05931880e9b5d74b891399d25060ff2d9b36f2fb9172f17b6df2f49ce7270a56"
+    },
+    {
+      "path": "skills/agent-workflow/references/runtime-api.md",
+      "sha256": "a391398485d25bbe9dd1a99f70982e834d9a19072080ccaf7007914e175ea1d2"
+    },
+    {
+      "path": "skills/agent-workflow/references/controls.md",
+      "sha256": "9e11423675998e414d493aec1053b2806b26ec4a7f4f7bd8557ba4ab19c8434d"
+    }
+  ],
+  "tests": {
+    "passed": 541,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "durationMs": 130725.854
+  },
+  "check": "passed",
+  "smoke": "passed",
+  "browser": {
+    "totalChecks": 158,
+    "suites": {
+      "navigation": {
+        "checks": 72,
+        "failed": 0
+      },
+      "resize": {
+        "checks": 35,
+        "failed": 0
+      },
+      "projection": {
+        "checks": 12,
+        "failed": 0
+      },
+      "interactions": {
+        "checks": 39,
+        "failed": 0
+      }
+    },
+    "additionalProbes": {
+      "heldReadThen401": "passed",
+      "explicitCloseAbort": "passed",
+      "outsideClickAbort": "passed"
+    },
+    "sourceUnchanged": true,
+    "mutations": false,
+    "limitations": [
+      "Chromium desktop automation with phone viewport emulation; no physical-phone acceptance.",
+      "Current served presentation source with authenticated retained-run GET and browser-only cloned GET state fixtures, not new native execution.",
+      "Stop confirmation dismissed; no successful control mutation dispatched.",
+      "Pointercancel and persisted pageshow synthesized; no claim of OS cancellation or actual browser BFCache restoration.",
+      "Map native scrolling/Fit tested; 720px CSS-width zoom-equivalent is not a product zoom API.",
+      "Execution statuses and fixture worker summaries are deliberately synthetic; they are not task acceptance evidence."
+    ]
+  },
+  "nativeReviews": [
+    {
+      "runId": "6b63a818-b44c-49f5-909b-eb40fc885917",
+      "generation": 1,
+      "positions": [
+        0,
+        1
+      ],
+      "scope": "Combined source before final three-path browser corrections; both strict native/source/owned-cleanup checks passed",
+      "observerCursor": 3
+    },
+    {
+      "runId": "27e11a3a-c162-48c7-a6c3-416a3fc4e8df",
+      "generation": 1,
+      "positions": [
+        0
+      ],
+      "scope": "Static one-declaration phone grid correction; strict native/source/owned-cleanup checks passed before later click fix",
+      "observerCursor": 2
+    }
+  ],
+  "finalNativeReview": {
+    "runId": "44452253-716c-4aa1-886c-a9fd4bc788de",
+    "generation": 1,
+    "position": 0,
+    "attempt": 1,
+    "accepted": true,
+    "selectedSkills": [
+      "beautiful",
+      "test-strategy",
+      "debug"
+    ],
+    "selectionFingerprint": "456c742197bf995e67ebef9649b3c66dd46b0665f6f0432aefe9eca3f9c41d92",
+    "activation": {
+      "status": "complete",
+      "required": [
+        "beautiful",
+        "test-strategy",
+        "debug"
+      ],
+      "observed": [
+        "beautiful",
+        "test-strategy",
+        "debug"
+      ],
+      "missing": [],
+      "body": "notVerified"
+    },
+    "counters": {
+      "malformed": 0,
+      "duplicate": 0,
+      "conflicting": 0,
+      "discarded": 0,
+      "overflow": 0,
+      "unconfirmedDiscarded": 0,
+      "foreign": 0,
+      "unsupported": 0,
+      "missingCall": 0,
+      "missingOutput": 0
+    },
+    "sourceGuards": "passed before and after",
+    "all24CurrentSourcesMatch": true,
+    "ownedCleanup": {
+      "serverExited": true,
+      "jobEmpty": true,
+      "forced": false,
+      "nativeInventoryEmpty": true,
+      "scope": "windows-job-members"
+    },
+    "observerCursor": 2,
+    "result": {
+      "outcome": "reported",
+      "summary": "No material blocker found in the current UI changes within this static review.",
+      "checks": [
+        "Genuine executor catalog/read completed for beautiful, test-strategy and debug; selected names and skill roots matched.",
+        "Read AGENTS.md, production risk map and current manifest. All 24 source hashes matched before and after.",
+        "Exact prior-hash reconstruction confirmed only the stated app predicate, CSS declaration and test event/poll changes; no assertions were removed.",
+        "composedPath preserves original click ancestry through synchronous body replacement, preventing worker/activity reads from dismissing and aborting themselves. No fixture-specific production workaround found.",
+        "Static tracing preserves outside/close/run/generation cancellation, late-response rejection, 401/403 control disabling, modal follow suppression, exact identity guards and GET-only evidence reads.",
+        "The sole CSS change adds minmax(0,1fr), allowing the existing dialog max-width to constrain it to the padded viewport.",
+        "Producer INCOMPLETE 66/68 and historical failed browser reports remain unchanged. Live append remains proposed, pending owner approval and outside this review."
+      ],
+      "findings": [],
+      "missing": [
+        "No tests or browser probes were run. The supplied 68/68, 541/541 and 119+39 browser results remain coordinator evidence; static review supports the stated failure-to-fix mechanism.",
+        "The existing generation-abort DOM case also clicks outside Refresh, so that case alone does not isolate generation cancellation.",
+        "Source identity and native skill reads do not establish generalized skill effectiveness, native mutation acceptance, physical touch, screen-reader or host OS theme behavior."
+      ]
+    }
+  },
+  "originalUIProducer": {
+    "runId": "e06e03c4-0351-4de6-9377-7b8c76eaaa20",
+    "generation": 1,
+    "position": 0,
+    "executionStatus": "completed",
+    "declaredOutcome": "incomplete",
+    "finalTests": {
+      "passed": 66,
+      "total": 68
+    },
+    "patchSha256": "b78a9e6d085caef2bf0248279d63d4bfffb3a31d00e3a4bb6732c183485a739d",
+    "nativeCounters": {
+      "discarded": 2,
+      "unsupported": 2
+    },
+    "coordinatorCorrections": "Separately reproduced, fixed and accepted; original result unchanged"
+  },
+  "outputNativeProof": "reports/large-command-transport-2026-10-14.json",
+  "hostedActions": "disabledByOwner",
+  "liveAppend": {
+    "status": "proposedAwaitingOwnerDesignApproval",
+    "design": "docs/superpowers/specs/2026-10-14-live-run-append-design.md",
+    "implemented": false
+  },
+  "remaining": [
+    "Fresh paired authoring efficacy and prior capped complete-plan failure remain open.",
+    "Dialog pagination errors should be visible inside the selection dialog; current placement remains a low-priority recommendation.",
+    "Ordinary retained deltas can still evict durable command payload facts.",
+    "No clean-package/release/install or GitHub Actions acceptance; candidate was not published or installed.",
+    "Original failed/unknown execution and external-effect histories remain unchanged."
+  ]
+}

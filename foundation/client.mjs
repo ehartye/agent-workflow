@@ -94,7 +94,7 @@ export class AppServer {
     }
   }
 
-  constructor({ command, args = [], cwd, env, jobHost, session0Desktop = 'inherit', requestTimeoutMs = 15000, shutdownMs = jobHost ? 13000 : 2000, maxMessageBytes = 1024 * 1024 }) {
+  constructor({ command, args = [], cwd, env, jobHost, session0Desktop = 'inherit', requestTimeoutMs = 15000, shutdownMs = jobHost ? 13000 : 2000, maxMessageBytes = 16 * 1024 * 1024 }) {
     if(!['inherit','shared'].includes(session0Desktop)||session0Desktop==='shared'&&(!jobHost||process.platform!=='win32'))throw fault('LAUNCH_INVALID','Shared desktop launch requires a Windows ownership host');
     this.#session0Desktop=session0Desktop;
     this.#timeout = requestTimeoutMs;
@@ -174,7 +174,7 @@ export class AppServer {
     while ((newline = this.#buffer.indexOf('\n')) !== -1) {
       const line = this.#buffer.slice(0, newline);
       this.#buffer = this.#buffer.slice(newline + 1);
-      if (Buffer.byteLength(line) > this.#maxBytes) return this.#fail(fault('PROTOCOL_LIMIT', 'Codex message exceeded the bounded frame limit'));
+      if (Buffer.byteLength(line) > this.#maxBytes) return this.#fail(fault('PROTOCOL_LIMIT', `Codex inbound JSON frame exceeded the ${this.#maxBytes} bytes ceiling; request bounded tool output and return a small summary with file artifact references for bulk results`));
       if (!line.trim()) continue;
       let message;
       try { message = JSON.parse(line); }
@@ -203,7 +203,7 @@ export class AppServer {
       }
       if (this.#failure) return;
     }
-    if (Buffer.byteLength(this.#buffer) > this.#maxBytes) this.#fail(fault('PROTOCOL_LIMIT', 'Codex message exceeded the bounded frame limit'));
+    if (Buffer.byteLength(this.#buffer) > this.#maxBytes) this.#fail(fault('PROTOCOL_LIMIT', `Codex inbound JSON frame exceeded the ${this.#maxBytes} bytes ceiling; request bounded tool output and return a small summary with file artifact references for bulk results`));
   }
 
   close() {

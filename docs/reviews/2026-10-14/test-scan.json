@@ -1,0 +1,1573 @@
+{
+  "schema": "agent-tests/evidence@1",
+  "root": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\workflow-90449efd-72b0-4fdb-8f8c-03e654a2a16c",
+  "runner": "node:test",
+  "phase": "production",
+  "riskMapPresent": true,
+  "files": [
+    {
+      "file": "test/check-install.test.mjs",
+      "tests": 4,
+      "assertions": 19,
+      "flags": [],
+      "subjects": [
+        "scripts/check-install.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "scripts/check-install.mjs"
+        ]
+      },
+      "tier": "standard",
+      "area": "scripts/**",
+      "cost": {
+        "wait": null,
+        "agent": 879,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": []
+    },
+    {
+      "file": "test/codex-foundation.test.mjs",
+      "tests": 17,
+      "assertions": 86,
+      "flags": [],
+      "subjects": [
+        "foundation/client.mjs",
+        "foundation/launch.mjs",
+        "foundation/probe.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "foundation/client.mjs",
+          "foundation/probe.mjs",
+          "foundation/launch.mjs",
+          "test/fixtures/foundation-server.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "foundation/**",
+      "cost": {
+        "wait": null,
+        "agent": 5202,
+        "ci": null,
+        "churn": 0,
+        "edits": 4
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/codex-foundation.test.mjs",
+          "message": "This file shares 1 subject with other test files. Check whether they assert the same behavior.",
+          "evidence": "foundation/client.mjs: test/codex-terminals.test.mjs, test/engine-worker-session.test.mjs, test/windows-job.test.mjs"
+        }
+      ]
+    },
+    {
+      "file": "test/codex-terminals.test.mjs",
+      "tests": 2,
+      "assertions": 6,
+      "flags": [],
+      "subjects": [
+        "foundation/client.mjs",
+        "foundation/terminals.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "foundation/terminals.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "foundation/**",
+      "cost": {
+        "wait": null,
+        "agent": 355,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/codex-terminals.test.mjs",
+          "message": "This file shares 1 subject with other test files. Check whether they assert the same behavior.",
+          "evidence": "foundation/client.mjs: test/codex-foundation.test.mjs, test/engine-worker-session.test.mjs, test/windows-job.test.mjs"
+        }
+      ]
+    },
+    {
+      "file": "test/codex-turn.test.mjs",
+      "tests": 31,
+      "assertions": 202,
+      "flags": [],
+      "subjects": [
+        "engine/workspace-policy.mjs",
+        "foundation/client.mjs",
+        "foundation/tool-observation.mjs",
+        "foundation/turn.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "foundation/turn.mjs",
+          "foundation/client.mjs",
+          "foundation/tool-observation.mjs",
+          "test/fixtures/foundation-server.mjs",
+          "test/fixtures/tool-observation-server.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 7213,
+        "ci": null,
+        "churn": 0,
+        "edits": 2
+      },
+      "findings": [
+        {
+          "category": "shim",
+          "rule": "shim.title-marker",
+          "file": "test/codex-turn.test.mjs",
+          "line": 77,
+          "message": "Test title names a legacy, compatibility or fallback path. Check that a consumer still needs it.",
+          "evidence": "`async ${phase??'legacy'} notices cannot contaminate ${answerPhase??'legacy'} JSON answers`",
+          "note": "Consumers declared in the risk map: Codex plugin installations, Saved workflows and commands, Persisted runs, Retained prior runtime directories and saved data. Check whether any still needs this path."
+        },
+        {
+          "category": "shim",
+          "rule": "shim.title-marker",
+          "file": "test/codex-turn.test.mjs",
+          "line": 111,
+          "message": "Test title names a legacy, compatibility or fallback path. Check that a consumer still needs it.",
+          "evidence": "`start-only ${phase} metadata cannot become a legacy answer after omission`",
+          "note": "Consumers declared in the risk map: Codex plugin installations, Saved workflows and commands, Persisted runs, Retained prior runtime directories and saved data. Check whether any still needs this path."
+        },
+        {
+          "category": "shim",
+          "rule": "shim.title-marker",
+          "file": "test/codex-turn.test.mjs",
+          "line": 126,
+          "message": "Test title names a legacy, compatibility or fallback path. Check that a consumer still needs it.",
+          "evidence": "legacy ordinary answers deduplicate by item ID and preserve exact text",
+          "note": "Consumers declared in the risk map: Codex plugin installations, Saved workflows and commands, Persisted runs, Retained prior runtime directories and saved data. Check whether any still needs this path."
+        }
+      ]
+    },
+    {
+      "file": "test/engine-access-policy.test.mjs",
+      "tests": 6,
+      "assertions": 33,
+      "flags": [],
+      "subjects": [
+        "engine/access-policy.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/access-policy.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 1476,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/engine-access-policy.test.mjs",
+          "message": "This file shares 1 subject with other test files. Check whether they assert the same behavior.",
+          "evidence": "engine/access-policy.mjs: test/engine-settings.test.mjs"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-activity.test.mjs",
+      "tests": 9,
+      "assertions": 86,
+      "flags": [],
+      "subjects": [
+        "engine/activity.mjs",
+        "foundation/client.mjs",
+        "foundation/tool-observation.mjs",
+        "foundation/turn.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/activity.mjs",
+          "foundation/turn.mjs",
+          "foundation/client.mjs",
+          "foundation/tool-observation.mjs",
+          "test/fixtures/tool-observation-server.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 4114,
+        "ci": null,
+        "churn": 0,
+        "edits": 1
+      },
+      "findings": []
+    },
+    {
+      "file": "test/engine-backend.test.mjs",
+      "tests": 35,
+      "assertions": 304,
+      "flags": [],
+      "subjects": [
+        "bin/doctor-diagnostics.mjs",
+        "engine/backend.mjs",
+        "engine/controller.mjs",
+        "engine/restart.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/backend.mjs",
+          "test/fixtures/backend-startup.mjs",
+          "bin/doctor-diagnostics.mjs",
+          "engine/controller.mjs",
+          "engine/restart.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "bin/**",
+      "cost": {
+        "wait": null,
+        "agent": 7745,
+        "ci": null,
+        "churn": 0,
+        "edits": 2
+      },
+      "findings": []
+    },
+    {
+      "file": "test/engine-background.test.mjs",
+      "tests": 8,
+      "assertions": 88,
+      "flags": [],
+      "subjects": [
+        "engine/access-policy.mjs",
+        "engine/background-child.mjs",
+        "engine/background.mjs",
+        "engine/cli.mjs",
+        "engine/controller.mjs",
+        "engine/workspace-policy.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/background.mjs",
+          "engine/background-child.mjs",
+          "engine/controller.mjs",
+          "engine/cli.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 4888,
+        "ci": null,
+        "churn": 0,
+        "edits": 4
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-background.test.mjs",
+          "line": 40,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const {DatabaseSync}=await import('node:sqlite'),db=new DatabaseSync(join(runDir,'run.sqlite'));"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-controller.test.mjs",
+      "tests": 36,
+      "assertions": 267,
+      "flags": [],
+      "subjects": [
+        "engine/access-policy.mjs",
+        "engine/controller.mjs",
+        "engine/evaluator-child.mjs",
+        "engine/monitor-data.mjs",
+        "engine/notifications.mjs",
+        "engine/worker-session.mjs",
+        "engine/workspaces.mjs",
+        "foundation/client.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/controller.mjs",
+          "engine/evaluator-child.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 12164,
+        "ci": null,
+        "churn": 0,
+        "edits": 3
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-controller.test.mjs",
+          "line": 59,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(input.runDir,'run.sqlite'));"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-controller.test.mjs",
+          "line": 219,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(runDir,'run.sqlite'));"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-controller.test.mjs",
+          "line": 469,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db = new DatabaseSync(join(runDir,'run.sqlite')); db.exec(mutation); db.close();"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-controller.test.mjs",
+          "line": 594,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(runDir,'run.sqlite'));db.exec('BEGIN IMMEDIATE');"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-evaluator.test.mjs",
+      "tests": 6,
+      "assertions": 10,
+      "flags": [],
+      "subjects": [
+        "engine/evaluate.mjs",
+        "engine/evaluator-child.mjs",
+        "engine/script.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/evaluate.mjs",
+          "engine/evaluator-child.mjs",
+          "engine/script.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 878,
+        "ci": null,
+        "churn": 0,
+        "edits": 1
+      },
+      "findings": []
+    },
+    {
+      "file": "test/engine-mode.test.mjs",
+      "tests": 1,
+      "assertions": 12,
+      "flags": [],
+      "subjects": [
+        "engine/mode.mjs",
+        "hooks/prompt-submit.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "hooks/prompt-submit.mjs"
+        ]
+      },
+      "tier": "standard",
+      "area": "engine/mode.mjs",
+      "cost": {
+        "wait": null,
+        "agent": 594,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": []
+    },
+    {
+      "file": "test/engine-monitor-ui.test.mjs",
+      "tests": 29,
+      "assertions": 282,
+      "flags": [],
+      "subjects": [
+        "engine/monitor/app.mjs",
+        "engine/monitor/index.html",
+        "engine/monitor/style.css"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/monitor/app.mjs",
+          "engine/monitor/index.html",
+          "engine/monitor/style.css"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 12910,
+        "ci": null,
+        "churn": 0,
+        "edits": 4
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/engine-monitor-ui.test.mjs",
+          "line": 206,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "const workspace = { cwd: 'C:/owned/writer', changedFiles: ['src/<script>.mjs'], patchPath: 'C:/owned/changes.patch', basePatchPath: 'C:/owned/from-base.patch', "
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/engine-monitor-ui.test.mjs",
+          "line": 245,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "view.update({ workers: [worker(0, 'unknown', { workspace: { cwd: 'C:/owned/writer' }, workspaceError: { code: 'WORKSPACE_CAPTURE', message: '<script>capture fai"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/engine-monitor-ui.test.mjs",
+          "line": 255,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "const workspace={version:2,cwd:'C:/owned/worker',policyHash:'a'.repeat(64),excludedInventory:{entryCount:51,fileCount:50,bytes:900000000}};"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-monitor.test.mjs",
+      "tests": 12,
+      "assertions": 115,
+      "flags": [],
+      "subjects": [
+        "engine/controller.mjs",
+        "engine/monitor-data.mjs",
+        "engine/monitor-server.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/monitor-server.mjs",
+          "engine/monitor-data.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 6086,
+        "ci": null,
+        "churn": 0,
+        "edits": 1
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/engine-monitor.test.mjs",
+          "message": "This file shares 1 subject with other test files. Check whether they assert the same behavior.",
+          "evidence": "engine/controller.mjs: test/engine-watch.test.mjs, test/engine-writer-retirement.test.mjs"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-monitor.test.mjs",
+          "line": 66,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(runDir,'run.sqlite'));db.prepare('DELETE FROM header').run();db.close();"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/engine-monitor.test.mjs",
+          "line": 97,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "assert.equal((await post('/api/runs/replacement/lifecycle',{...value,runDir:'C:/elsewhere'})).status,400);"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-monitor.test.mjs",
+          "line": 129,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(runDir,'run.sqlite'));"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-monitor.test.mjs",
+          "line": 205,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(runDir,'run.sqlite'));"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-notifications.test.mjs",
+      "tests": 5,
+      "assertions": 50,
+      "flags": [],
+      "subjects": [
+        "engine/controller.mjs",
+        "engine/evaluator-child.mjs",
+        "engine/notifications.mjs",
+        "foundation/client.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/controller.mjs",
+          "engine/notifications.mjs",
+          "engine/evaluator-child.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 2488,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-notifications.test.mjs",
+          "line": 74,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(input.runDir,'run.sqlite')),row=db.prepare(\"SELECT * FROM notifications WHERE kind='worker-terminal' AND position=0\").get();"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-notifications.test.mjs",
+          "line": 77,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "finally{const restore=new DatabaseSync(join(input.runDir,'run.sqlite'));try{restore.prepare('INSERT INTO notifications(seq,generation,kind,position,attempt,stat"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-notifications.test.mjs",
+          "line": 85,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "input.onReady=()=>{const db=new DatabaseSync(join(input.runDir,'run.sqlite'));try{db.exec(\"CREATE TRIGGER reject_final BEFORE INSERT ON notifications WHEN NEW.k"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-notifications.test.mjs",
+          "line": 92,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(input.runDir,'run.sqlite'));"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-notifications.test.mjs",
+          "line": 100,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "await mkdir(input.runDir);let db=new DatabaseSync(join(input.runDir,'run.sqlite'));db.exec('CREATE TABLE header(id INTEGER PRIMARY KEY,value TEXT);');db.prepare"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-notifications.test.mjs",
+          "line": 103,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "db=new DatabaseSync(join(input.runDir,'run.sqlite'));const header=db.prepare('SELECT value FROM header WHERE id=1').get().value;"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-notifications.test.mjs",
+          "line": 106,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "db=new DatabaseSync(join(input.runDir,'run.sqlite'));db.prepare('UPDATE header SET value=?').run(header);db.close();"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-notifications.test.mjs",
+          "line": 107,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "db=new DatabaseSync(join(input.runDir,'run.sqlite'));db.prepare(\"DELETE FROM notifications WHERE kind='run-terminal'\").run();db.close();"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-notifications.test.mjs",
+          "line": 109,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "db=new DatabaseSync(join(input.runDir,'run.sqlite'));db.prepare('UPDATE header SET value=?').run('{broken');db.close();"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-parent-capabilities.test.mjs",
+      "tests": 10,
+      "assertions": 58,
+      "flags": [],
+      "subjects": [
+        "engine/parent-capabilities.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/parent-capabilities.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 3234,
+        "ci": null,
+        "churn": 1,
+        "edits": 1
+      },
+      "findings": [
+        {
+          "category": "shim",
+          "rule": "shim.title-marker",
+          "file": "test/engine-parent-capabilities.test.mjs",
+          "line": 138,
+          "message": "Test title names a legacy, compatibility or fallback path. Check that a consumer still needs it.",
+          "evidence": "active root selection matches native build metadata total ordering and lexical fallback",
+          "note": "Consumers declared in the risk map: Codex plugin installations, Saved workflows and commands, Persisted runs, Retained prior runtime directories and saved data. Check whether any still needs this path."
+        }
+      ]
+    },
+    {
+      "file": "test/engine-policy.test.mjs",
+      "tests": 4,
+      "assertions": 16,
+      "flags": [],
+      "subjects": [
+        "engine/policy.mjs"
+      ],
+      "tags": {
+        "lane": "merge"
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 832,
+        "ci": null,
+        "churn": 0,
+        "edits": 1
+      },
+      "findings": []
+    },
+    {
+      "file": "test/engine-recipes.test.mjs",
+      "tests": 15,
+      "assertions": 127,
+      "flags": [],
+      "subjects": [
+        "engine/controller.mjs",
+        "engine/registry.mjs",
+        "engine/script.mjs",
+        "engine/settings.mjs",
+        "workflows/decomposition-delivery.js"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "workflows/decomposition-delivery.js"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 5154,
+        "ci": null,
+        "churn": 0,
+        "edits": 1
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/engine-recipes.test.mjs",
+          "line": 93,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "requisites=[{id:'renderer',command:'render audio.wav',executablePath:'C:/verified/render.exe',cachePath:'C:/verified/render-cache',requiredFor:'verification'}];"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/engine-recipes.test.mjs",
+          "line": 95,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "renderer',available:false,command:'render audio.wav',executablePath:'C:/verified/render.exe',cachePath:'C:/verified/render-cache',evidence:'Executable absent in"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/engine-recipes.test.mjs",
+          "line": 122,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "lan.tasks[0].prerequisites=[{id:'source-generator',command:'generate source',executablePath:'C:/verified/generate.exe',cachePath:null,requiredFor:'authoring'}];"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-registry.test.mjs",
+      "tests": 5,
+      "assertions": 32,
+      "flags": [],
+      "subjects": [
+        "engine/registry.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/registry.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 1570,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.dot-git-dir",
+          "file": "test/engine-registry.test.mjs",
+          "line": 13,
+          "message": "In a linked worktree .git is a file, not a directory. Ask git (rev-parse --git-dir) instead of reading .git directly.",
+          "evidence": "(root,'home'),bundledDir=join(root,'bundled');for(const dir of [join(project,'.git'),cwd,homeDir,bundledDir])await mkdir(dir,{recursive:true});return{root,proje"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-restart.test.mjs",
+      "tests": 7,
+      "assertions": 49,
+      "flags": [],
+      "subjects": [
+        "engine/controller.mjs",
+        "engine/monitor-server.mjs",
+        "engine/restart.mjs",
+        "foundation/client.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/restart.mjs",
+          "engine/controller.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 2548,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-restart.test.mjs",
+          "line": 37,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(input.runDir,'run.sqlite'),{readOnly:true});"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-restart.test.mjs",
+          "line": 50,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(input.runDir,'run.sqlite'));try{const row=JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=2').ge"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-run-lifecycle.test.mjs",
+      "tests": 27,
+      "assertions": 117,
+      "flags": [],
+      "subjects": [
+        "bin/arguments.mjs",
+        "bin/command.mjs",
+        "engine/controller.mjs",
+        "engine/run-lifecycle.mjs",
+        "engine/workspace-policy.mjs",
+        "engine/workspaces.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/run-lifecycle.mjs",
+          "bin/arguments.mjs",
+          "bin/command.mjs",
+          "engine/controller.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "bin/**",
+      "cost": {
+        "wait": null,
+        "agent": 7486,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-run-lifecycle.test.mjs",
+          "line": 32,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(runDir,'run.sqlite'));"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-run-lifecycle.test.mjs",
+          "line": 39,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "function edit(runDir,callback){const db=new DatabaseSync(join(runDir,'run.sqlite'));try{callback(db);}finally{db.close();}}"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-run-lifecycle.test.mjs",
+          "line": 40,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "function raw(runDir){const db=new DatabaseSync(join(runDir,'run.sqlite'),{readOnly:true});try{return{header:db.prepare('SELECT value FROM header').all(),workers"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.dot-git-dir",
+          "file": "test/engine-run-lifecycle.test.mjs",
+          "line": 42,
+          "message": "In a linked worktree .git is a file, not a directory. Ask git (rev-parse --git-dir) instead of reading .git directly.",
+          "evidence": "const {root,runDir}=f,source=join(root,'source'),common=join(source,'.git'),parent=join(root,'source-worktrees'),cwd=join(parent,'workflow-fixture'),artifactsDi"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.dot-git-dir",
+          "file": "test/engine-run-lifecycle.test.mjs",
+          "line": 45,
+          "message": "In a linked worktree .git is a file, not a directory. Ask git (rev-parse --git-dir) instead of reading .git directly.",
+          "evidence": "await writeFile(join(cwd,'.git'),`gitdir: ${registration}\\n`);await writeFile(join(registration,'gitdir'),join(cwd,'.git')+'\\n');await writeFile(join(registrati"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.dot-git-dir",
+          "file": "test/engine-run-lifecycle.test.mjs",
+          "line": 52,
+          "message": "In a linked worktree .git is a file, not a directory. Ask git (rev-parse --git-dir) instead of reading .git directly.",
+          "evidence": "utIndexHash:input.inputIndexHash,gitPointerHash:hash(await readFile(join(cwd,'.git'))),patchPath,patchHash:hash('patch'),basePatchPath,basePatchHash:hash('base "
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.dot-git-dir",
+          "file": "test/engine-run-lifecycle.test.mjs",
+          "line": 171,
+          "message": "In a linked worktree .git is a file, not a directory. Ask git (rev-parse --git-dir) instead of reading .git directly.",
+          "evidence": "assert.deepEqual(await readdir(ws.cwd),['.git']);assert.ok(await readFile(ws.manifestPath));assert.ok(await readFile(ws.inputIndex));assert.ok(await readFile(jo"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-schema.test.mjs",
+      "tests": 6,
+      "assertions": 19,
+      "flags": [],
+      "subjects": [
+        "engine/schema.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/schema.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 1146,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": []
+    },
+    {
+      "file": "test/engine-settings.test.mjs",
+      "tests": 6,
+      "assertions": 26,
+      "flags": [],
+      "subjects": [
+        "engine/access-policy.mjs",
+        "engine/backend.mjs",
+        "engine/settings.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/settings.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 1318,
+        "ci": null,
+        "churn": 0,
+        "edits": 1
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/engine-settings.test.mjs",
+          "message": "This file shares 1 subject with other test files. Check whether they assert the same behavior.",
+          "evidence": "engine/access-policy.mjs: test/engine-access-policy.test.mjs"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-watch.test.mjs",
+      "tests": 9,
+      "assertions": 51,
+      "flags": [],
+      "subjects": [
+        "bin/arguments.mjs",
+        "engine/controller.mjs",
+        "engine/watch.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/watch.mjs",
+          "bin/arguments.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "bin/**",
+      "cost": {
+        "wait": null,
+        "agent": 2581,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/engine-watch.test.mjs",
+          "message": "This file shares 1 subject with other test files. Check whether they assert the same behavior.",
+          "evidence": "engine/controller.mjs: test/engine-monitor.test.mjs, test/engine-writer-retirement.test.mjs"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-worker-capabilities.test.mjs",
+      "tests": 17,
+      "assertions": 110,
+      "flags": [],
+      "subjects": [
+        "engine/worker-capabilities.mjs",
+        "engine/worker-session.mjs",
+        "foundation/tool-observation.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/worker-capabilities.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 5976,
+        "ci": null,
+        "churn": 0,
+        "edits": 1
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/engine-worker-capabilities.test.mjs",
+          "message": "This file shares 1 subject with other test files. Check whether they assert the same behavior.",
+          "evidence": "engine/worker-session.mjs: test/engine-worker-session.test.mjs"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-worker-session.test.mjs",
+      "tests": 8,
+      "assertions": 53,
+      "flags": [],
+      "subjects": [
+        "engine/worker-session.mjs",
+        "foundation/client.mjs",
+        "foundation/turn.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/worker-session.mjs",
+          "foundation/turn.mjs",
+          "test/fixtures/foundation-server.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 2004,
+        "ci": null,
+        "churn": 0,
+        "edits": 2
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/engine-worker-session.test.mjs",
+          "message": "This file shares 2 subjects with other test files. Check whether they assert the same behavior.",
+          "evidence": "engine/worker-session.mjs: test/engine-worker-capabilities.test.mjs; foundation/client.mjs: test/codex-foundation.test.mjs, test/codex-terminals.test.mjs, test/windows-job.test.mjs"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-workspace-policy.test.mjs",
+      "tests": 3,
+      "assertions": 21,
+      "flags": [],
+      "subjects": [
+        "engine/workspace-policy.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/workspace-policy.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 1077,
+        "ci": null,
+        "churn": 0,
+        "edits": 1
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/engine-workspace-policy.test.mjs",
+          "line": 25,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "['../generated/'],['/generated/'],['C:/generated/'],['generated\\\\'],['generated'],"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.dot-git-dir",
+          "file": "test/engine-workspace-policy.test.mjs",
+          "line": 26,
+          "message": "In a linked worktree .git is a file, not a directory. Ask git (rev-parse --git-dir) instead of reading .git directly.",
+          "evidence": "['generated//'],['generated/./'],['.git/'],['x/.GiT/'],['git~1/'],['generated./'],"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/engine-workspace-policy.test.mjs",
+          "line": 27,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "['generated /'],['nul/'],['con.txt/'],['a*/'],['a?/'],['a:/'],['a\\n/'],"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-workspaces.test.mjs",
+      "tests": 27,
+      "assertions": 219,
+      "flags": [],
+      "subjects": [
+        "engine/access-policy.mjs",
+        "engine/controller.mjs",
+        "engine/monitor-server.mjs",
+        "engine/settings.mjs",
+        "engine/workspace-run.mjs",
+        "engine/workspaces.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/workspaces.mjs",
+          "engine/workspace-run.mjs",
+          "engine/controller.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 11229,
+        "ci": null,
+        "churn": 0,
+        "edits": 3
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.dot-git-dir",
+          "file": "test/engine-workspaces.test.mjs",
+          "line": 43,
+          "message": "In a linked worktree .git is a file, not a directory. Ask git (rev-parse --git-dir) instead of reading .git directly.",
+          "evidence": "const before=await git(source,'status','--porcelain=v1');const index=await readFile(join(source,'.git','index'));"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.dot-git-dir",
+          "file": "test/engine-workspaces.test.mjs",
+          "line": 57,
+          "message": "In a linked worktree .git is a file, not a directory. Ask git (rev-parse --git-dir) instead of reading .git directly.",
+          "evidence": "assert.deepEqual(await readFile(join(source,'.git','index')),index);assert.equal(await git(source,'status','--porcelain=v1'),before);"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.dot-git-dir",
+          "file": "test/engine-workspaces.test.mjs",
+          "line": 137,
+          "message": "In a linked worktree .git is a file, not a directory. Ask git (rev-parse --git-dir) instead of reading .git directly.",
+          "evidence": "await writeFile(join(source,'.git','info','exclude'),'private.txt\\n');await writeFile(join(source,'private.txt'),'private ignored');await writeFile(join(source,"
+        },
+        {
+          "category": "shim",
+          "rule": "shim.title-marker",
+          "file": "test/engine-workspaces.test.mjs",
+          "line": 235,
+          "message": "Test title names a legacy, compatibility or fallback path. Check that a consumer still needs it.",
+          "evidence": "workspace preparation freezes policies and refuses legacy or version two policy reinterpretation",
+          "note": "Consumers declared in the risk map: Codex plugin installations, Saved workflows and commands, Persisted runs, Retained prior runtime directories and saved data. Check whether any still needs this path."
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/engine-workspaces.test.mjs",
+          "line": 369,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(join(runDir,'run.sqlite'));"
+        }
+      ]
+    },
+    {
+      "file": "test/engine-writer-retirement.test.mjs",
+      "tests": 1,
+      "assertions": 7,
+      "flags": [],
+      "subjects": [
+        "engine/controller.mjs",
+        "engine/workspaces.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "engine/controller.mjs",
+          "engine/workspaces.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "engine/**",
+      "cost": {
+        "wait": null,
+        "agent": 880,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/engine-writer-retirement.test.mjs",
+          "message": "This file shares 1 subject with other test files. Check whether they assert the same behavior.",
+          "evidence": "engine/controller.mjs: test/engine-monitor.test.mjs, test/engine-watch.test.mjs"
+        }
+      ]
+    },
+    {
+      "file": "test/host-context.test.mjs",
+      "tests": 3,
+      "assertions": 17,
+      "flags": [],
+      "subjects": [
+        "foundation/host-context.mjs",
+        "foundation/native/JobHost.cs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "foundation/host-context.mjs",
+          "foundation/native/JobHost.cs"
+        ]
+      },
+      "tier": "critical",
+      "area": "foundation/**",
+      "cost": {
+        "wait": null,
+        "agent": 802,
+        "ci": null,
+        "churn": 0,
+        "edits": 0
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/host-context.test.mjs",
+          "message": "This file shares 1 subject with other test files. Check whether they assert the same behavior.",
+          "evidence": "foundation/native/JobHost.cs: test/windows-job.test.mjs"
+        }
+      ]
+    },
+    {
+      "file": "test/managed-entry.test.mjs",
+      "tests": 24,
+      "assertions": 124,
+      "flags": [],
+      "subjects": [
+        "bin/agent-workflow.mjs",
+        "bin/arguments.mjs",
+        "bin/command.mjs",
+        "bin/doctor-diagnostics.mjs",
+        "bin/launch-v2.mjs",
+        "bin/launch.mjs",
+        "bin/managed-runtime.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "bin/launch-v2.mjs",
+          "bin/command.mjs",
+          "bin/launch.mjs",
+          "bin/agent-workflow.mjs",
+          "bin/doctor-diagnostics.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "bin/**",
+      "cost": {
+        "wait": null,
+        "agent": 8054,
+        "ci": null,
+        "churn": 0,
+        "edits": 4
+      },
+      "findings": [
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/managed-entry.test.mjs",
+          "line": 132,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "race,'native\\\\n');if(scenario.phase==='native')throw Object.assign(Error(${JSON.stringify(doctorSecret)}),scenario.error);return 'C:/private/native/codex.exe';}"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.absolute-path",
+          "file": "test/managed-entry.test.mjs",
+          "line": 279,
+          "message": "Absolute path into one checkout or machine; another worktree resolves elsewhere. Derive paths from the test file or repo root.",
+          "evidence": "eport,{status:'passed',inferenceRequests:0,node:process.version,codex:'C:/private/native/codex.exe',backend:'mxc',hostContext,admission,cleanup:doctorCleanup});"
+        }
+      ]
+    },
+    {
+      "file": "test/managed-runtime.test.mjs",
+      "tests": 8,
+      "assertions": 84,
+      "flags": [],
+      "subjects": [
+        "bin/managed-runtime.mjs",
+        "engine/controller.mjs",
+        "engine/monitor-adapters.mjs",
+        "engine/monitor-launch.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "bin/managed-runtime.mjs",
+          "engine/monitor-adapters.mjs"
+        ]
+      },
+      "tier": "critical",
+      "area": "bin/**",
+      "cost": {
+        "wait": null,
+        "agent": 4498,
+        "ci": null,
+        "churn": 0,
+        "edits": 2
+      },
+      "findings": [
+        {
+          "category": "shim",
+          "rule": "shim.title-marker",
+          "file": "test/managed-runtime.test.mjs",
+          "line": 25,
+          "message": "Test title names a legacy, compatibility or fallback path. Check that a consumer still needs it.",
+          "evidence": "managed installation fingerprints fresh sources and preserves prior runtimes and legacy data",
+          "note": "Consumers declared in the risk map: Codex plugin installations, Saved workflows and commands, Persisted runs, Retained prior runtime directories and saved data. Check whether any still needs this path."
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.shared-tmp",
+          "file": "test/managed-runtime.test.mjs",
+          "line": 58,
+          "message": "Fixed temp path shared by every worktree and every parallel run. Use mkdtemp for a unique directory.",
+          "evidence": "const base=join(tmpdir(),'workflow-default-data');assert.equal(defaultDataDir({LOCALAPPDATA:base,PLUGIN_DATA:join(base,'host-only')}),defaultDataDir({LOCALAPPDA"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/managed-runtime.test.mjs",
+          "line": 79,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "const db=new DatabaseSync(join(owner.runDir,'run.sqlite'));db.exec('CREATE TABLE header(id INTEGER PRIMARY KEY,value TEXT); CREATE TABLE workers(generation INTE"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/managed-runtime.test.mjs",
+          "line": 145,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "await writeFile(join(failed.runDir,'run.sqlite'),'invalid database bytes');"
+        },
+        {
+          "category": "worktree",
+          "rule": "worktree.fixed-db-file",
+          "file": "test/managed-runtime.test.mjs",
+          "line": 147,
+          "message": "Fixed database file name: concurrent worktrees share or clobber it unless the path is unique per run.",
+          "evidence": "assert.equal(await readFile(join(failed.runDir,'run.sqlite'),'utf8'),'invalid database bytes');"
+        }
+      ]
+    },
+    {
+      "file": "test/windows-job.test.mjs",
+      "tests": 7,
+      "assertions": 60,
+      "flags": [],
+      "subjects": [
+        "foundation/client.mjs",
+        "foundation/native/JobHost.cs",
+        "foundation/windows-job.mjs"
+      ],
+      "tags": {
+        "lane": "merge",
+        "subjects": [
+          "foundation/windows-job.mjs",
+          "foundation/native/JobHost.cs"
+        ]
+      },
+      "tier": "critical",
+      "area": "foundation/**",
+      "cost": {
+        "wait": null,
+        "agent": 3217,
+        "ci": null,
+        "churn": 0,
+        "edits": 2
+      },
+      "findings": [
+        {
+          "category": "redundancy",
+          "rule": "redundancy.shared-subject",
+          "file": "test/windows-job.test.mjs",
+          "message": "This file shares 2 subjects with other test files. Check whether they assert the same behavior.",
+          "evidence": "foundation/client.mjs: test/codex-foundation.test.mjs, test/codex-terminals.test.mjs, test/engine-worker-session.test.mjs; foundation/native/JobHost.cs: test/host-context.test.mjs"
+        }
+      ]
+    }
+  ],
+  "clusters": [
+    {
+      "subject": "engine/access-policy.mjs",
+      "files": [
+        "test/engine-access-policy.test.mjs",
+        "test/engine-settings.test.mjs"
+      ],
+      "layers": [
+        "unit"
+      ]
+    },
+    {
+      "subject": "engine/controller.mjs",
+      "files": [
+        "test/engine-monitor.test.mjs",
+        "test/engine-watch.test.mjs",
+        "test/engine-writer-retirement.test.mjs"
+      ],
+      "layers": [
+        "unit"
+      ]
+    },
+    {
+      "subject": "engine/worker-session.mjs",
+      "files": [
+        "test/engine-worker-capabilities.test.mjs",
+        "test/engine-worker-session.test.mjs"
+      ],
+      "layers": [
+        "unit"
+      ]
+    },
+    {
+      "subject": "foundation/client.mjs",
+      "files": [
+        "test/codex-foundation.test.mjs",
+        "test/codex-terminals.test.mjs",
+        "test/engine-worker-session.test.mjs",
+        "test/windows-job.test.mjs"
+      ],
+      "layers": [
+        "unit"
+      ]
+    },
+    {
+      "subject": "foundation/native/JobHost.cs",
+      "files": [
+        "test/host-context.test.mjs",
+        "test/windows-job.test.mjs"
+      ],
+      "layers": [
+        "unit"
+      ]
+    }
+  ],
+  "projectFindings": [
+    {
+      "category": "frequency",
+      "rule": "frequency.ci-on-pull-request",
+      "file": ".github/workflows/ci.yml",
+      "message": "A pull_request workflow runs on windows-latest, which bills at a higher rate than Linux, and a path filter does not change that. Keep Windows and macOS off the pull-request path.",
+      "evidence": "on: pull_request"
+    },
+    {
+      "category": "wiring",
+      "rule": "wiring.drift",
+      "file": "LICENSES",
+      "message": "Directory matches no risk-map area. Add it with a tier.",
+      "evidence": ""
+    },
+    {
+      "category": "wiring",
+      "rule": "wiring.drift",
+      "file": "bin",
+      "message": "Directory matches no risk-map area. Add it with a tier.",
+      "evidence": ""
+    },
+    {
+      "category": "wiring",
+      "rule": "wiring.drift",
+      "file": "engine",
+      "message": "Directory matches no risk-map area. Add it with a tier.",
+      "evidence": ""
+    },
+    {
+      "category": "wiring",
+      "rule": "wiring.drift",
+      "file": "foundation",
+      "message": "Directory matches no risk-map area. Add it with a tier.",
+      "evidence": ""
+    },
+    {
+      "category": "wiring",
+      "rule": "wiring.drift",
+      "file": "hooks",
+      "message": "Directory matches no risk-map area. Add it with a tier.",
+      "evidence": ""
+    },
+    {
+      "category": "wiring",
+      "rule": "wiring.drift",
+      "file": "reports",
+      "message": "Directory matches no risk-map area. Add it with a tier.",
+      "evidence": ""
+    },
+    {
+      "category": "wiring",
+      "rule": "wiring.drift",
+      "file": "skills",
+      "message": "Directory matches no risk-map area. Add it with a tier.",
+      "evidence": ""
+    },
+    {
+      "category": "wiring",
+      "rule": "wiring.drift",
+      "file": "workflows",
+      "message": "Directory matches no risk-map area. Add it with a tier.",
+      "evidence": ""
+    }
+  ]
+}

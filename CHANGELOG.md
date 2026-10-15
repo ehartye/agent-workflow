@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6
+
+- Add a compact Current run panel and Change run dialog: deliberate row selection enables only fresh, matching controls. Keep errors and exact-page retry inside the dialog, with keyboard focus preserved.
+- Add worker card menus and read-only evidence popovers, direct failure reasons, resizable desktop panes, phone layouts, saved theme/polling preferences and stable full evidence during unrelated polling.
+- Accept bounded JSON argument files for new runs, with the same evaluator limits and immutable saved values. Raise native inbound frame capacity to 16 MiB while retaining separate answer, preview, broker and capture bounds.
+- Keep live append, durable command-fact storage and consumer observation receipts outside this release. See [the release scope and local verification checkpoint](docs/releases/0.3.6.md). Publication and exact installation require separate evidence.
+
 ## 0.3.5
 
 - Carry forward the Map + inspector dashboard and cleanup diagnostics from the unpublished 0.3.4 candidate. Its release tag failed only the short-path test fixture (505/506 tests passed); the failed tag remains unchanged.

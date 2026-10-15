@@ -91,7 +91,9 @@ export async function main(tokens=process.argv.slice(2)){
  if(p.command==='run'){
   if(o.script&&p.id)throw Error('Choose a saved workflow name or --script');if(!o.script&&!p.id)throw Error('Provide a saved workflow name or --script');
   const script=o.script?await readFile(resolve(o.script),'utf8'):(await resolveWorkflow(p.id,registry)).script;parseScript(script);
-  const args=o.args===undefined?null:JSON.parse(o.args),concurrency=integer(o.concurrency,'concurrency',{min:1,max:256})??2,limits=deadlines(o);
+  const {preflightEvaluatorInput,MAX_EVALUATOR_INPUT_BYTES}=await import('../engine/evaluate.mjs');
+  const args=o['args-file']!==undefined?await boundedJson(o['args-file'],MAX_EVALUATOR_INPUT_BYTES):o.args===undefined?null:JSON.parse(o.args),concurrency=integer(o.concurrency,'concurrency',{min:1,max:256})??2,limits=deadlines(o);
+  preflightEvaluatorInput(script,args);
   const accessPolicy=await commandAccess(p);
   const defaults={...(o.model?{model:o.model}:{}),...(o.effort?{effort:o.effort}:{}),...(o['max-attempts']!==undefined?{maxAttempts:integer(o['max-attempts'],'max-attempts',{min:1,max:5})}:{}),...(o.writable?(accessPolicy.policy.access==='parent'?{workspace:'isolated'}:{permissions:{sandbox:'workspace-write'}}):{})};
   let capturePolicy;
@@ -100,8 +102,11 @@ export async function main(tokens=process.argv.slice(2)){
    if(typeof workspacePolicy.validateCapturePolicy!=='function')throw Error('Capture policy validation is unavailable in this retained runtime; coordinator integration is required');
    capturePolicy=workspacePolicy.validateCapturePolicy(await boundedJson(o['capture-policy'],2*1024*1024)).policy;
   }
-  const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir}),binding=await bindRun({dataDir:p.dataDir,runtime,sessionId:p.sessionId});
-  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults,accessPolicy,...(session0Desktop==='shared'?{session0Desktop}:{}),...(capturePolicy===undefined?{}:{capturePolicy}),...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})},input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
+  const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir});
+  const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults,accessPolicy,...(session0Desktop==='shared'?{session0Desktop}:{}),...(capturePolicy===undefined?{}:{capturePolicy}),...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})};
+  const {preflightRunInput}=await import('../engine/controller.mjs');
+  preflightRunInput({script,args,launch,...(capabilities?{workerCapabilitySources:capabilities.toolSources}:{})});
+  const binding=await bindRun({dataDir:p.dataDir,runtime,sessionId:p.sessionId}),input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
   try{if(!o.foreground){print(backgroundReceipt(binding.id,await startBackground(input),p));return 0;}
    const backend=await createManagedBackend({executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,session0Desktop,accessPolicy,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}

@@ -1,0 +1,94 @@
+{
+  "createdAt": "2026-10-15T01:48:45.579Z",
+  "base": "ca0e8b73f4af142a9035e29f709483af94ab28f2",
+  "node": "v24.18.0",
+  "status": "locallyVerifiedUnpublished",
+  "sources": [
+    {
+      "path": "engine/monitor/app.mjs",
+      "sha256": "a220117b05798b24ffd7a2129947ba2ecd6573c53733650ada69b4d83e2189ac"
+    },
+    {
+      "path": "engine/monitor/index.html",
+      "sha256": "ddf8a886a1abc71cef017bd6e94a57ead2bc92d7603d9d475f82011311d65bfc"
+    },
+    {
+      "path": "engine/monitor/style.css",
+      "sha256": "4c8c85a6ccc2c44326f8a53b63163183a88ea7baa0e490a4783a1a5899cec036"
+    },
+    {
+      "path": "test/engine-monitor-ui.test.mjs",
+      "sha256": "64791a2ab2d9fda8b9eca4ee1a8a0330e6ad545efeeeae80fd3b52479783cc17"
+    },
+    {
+      "path": "bin/arguments.mjs",
+      "sha256": "73fabac7a5ee52c95812c209a75b91c20224d1ea5baeccb0229a7eeb1db8d1e4"
+    },
+    {
+      "path": "bin/command.mjs",
+      "sha256": "38ece2b7719fb2d2b93a7456ab86f5fdb6aaa59f81a88960598a6fc56e736d98"
+    },
+    {
+      "path": "engine/evaluate.mjs",
+      "sha256": "3d6bc4abd4041f66e0bcbe13468e34e651ba17217d336abedaa3c416ab8fda9f"
+    },
+    {
+      "path": "engine/controller.mjs",
+      "sha256": "ce909b5b3c1efaf2a12bf76726da18e08965457a2e60489e224c3b9218609db2"
+    },
+    {
+      "path": "engine/background.mjs",
+      "sha256": "ffe465e603610acce0577ff8385d134b265f7032f44d69d9f79c365152164330"
+    },
+    {
+      "path": "test/managed-entry.test.mjs",
+      "sha256": "1812faa63cfa2399b492414a186658e69cd2266c201322d8e5cef32deb82b559"
+    },
+    {
+      "path": "test/engine-evaluator.test.mjs",
+      "sha256": "b1a150e1c80cf5a9c28f7dfec57cfb649ed0e2914308720b57b179a5f9e500c3"
+    },
+    {
+      "path": "test/engine-controller.test.mjs",
+      "sha256": "ae2d86a3b2470f81278b6f5f7a6bf795bd4b1eab863d7bd244700fb4af5b12bc"
+    },
+    {
+      "path": "docs/monitor-design.md",
+      "sha256": "d6d79f29b0629369789674dd93d559ca24305ded6ea6c53256fb69dbca8c4b6f"
+    },
+    {
+      "path": "docs/api.md",
+      "sha256": "5efa8694c30b40fe4729dea6356431c83a0fdeb23675c9b43a0b9159c3695b04"
+    },
+    {
+      "path": "skills/workflow-authoring/SKILL.md",
+      "sha256": "b26d59cf176027336dfc0976a0b8df8fa79e655357db03f12647cafe070f3b84"
+    },
+    {
+      "path": "skills/workflow-authoring/references/large-inputs-and-batches.md",
+      "sha256": "a77b59017980006f30e158794665e169d057262e9fc58be4cf158ec7275bfda7"
+    },
+    {
+      "path": "skills/agent-workflow/references/runtime-api.md",
+      "sha256": "a391398485d25bbe9dd1a99f70982e834d9a19072080ccaf7007914e175ea1d2"
+    }
+  ],
+  "checks": {
+    "tests": {
+      "passed": 523,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 124179.0978
+    },
+    "check": "passed",
+    "smoke": "passed",
+    "navigationBrowser": 72,
+    "resizePreferenceBrowser": 35
+  },
+  "hostedActions": "disabledByOwner",
+  "limits": [
+    "No new product release/install acceptance",
+    "Fresh native final reviews and guarded wiki receipt review still pending",
+    "Browser frozen real-run GET fixtures block mutations; physical touch and host OS theme changes unproven"
+  ]
+}

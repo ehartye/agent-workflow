@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-15T03:03:09.413Z",
+  "passed": true,
+  "suites": {
+    "navigation": {
+      "checks": 72,
+      "failed": 0
+    },
+    "resize": {
+      "checks": 35,
+      "failed": 0
+    },
+    "projection": {
+      "checks": 12,
+      "failed": 0
+    },
+    "interactions": {
+      "checks": 39,
+      "failed": 0
+    }
+  },
+  "totalChecks": 158,
+  "additionalProbes": {
+    "heldReadThen401": "passed",
+    "explicitCloseAbort": "passed",
+    "outsideClickAbort": "passed"
+  },
+  "sources": [
+    {
+      "path": "engine/monitor/app.mjs",
+      "sha256": "6e8ede5d5265b61db7a62806aee5b009035464aed6810d98c3b55293210a31ae"
+    },
+    {
+      "path": "engine/monitor/index.html",
+      "sha256": "b41e61f8b22725ba6a3d7ec7af613648c17c3a74907c334810a9649f423c012a"
+    },
+    {
+      "path": "engine/monitor/style.css",
+      "sha256": "fe83f3b4d95f7bc2494cf7e019c575f6d7bd41c1463c4e09d66e919defb4a82f"
+    }
+  ],
+  "sourceUnchanged": true,
+  "mutations": false,
+  "limitations": [
+    "Chromium desktop automation with phone viewport emulation; no physical-phone acceptance.",
+    "Current served presentation source with authenticated retained-run GET and browser-only cloned GET state fixtures, not new native execution.",
+    "Stop confirmation dismissed; no successful control mutation dispatched.",
+    "Pointercancel and persisted pageshow synthesized; no claim of OS cancellation or actual browser BFCache restoration.",
+    "Map native scrolling/Fit tested; 720px CSS-width zoom-equivalent is not a product zoom API.",
+    "Execution statuses and fixture worker summaries are deliberately synthetic; they are not task acceptance evidence."
+  ],
+  "historicalFailuresPreserved": true
+}

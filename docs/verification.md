@@ -1,5 +1,7 @@
 # Verification record
 
+The isolated **0.3.6 dashboard/input/output candidate** starts from `54a6b36` and includes only the reviewed final picker corrections from the ongoing feature branch. Its [release checkpoint](releases/0.3.6.md) records scope, local gates and outstanding publication/installation evidence. GitHub Actions remains disabled by owner instruction; no new CI pass or release is claimed. The earlier verification records below retain their historical scope.
+
 The 0.3.5 candidate carries forward the reviewed 0.3.4 dashboard source. The 0.3.4 tag gate passed 505/506 tests and timed out in the existing PowerShell/COM short-alias fixture before catalog assertions. The corrected fixture uses native CMD expansion with the same deadline and identity/junction assertions; the failed tag was not moved or retried. Fresh release gates remain required for 0.3.5.
 
 The dashboard case study records reviewed clean-writer capture, fresh independent verification, five meaningful failing regression checks before fixes, 42 affected monitor checks and 81 final painted-browser checks. See [the bounded delivery evidence](../reports/map-inspector-034.md) and [browser report](../reports/map-inspector-browser-034.json). Full release gates and installed verification remain separate from those observations.

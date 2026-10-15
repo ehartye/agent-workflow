@@ -1,0 +1,74 @@
+{
+  "before": {
+    "phase": "before",
+    "at": "2026-10-15T02:11:25.699Z",
+    "node": "v24.18.0",
+    "codex": "0.162.1",
+    "clientSha256": "255e900e92ea1e09abecc6bcca6c472abc55e9813e842abc173fe691eb48c8eb",
+    "inferenceRequests": 0,
+    "commandsRequested": 1,
+    "expectedBytes": 2097152,
+    "expectedHash": "6932fd31e5daf4739b9fa78ff777b2831b0995cc1d0b0093cac80601902013bc",
+    "scope": "One actual command/exec response; not a model tool turn or original Fallow replay",
+    "authentication": {
+      "mode": "chatgpt",
+      "provider": "openai"
+    },
+    "passed": false,
+    "error": {
+      "code": "PROTOCOL_LIMIT",
+      "message": "Codex message exceeded the bounded frame limit"
+    },
+    "cleanup": {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified",
+      "jobEmpty": true,
+      "ownershipScope": "windows-job-members",
+      "jobHost": {
+        "closeObserved": true,
+        "exitCode": 0,
+        "signal": "none",
+        "receipt": "drained"
+      }
+    }
+  },
+  "after": {
+    "phase": "after",
+    "at": "2026-10-15T02:18:55.156Z",
+    "node": "v24.18.0",
+    "codex": "0.162.1",
+    "clientSha256": "3b2a79a053960cc80d1cd205f903c6249f163eddd1a8396deb0361bbaaa068a9",
+    "inferenceRequests": 0,
+    "commandsRequested": 1,
+    "expectedBytes": 2097152,
+    "expectedHash": "6932fd31e5daf4739b9fa78ff777b2831b0995cc1d0b0093cac80601902013bc",
+    "scope": "One actual command/exec response; not a model tool turn or original Fallow replay",
+    "authentication": {
+      "mode": "chatgpt",
+      "provider": "openai"
+    },
+    "observed": {
+      "exitCode": 0,
+      "stdoutBytes": 2097152,
+      "stderrBytes": 0,
+      "sha256": "6932fd31e5daf4739b9fa78ff777b2831b0995cc1d0b0093cac80601902013bc"
+    },
+    "passed": true,
+    "followupRouting": true,
+    "cleanup": {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified",
+      "jobEmpty": true,
+      "ownershipScope": "windows-job-members",
+      "jobHost": {
+        "closeObserved": true,
+        "exitCode": 0,
+        "signal": "none",
+        "receipt": "drained"
+      }
+    }
+  },
+  "interpretation": "Exact2MiB read-only command/exec mechanism reproduced before and passed candidate after; no model turn or original Fallow recovery claim."
+}

@@ -12,8 +12,10 @@ import { parseHTML } from 'linkedom';
 const html = await readFile(new URL('../engine/monitor/index.html', import.meta.url), 'utf8');
 const script = await readFile(new URL('../engine/monitor/app.mjs', import.meta.url), 'utf8');
 const worker = (position, status = 'completed', extra = {}) => ({ position, status, prompt: `Prompt ${position}`, phase: 'Build', options: { label: `Task ${position}` }, ...extra });
-async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, run = {}, response, light = false, phone = false } = {}) {
+async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, savedPolling, savedWidths = {}, cookieJar = new Map(), cookiesBlocked = false, storageBlocked = false, width = 1200, run = {}, response, light = false, phone = false } = {}) {
   const { document, window } = parseHTML(html);
+  const cookieWrites=[];
+  Object.defineProperty(document,'cookie',{get(){if(cookiesBlocked)throw Error('blocked');return [...cookieJar].map(([key,value])=>`${key}=${value}`).join('; ');},set(value){if(cookiesBlocked)throw Error('blocked');cookieWrites.push(value);const [key,encoded]=value.split(';')[0].split('=');cookieJar.set(key,encoded);}});
   // LinkeDOM omits these browser interfaces; implement their DOM semantics.
   Object.defineProperty(window.HTMLSelectElement.prototype, 'value', {configurable:true,
     get() { return [...this.options].find(option => option.hasAttribute('selected'))?.value ?? this.options[0]?.value ?? ''; },
@@ -26,14 +28,23 @@ async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, 
   window.Element.prototype.focus = function() { focused = this; };
   window.Element.prototype.scrollIntoView = function(options) { scrolls.push({ element: this, options }); };
   window.Element.prototype.scrollTo = function({ left, top }) { this.scrollLeft = left; this.scrollTop = top; };
+  let viewportWidth = width;
+  Object.defineProperty(window, 'innerWidth', { configurable:true, get:()=>viewportWidth });
+  Object.defineProperty(document.querySelector('.work-area'), 'clientWidth', { get:()=>viewportWidth });
+  const captures = new Map(), mediaListeners = [], themeListeners=[];
+  window.Element.prototype.setPointerCapture = function(id) { captures.set(id,this); };
+  window.Element.prototype.hasPointerCapture = function(id) { return captures.get(id)===this; };
+  window.Element.prototype.releasePointerCapture = function(id) { captures.delete(id); };
   Object.defineProperty(document, 'hidden', { value: false, writable: true });
   const calls = [], history = [], session = new Map(savedToken ? [['agent-workflow.monitor.token', savedToken]] : []);
   const local = new Map(savedTheme ? [['agent-workflow.monitor.theme', savedTheme]] : []), timers = new Map();
+  if(savedPolling!==undefined)local.set('agent-workflow.monitor.polling',savedPolling);
+  for(const [pane,value] of Object.entries(savedWidths))local.set(`agent-workflow.monitor.width.${pane}`,value);
   let timerId = 0, snapshot = { generation: 4, status: 'running', acceptingControls: true, resumable: false, meta: { name: 'Fixture workflow' }, concurrency: 2, attempts: 2, workers: [worker(0), worker(1, 'running')], coverage: { requested: 2, completed: 1, failed: 0, unknown: 0, cached: 0 }, updatedAt: '2026-10-13T12:00:00Z', ...run };
   const storage = map => ({ getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) });
   const context = vm.createContext({ document, window, URLSearchParams, AbortController, location: { hash, pathname: '/', search: '' },
-    history: { replaceState: (...args) => history.push(args) }, sessionStorage: storage(session), localStorage: storage(local),
-    matchMedia: query => ({ matches: query.includes('max-width') ? phone : light, addEventListener() {} }), confirm: () => false,
+    history: { replaceState: (...args) => history.push(args) }, sessionStorage: storage(session), localStorage: storageBlocked ? {getItem(){throw Error('blocked');},setItem(){throw Error('blocked');}} : storage(local),
+    matchMedia: query => query.includes('max-width') ? { get matches(){return phone;}, addEventListener(type,listener){mediaListeners.push(listener);} } : { get matches(){return light;},addEventListener(type,listener){themeListeners.push(listener);} }, confirm: () => false,
     Option: function(text, value) { const option = document.createElement('option'); option.textContent = text; option.value = value; return option; },
     setTimeout: (callback, delay) => { timers.set(++timerId, { callback, delay }); return timerId; }, clearTimeout: id => timers.delete(id),
     fetch: async (path, input) => {
@@ -49,14 +60,330 @@ async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, 
   const flush = async () => { await new Promise(resolve => setImmediate(resolve)); };
   await flush();
   const get = id => document.getElementById(id);
-  const click = async element => { assert.ok(element, 'Requested user control exists'); element.dispatchEvent(new window.Event('click')); await flush(); };
+  const click = async element => { assert.ok(element, 'Requested user control exists'); element.dispatchEvent(new window.Event('click',{bubbles:true,cancelable:true})); await flush(); };
   return { document, window, context, get, calls, history, session, local, timers, scrolls, flush, click,
+    captures,cookieJar,cookieWrites,
+    osTheme: nextLight => {light=nextLight;for(const listener of themeListeners)listener();},
+    pointer: (element,type,clientX,pointerId=7,button=0) => { assert.ok(element,'Resize separator exists');const event=new window.Event(type,{bubbles:true,cancelable:true});Object.assign(event,{clientX,pointerId,button});element.dispatchEvent(event); },
+    resize: (nextWidth,nextPhone=nextWidth<600) => { viewportWidth=nextWidth;phone=nextPhone;window.dispatchEvent(new window.Event('resize'));for(const listener of mediaListeners)listener(); },
+    tick: async delay => { const entry=[...timers.entries()].find(([,timer])=>timer.delay===delay);assert.ok(entry,`Automatic ${delay}ms poll scheduled`);timers.delete(entry[0]);entry[1].callback();await flush(); },
+    key: async (element,key) => { const event=new window.Event('keydown',{bubbles:true,cancelable:true});event.key=key;element.dispatchEvent(event);await flush(); },
     escape: async () => { const event = new window.Event('keydown'); event.key = 'Escape'; document.dispatchEvent(event); await flush(); },
     refresh: async () => { await click(get('refresh')); },
     change: async (id, value) => { get(id).value = value; get(id).dispatchEvent(new window.Event('change')); await flush(); },
     update: value => { snapshot = { ...snapshot, ...value }; },
   };
 }
+
+test('every map card offers a separate accessible evidence menu and readonly worker receipts',async()=>{
+  const view=await monitor({run:{controls:[
+    {id:'steer-1',generation:4,position:1,attempt:2,action:'steer',status:'applied',text:'Read <img src=x onerror=alert(1)>',requestedAt:'2026-10-14T12:00:00Z'},
+    {id:'other',generation:4,position:0,action:'cancel-worker',status:'pending'},
+  ],controlCount:12,restart:{position:0,attempt:1,sourceGeneration:3,receiptId:'saved-restart',affected:[{position:0},{position:1}],reconciliation:'Reviewed retained effects'}}});
+  const buttons=[...view.document.querySelectorAll('.worker-menu-toggle')];assert.equal(buttons.length,2,'Each graph card has a menu');
+  assert.equal(view.document.querySelectorAll('button button').length,0);
+  const origin=buttons[1];assert.match(origin.getAttribute('aria-label'),/Task 1/);assert.equal(origin.getAttribute('aria-haspopup'),'menu');
+  const selected=view.document.querySelector('.map-worker[aria-pressed="true"]').dataset.position;
+  await view.click(origin);assert.equal(origin.getAttribute('aria-expanded'),'true');assert.equal(origin.getAttribute('aria-controls'),'worker-card-menu');
+  const menu=view.get('worker-card-menu');assert.equal(menu.getAttribute('role'),'menu');assert.equal(view.get('graph-world').contains(menu),false);
+  assert.equal(view.document.querySelector('.map-worker[aria-pressed="true"]').dataset.position,selected,'Menu does not select the worker');
+  await view.key(view.document.activeElement,'End');assert.match(view.document.activeElement.textContent,/Workspace/);
+  await view.key(view.document.activeElement,'Home');assert.match(view.document.activeElement.textContent,/Actions/);
+  await view.key(view.document.activeElement,' ');
+  const dialog=view.get('worker-quick-view');assert.equal(dialog.hidden,false);assert.equal(dialog.getAttribute('role'),'dialog');assert.equal(view.get('graph-world').contains(dialog),false);
+  assert.match(dialog.textContent,/Task 1/);assert.match(dialog.textContent,/steer.*applied/s);assert.doesNotMatch(dialog.textContent,/cancel-worker/);assert.match(dialog.textContent,/12 saved|12 total/);
+  assert.match(dialog.textContent,/saved-restart/);
+  assert.equal(dialog.querySelector('img'),null);assert.match(dialog.textContent,/<img/);
+  await view.escape();assert.equal(dialog.hidden,true);assert.equal(view.document.activeElement,origin);assert.equal(origin.getAttribute('aria-expanded'),'false');
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('failed and unknown workers surface actual primary errors without disclosing private diagnostics',async()=>{
+  const view=await monitor({run:{workers:[worker(0,'failed',{attempts:1,error:{code:'REQUEST_TIMEOUT',message:'account/read exceeded 15000ms <img src=x>',stage:'startup',request:'account/read',timeoutMs:15000,stack:'PRIVATE_STACK'},workspaceError:{code:'CAPTURE',message:'Capture incomplete'},cleanup:{serverExited:true}}),worker(1,'unknown',{error:{code:'PROTOCOL_LIMIT',message:'Response exceeded retained protocol limit'}})]}});
+  const card=view.document.querySelector('.map-worker[data-position="0"]');assert.match(card.textContent,/REQUEST_TIMEOUT.*account\/read exceeded 15000ms/s);
+  const callout=view.get('detail').firstElementChild;assert.equal(callout.classList.contains('worker-failure'),true);assert.match(callout.textContent,/REQUEST_TIMEOUT.*account\/read/s);assert.equal(callout.closest('details'),null);
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="0"]'));
+  assert.equal(view.get('worker-card-menu').firstElementChild.textContent,'Failure details');await view.key(view.document.activeElement,'Enter');
+  const dialog=view.get('worker-quick-view');assert.match(dialog.textContent,/Capture incomplete/);assert.match(dialog.textContent,/account\/read/);assert.match(dialog.textContent,/15000/);assert.match(dialog.textContent,/Descendant.*unverified/i);assert.match(dialog.textContent,/notStarted.*unverified/i);assert.doesNotMatch(dialog.textContent,/PRIVATE_STACK/);assert.equal(dialog.querySelector('img'),null);
+  await view.escape();await view.click(view.document.querySelector('.map-worker[data-position="1"]'));
+  assert.match(view.get('detail').firstElementChild.textContent,/unknown.*PROTOCOL_LIMIT/s);assert.equal(view.get('detail-status').textContent,'unknown');
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('quick views filter retained messages and tools with bounded pagination and no private reasoning',async()=>{
+  const view=await monitor({response:path=>{
+    if(!path.startsWith('/api/activity?'))return;
+    const after=Number(new URL(path,'http://fixture').searchParams.get('after'));
+    const records=Array.from({length:50},(_,i)=>({seq:after+i+1,type:i===0?'reasoning':i===1?'agentMessage':i===2?'userMessage':['commandExecution','fileChange','mcpToolCall','nativeTool'][i%4],status:'completed',attempt:1,output:i===0?'PRIVATE_REASONING':`event ${after+i+1} <script>unsafe</script>`,input:i>2?'saved command':undefined,truncated:['output'],toolObservation:i===3?{tool:'apply_patch',callId:'call-1',outcome:'reportedRejected'}:undefined}));
+    return{ok:true,json:async()=>({records,observed:320,retained:256,dropped:64,nextCursor:after+50,hasMore:after<250})};
+  }});
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="1"]'));await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="messages"]'));
+  const body=view.get('worker-quick-body');assert.equal(body.querySelectorAll('.quick-record').length,2);assert.match(body.textContent,/Response|Instruction/);assert.doesNotMatch(body.textContent,/PRIVATE_REASONING|saved command/);assert.equal(body.querySelector('script'),null);
+  assert.match(body.textContent,/256 retained.*320 observed.*64.*discarded/s);assert.match(body.textContent,/more.*available/i);
+  await view.click(view.get('worker-tab-tools'));assert.equal(body.querySelectorAll('.quick-record').length,47);assert.doesNotMatch(body.textContent,/PRIVATE_REASONING/);
+  assert.match(body.textContent,/Shortened.*output/);assert.match(body.textContent,/call-1/);
+  for(let i=0;i<5;i++)await view.click(view.get('quick-load-activity'));
+  assert.ok(/256 loaded/.test(body.textContent),'Loaded records capped at 256');assert.ok(/44 previously loaded/.test(body.textContent),'Display eviction is disclosed');assert.ok(/No more.*recorded page/i.test(body.textContent));
+  const reads=view.calls.filter(call=>call.path.startsWith('/api/activity?'));assert.equal(reads.length,6);assert.match(reads.at(-1).path,/position=1&after=250&limit=50/);
+  assert.equal(view.get('detail-heading').textContent,'Task 0','Evidence target stays independent of inspector');assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('quick evidence preserves DOM through polls and guards explicit full reads by its own preview',async()=>{
+  const current=worker(1,'unknown',{error:{code:'PROTOCOL_LIMIT',message:'Bounded frame limit'},truncations:['prompt','workspace','evidence']}),sibling=worker(0);
+  let release;
+  const view=await monitor({phone:true,width:390,run:{workers:[sibling,current]},response:path=>path.startsWith('/api/worker/1?')?new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>({...current,prompt:'Full saved prompt',result:{summary:'Full saved result'},notStarted:false,noInference:false,noProcessStarted:false,evidence:{cleanup:{serverExited:true,jobEmpty:false,nativeTerminals:{inventoryEmpty:true}}},workspace:{cwd:'C:/owned/worker',changedFiles:['src/<img>.mjs'],patchHash:'a'.repeat(64)}})});}):undefined});
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="1"]'));await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="prompt"]'));
+  const body=view.get('worker-quick-body');await view.click(view.get('quick-load-worker'));assert.equal(typeof release,'function');
+  view.update({updatedAt:'later',workers:[{...sibling,activity:{seq:9,summary:'Sibling update'}},current]});await view.tick(2000);release();await view.flush();assert.match(body.textContent,/Full saved prompt/);
+  const pre=body.querySelector('pre');pre.focus();pre.scrollTop=71;body.scrollTop=58;const tab=view.get('worker-tab-prompt');
+  view.update({controlCount:99,controls:[{generation:4,position:0,action:'steer',status:'applied'}],lifecycle:{revision:12,workers:[]}});
+  await view.tick(2000);assert.equal(body.querySelector('pre')===pre,true,'Unrelated receipts and projections retain evidence DOM');assert.equal(view.get('worker-tab-prompt')===tab,true);assert.equal(view.document.activeElement===pre,true);assert.equal(body.scrollTop,58);assert.equal(pre.scrollTop,71);
+  await view.click(view.get('worker-tab-workspace'));assert.match(body.textContent,/C:\/owned\/worker/);assert.match(body.textContent,/Capture status: unverified/);assert.match(body.textContent,/src\/<img>.mjs/);assert.equal(body.querySelector('img'),null);assert.equal(view.calls.some(call=>call.path.includes('/api/patch/')),false);
+  await view.click(view.get('worker-tab-failure'));assert.match(body.textContent,/noInferencefalse/);assert.match(body.textContent,/Descendant.*unverified/i);
+  view.update({workers:[sibling,{...current,attempts:2,error:{code:'NEW_ATTEMPT',message:'New evidence'}}]});await view.tick(2000);assert.doesNotMatch(body.textContent,/noInferencefalse/);assert.match(body.textContent,/NEW_ATTEMPT/);
+  await view.click(view.get('worker-tab-prompt'));await view.click(view.get('quick-load-worker'));release();await view.escape();await view.flush();assert.equal(view.get('worker-quick-view').hidden,true);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('closing and generation or run changes abort quick GETs and ignore late responses',async()=>{
+  for(const change of ['close','generation','run']){
+    const ref=runId=>({dataInstanceId:'data',runId,runtimeId:'runtime'});let release,signal;
+    const view=await monitor({run:{monitor:{run:ref('current'),capabilities:{sessionNavigation:true}}},response:(path,input)=>{
+      if(path.startsWith('/api/session/runs'))return{ok:true,json:async()=>({items:[{ref:ref('next'),title:'Next run',status:'running'}]})};
+      if(path==='/api/runs/next/run')return{ok:true,json:async()=>({generation:4,status:'running',workers:[worker(0)],coverage:{},monitor:{run:ref('next')}})};
+      if(path.startsWith('/api/activity?')){signal=input.signal;return new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>({records:[{seq:1,type:'agentMessage',output:'STALE_OUTPUT'}],observed:1,retained:1,dropped:0,nextCursor:1,hasMore:false})});});}
+    }});
+    await view.click(view.document.querySelector('.worker-menu-toggle'));await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="messages"]'));assert.equal(typeof release,'function');
+    if(change==='close')await view.escape();
+    if(change==='generation'){view.update({generation:5});await view.refresh();}
+    if(change==='run')await view.click(view.document.querySelector('[data-run-id="next"]'));
+    assert.equal(signal.aborted,true,`${change} aborts owned GET`);release();await view.flush();assert.equal(view.get('worker-quick-view').hidden,true);assert.doesNotMatch(view.get('worker-quick-body').textContent,/STALE_OUTPUT/);assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  }
+});
+
+test('quick views report empty logs and outside dismissal returns the connected menu origin',async()=>{
+  const view=await monitor({response:path=>path.startsWith('/api/activity?')?{ok:true,json:async()=>({records:[],observed:0,retained:0,dropped:0,nextCursor:0,hasMore:false})}:undefined});
+  const origin=view.document.querySelector('.worker-menu-toggle[data-position="1"]');await view.click(origin);await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="tools"]'));
+  assert.match(view.get('worker-quick-body').textContent,/No matching tool events/);
+  view.update({updatedAt:'later',workers:[worker(0),worker(1,'completed')]});await view.refresh();assert.equal(origin.isConnected,true);
+  view.get('run-title').dispatchEvent(new view.window.Event('click',{bubbles:true}));await view.flush();assert.equal(view.get('worker-quick-view').hidden,true);assert.equal(view.document.activeElement===origin,true);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('failure details use saved cleanup facts and shortened diagnostics stay bounded and safe',async()=>{
+  const current=worker(0,'unknown',{attempts:2,error:JSON.stringify({code:'PROTOCOL_LIMIT',message:'Frame too large',stack:'PRIVATE_STACK',token:'PRIVATE_SECRET'}),evidence:{cleanup:{serverExited:true}},truncations:['error']});
+  const view=await monitor({run:{workers:[current]}});
+  const card=view.document.querySelector('.map-worker');assert.match(card.textContent,/PROTOCOL_LIMIT.*Frame too large/);assert.doesNotMatch(card.textContent,/PRIVATE_STACK|PRIVATE_SECRET/);
+  await view.click(view.document.querySelector('.worker-menu-toggle'));await view.click(view.get('worker-card-menu').firstElementChild);
+  let text=view.get('worker-quick-body').textContent;assert.match(text,/Owned server exitedtrue/);assert.match(text,/Descendant drainunverified/);assert.doesNotMatch(text,/PRIVATE_STACK|PRIVATE_SECRET/);
+  view.update({workers:[{...current,error:'{"code":"REQUEST_TIMEOUT","message":"partial',truncations:['error']}]});await view.refresh();
+  assert.match(view.get('detail').firstElementChild.textContent,/shortened.*unverified/i);assert.doesNotMatch(view.document.querySelector('.map-worker').textContent,/\{"code"/);
+  await view.escape();assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('quick view tabs retain keyboard focus, workspace handoff reads no patches, and page exit clears evidence',async()=>{
+  const workspace={cwd:'C:/owned/task',changedFiles:['one.mjs'],patchPath:'C:/retained/one.patch',patchHash:'a'.repeat(64)};
+  const view=await monitor({run:{workers:[worker(0),worker(1,'completed',{workspace})]}});
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="1"]'));await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="workspace"]'));
+  const tab=view.get('worker-tab-workspace');await view.key(tab,'Home');await view.key(view.document.activeElement,'ArrowRight');await view.key(view.document.activeElement,'End');await view.key(view.document.activeElement,'Enter');assert.equal(view.document.activeElement===tab,true,'Selecting a tab keeps focus on its tab');
+  await view.click(view.get('quick-inspect-workspace'));assert.equal(view.get('worker-quick-view').hidden,true);assert.equal(view.get('detail-heading').textContent,'Task 1');assert.equal(view.get('detail').querySelector('.workspace-review').open,true);assert.equal(view.calls.some(call=>call.path.includes('/api/patch/')),false);
+  await view.click(view.get('close-inspector'));assert.equal(view.document.activeElement,view.document.querySelector('.worker-menu-toggle[data-position="1"]'));
+  await view.click(view.document.activeElement);await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="prompt"]'));
+  view.window.dispatchEvent(new view.window.Event('pagehide'));assert.equal(view.get('worker-quick-view').hidden,true);assert.equal(view.get('worker-quick-body').textContent,'');assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('new failures update an open worker menu and readonly reads never arm a viewed run',async()=>{
+  const ref={dataInstanceId:'data',runId:'unarmed',runtimeId:'runtime'},current=worker(1,'running');
+  const view=await monitor({run:{workers:[worker(0),current],monitor:{run:ref,capabilities:{scopedControls:true}}}});
+  assert.equal(view.get('stop').disabled,true);await view.click(view.document.querySelector('.worker-menu-toggle[data-position="1"]'));
+  const actions=view.get('worker-card-menu').firstElementChild;actions.focus();view.update({workers:[worker(0),{...current,status:'failed',error:{code:'REQUEST_TIMEOUT',message:'account/read did not complete within 15000 ms'}}]});await view.tick(2000);
+  assert.equal(view.get('worker-card-menu').firstElementChild.textContent,'Failure details');assert.equal(view.document.activeElement===actions,true,'Relevant insert retains the focused menu item');
+  await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="prompt"]'));
+  view.update({workers:[worker(0),current]});await view.tick(2000);view.update({workers:[worker(0),{...current,status:'unknown',error:{code:'PROTOCOL_LIMIT',message:'Frame ceiling'}}]});await view.tick(2000);
+  assert.ok(view.get('worker-tab-failure'),'A new failure remains directly available from an open quick view');
+  await view.click(view.get('worker-tab-failure'));view.update({workers:[worker(0),current]});await view.tick(2000);await view.escape();
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="1"]'));assert.equal(view.get('worker-card-menu').firstElementChild.textContent,'Actions & controls','Keeping an open failure tab does not add failure items to healthy cards');
+  assert.equal(view.get('stop').disabled,true);assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('quick read conflicts and corrupt coverage stay explicit without automatic retry',async()=>{
+  for(const kind of ['conflict','coverage']){
+    const view=await monitor({response:path=>path.startsWith('/api/activity?')?(kind==='conflict'?{ok:false,status:409,json:async()=>({message:'Generation changed'})}:{ok:true,json:async()=>({records:[{seq:1,type:'agentMessage',output:'UNVERIFIED_RECORD'}],observed:0,retained:1,dropped:0,nextCursor:1,hasMore:false})}):undefined});
+    await view.click(view.document.querySelector('.worker-menu-toggle'));await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="messages"]'));
+    assert.match(view.get('worker-quick-body').textContent,/Evidence read failed/);assert.doesNotMatch(view.get('worker-quick-body').textContent,/UNVERIFIED_RECORD/);
+    await view.tick(2000);assert.equal(view.calls.filter(call=>call.path.startsWith('/api/activity?')).length,1);assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  }
+});
+
+test('Current run opens a searchable modal and a deliberate row selection becomes current with GETs only',async()=>{
+  const ref=runId=>({dataInstanceId:'data',runId,runtimeId:'runtime'});
+  const view=await monitor({phone:true,width:390,run:{monitor:{run:ref('first'),pinnedRunId:'first',capabilities:{sessionNavigation:true,scopedControls:true}}},response:path=>{
+    if(path.startsWith('/api/session/runs'))return{ok:true,json:async()=>({items:[{ref:ref('first'),title:'First run',executionStatus:'running',createdAt:'2026-10-13T00:00:00Z'},{ref:ref('second'),title:'Second run',executionStatus:'running',createdAt:'2026-10-14T00:00:00Z'},{ref:ref('old'),title:'Old unavailable',executionStatus:'unavailable',disposition:'hidden'}],nextCursor:null})};
+    if(path==='/api/runs/second/run')return{ok:true,json:async()=>({generation:6,status:'running',acceptingControls:true,workers:[worker(0)],meta:{name:'Second run'},coverage:{},monitor:{run:ref('second'),capabilities:{sessionNavigation:true,scopedControls:true}}})};
+  }});
+  assert.ok(view.get('current-run'),'Current run has a compact visible panel');assert.match(view.get('run-picker').textContent,/Change run/);assert.equal(view.get('arm-control'),null,'Selection has no second arming step');
+  const graph=view.get('graph-world');await view.click(view.get('run-picker'));assert.equal(view.get('run-popover').getAttribute('aria-modal'),'true');assert.equal(view.document.activeElement,view.get('run-search'));assert.equal(view.document.querySelector('main').hasAttribute('inert'),true);
+  view.get('run-search').value='Second';view.get('run-search').dispatchEvent(new view.window.Event('input'));assert.equal(view.document.querySelector('[data-run-id="old"]').hidden,true);assert.equal(view.get('graph-world')===graph,true);assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  view.get('follow-run').checked=true;view.get('run-options').scrollTop=73;await view.tick(2000);assert.equal(view.get('run-options').scrollTop,73);assert.equal(view.get('run-search').value,'Second');assert.equal(view.document.activeElement,view.get('run-search'));assert.equal(view.get('graph-world')===graph,true,'Dialog polling cannot follow another run while choosing');
+  view.get('follow-run').dispatchEvent(new view.window.Event('change'));await view.flush();await view.flush();assert.equal(view.calls.some(call=>call.path==='/api/runs/second/run'),false,'Following cannot change the current run behind the dialog');
+  assert.doesNotMatch(view.get('navigation-reason').textContent,/Viewing and controlling are separate/);
+  const lastRow=view.document.querySelector('[data-run-id="second"]');lastRow.focus();await view.key(lastRow,'Tab');assert.equal(view.document.activeElement,view.get('close-run-picker'));view.get('run-search').focus();
+  view.get('run-show-hidden').checked=true;view.get('run-show-hidden').dispatchEvent(new view.window.Event('change'));await view.flush();assert.ok(view.calls.some(call=>call.path.includes('includeHidden=true')));
+  await view.click(view.document.querySelector('[data-run-id="second"]'));await view.flush();assert.equal(view.get('run-popover').hidden,true);assert.equal(view.document.querySelector('main').hasAttribute('inert'),false);assert.match(view.get('current-run').textContent,/Second run/);assert.equal(view.get('stop').disabled,false,'Fresh deliberate selection supplies exact control identity');assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  await view.click(view.get('stop'));assert.equal(view.calls.filter(call=>call.method==='POST').length,0,'Stop still requires confirmation');
+  await view.click(view.get('run-picker'));await view.escape();assert.equal(view.document.activeElement,view.get('run-picker'));await view.click(view.get('run-picker'));view.get('run-dialog-backdrop').dispatchEvent(new view.window.Event('click',{bubbles:true}));assert.equal(view.get('run-popover').hidden,true);assert.equal(view.document.activeElement,view.get('run-picker'));
+  view.update({status:'running'});view.document.hidden=true;view.document.dispatchEvent(new view.window.Event('visibilitychange'));assert.equal(view.get('stop').disabled,true);
+});
+
+test('pane resize drags persist independent widths and cancel releases capture without committing',async()=>{
+  const view=await monitor(),inspector=view.get('inspector-resize'),menu=view.get('menu-resize');
+  assert.ok(inspector,'Worker details exposes a resize separator');assert.ok(menu,'Run menu exposes a resize separator');
+  await view.click(view.get('more-toggle'));
+  const detail=view.get('detail').firstElementChild,map=view.get('workflow-map').firstElementChild;
+  view.get('lifecycle-note').value='Keep this review draft';view.get('inspector-panel').scrollTop=56;view.get('run-options').scrollTop=42;
+  for(const [handle,panel,initial,expected] of [[inspector,'inspector-panel',300,380],[menu,'more-panel',430,510]]){
+    assert.equal(handle.getAttribute('role'),'separator');assert.equal(handle.getAttribute('aria-orientation'),'vertical');assert.equal(handle.getAttribute('aria-controls'),panel);
+    assert.equal(Number.parseFloat(view.get(panel).style.width),initial);
+    view.pointer(handle,'pointerdown',900);assert.equal(view.captures.get(7),handle);
+    view.pointer(handle,'pointermove',820);assert.equal(Number.parseFloat(view.get(panel).style.width),expected);
+    await view.tick(2000);
+    assert.equal(view.get('detail').firstElementChild,detail);assert.equal(view.get('workflow-map').firstElementChild,map);assert.equal(view.get('lifecycle-note').value,'Keep this review draft');
+    assert.equal(view.get('inspector-panel').scrollTop,56);assert.equal(view.get('run-options').scrollTop,42);assert.equal(view.document.activeElement,handle);
+    view.pointer(handle,'pointerup',820);assert.equal(view.captures.size,0);
+  }
+  assert.equal(view.local.get('agent-workflow.monitor.width.inspector'),'380');assert.equal(view.local.get('agent-workflow.monitor.width.menu'),'510');
+  view.pointer(menu,'pointerdown',820);view.pointer(menu,'pointermove',700);view.pointer(menu,'pointercancel',700);
+  assert.equal(view.captures.size,0);assert.equal(Number.parseFloat(view.get('more-panel').style.width),510);assert.equal(view.local.get('agent-workflow.monitor.width.menu'),'510');
+  view.pointer(menu,'pointerdown',820);view.pointer(menu,'pointermove',700);await view.key(menu,'Escape');
+  assert.equal(view.get('more-panel').hidden,false,'Escape cancels the current resize before closing its menu');assert.equal(view.captures.size,0);assert.equal(Number.parseFloat(view.get('more-panel').style.width),510);
+  view.pointer(inspector,'pointerdown',820);view.pointer(inspector,'pointermove',700);view.pointer(inspector,'lostpointercapture',700);
+  assert.equal(Number.parseFloat(view.get('inspector-panel').style.width),380);
+  view.pointer(inspector,'pointerdown',820);view.pointer(inspector,'pointermove',700);view.document.hidden=true;view.document.dispatchEvent(new view.window.Event('visibilitychange'));
+  assert.equal(view.captures.size,0,'Hiding the page cancels resize capture');assert.equal(view.document.body.classList.contains('resizing-pane'),false);
+  assert.equal(Number.parseFloat(view.get('inspector-panel').style.width),380);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('pane resize keyboard bounds and viewport changes retain a usable map and phone sheets',async()=>{
+  const view=await monitor(),handle=view.get('inspector-resize');assert.ok(handle,'Resize separator exists');
+  handle.focus();await view.key(handle,'ArrowLeft');assert.equal(Number(handle.getAttribute('aria-valuenow')),316);
+  await view.key(handle,'Home');assert.equal(Number(handle.getAttribute('aria-valuenow')),260);
+  await view.key(handle,'End');assert.equal(Number(handle.getAttribute('aria-valuenow')),600);
+  view.resize(700);assert.equal(Number(handle.getAttribute('aria-valuenow')),370);
+  view.resize(390);assert.equal(handle.hidden,true);assert.equal(handle.tabIndex,-1);assert.equal(handle.getAttribute('aria-disabled'),'true');
+  const saved=view.local.get('agent-workflow.monitor.width.inspector');await view.key(handle,'Home');assert.equal(view.local.get('agent-workflow.monitor.width.inspector'),saved);
+  view.pointer(handle,'pointerdown',300);view.pointer(handle,'pointermove',0);view.pointer(handle,'pointerup',0);assert.equal(view.captures.size,0);assert.equal(view.local.get('agent-workflow.monitor.width.inspector'),saved);
+  assert.equal(view.get('inspector-panel').style.width,'');assert.equal(view.get('more-panel').style.width,'');
+  view.resize(1200);assert.equal(handle.hidden,false);assert.equal(Number(handle.getAttribute('aria-valuenow')),600);
+  await view.click(view.get('close-inspector'));assert.equal(handle.hidden,true);
+  await view.click(view.get('more-toggle'));const menu=view.get('menu-resize');menu.focus();
+  await view.key(menu,'Home');assert.equal(Number(menu.getAttribute('aria-valuenow')),300);
+  await view.key(menu,'ArrowRight');assert.equal(Number(menu.getAttribute('aria-valuenow')),300);
+  await view.key(menu,'End');assert.equal(Number(menu.getAttribute('aria-valuenow')),720);
+  view.resize(600);assert.equal(Number(menu.getAttribute('aria-valuenow')),320);assert.equal(Number.parseFloat(view.get('more-panel').style.width),320);
+  view.pointer(menu,'pointerdown',100);view.pointer(menu,'pointermove',-9999);assert.equal(Number(menu.getAttribute('aria-valuenow')),320);view.pointer(menu,'pointerup',-9999);
+  view.pointer(menu,'pointerdown',100);view.pointer(menu,'pointermove',9999);assert.equal(Number(menu.getAttribute('aria-valuenow')),300);view.pointer(menu,'pointerup',9999);
+});
+
+test('pane resize restores guarded preferences and survives unavailable storage',async()=>{
+  const view=await monitor({savedWidths:{inspector:'NaN',menu:'99999'}});await view.click(view.get('more-toggle'));
+  assert.ok(view.get('inspector-resize'),'Resize separator exists');
+  assert.equal(Number(view.get('inspector-resize').getAttribute('aria-valuenow')),300);assert.equal(Number(view.get('menu-resize').getAttribute('aria-valuenow')),720);
+  assert.equal(view.cookieJar.get('agent-workflow.monitor.width.menu'),'720','Only bounded scalar widths are persisted');
+  const restored=await monitor({savedWidths:{inspector:'380',menu:'510'}});assert.equal(Number.parseFloat(restored.get('inspector-panel').style.width),380);assert.equal(Number.parseFloat(restored.get('more-panel').style.width),510);
+  const blocked=await monitor({storageBlocked:true});await blocked.key(blocked.get('inspector-resize'),'ArrowLeft');assert.equal(Number.parseFloat(blocked.get('inspector-panel').style.width),316);
+});
+
+test('host preferences survive fresh port storage and cookie wins over stale local values',async()=>{
+  const legacy=await monitor({savedTheme:'light',savedWidths:{menu:'510'}});
+  assert.equal(legacy.cookieJar.get('agent-workflow.monitor.theme'),'light','A valid legacy preference is promoted to host storage');assert.equal(legacy.cookieJar.get('agent-workflow.monitor.width.menu'),'510');
+  const first=await monitor();await first.change('theme','dark');
+  assert.equal(first.cookieJar.get('agent-workflow.monitor.theme'),'dark','Theme preference is host-persistent');
+  assert.ok(first.get('inspector-resize'),'Resize separator exists');await first.key(first.get('inspector-resize'),'ArrowLeft');
+  const next=await monitor({cookieJar:first.cookieJar,savedTheme:'light',savedWidths:{inspector:'500'}});
+  assert.equal(next.document.documentElement.dataset.theme,'dark');assert.equal(Number(next.get('inspector-resize').getAttribute('aria-valuenow')),316);
+  for(const cookie of first.cookieWrites){assert.match(cookie,/; Path=\/; SameSite=Lax; Max-Age=31536000$/);assert.doesNotMatch(cookie,/Domain=|token|fixture/i);}
+  await next.change('theme','system');next.osTheme(true);assert.equal(next.document.documentElement.dataset.theme,'light');next.osTheme(false);assert.equal(next.document.documentElement.dataset.theme,'dark');
+});
+
+test('malformed and blocked host preferences fall back safely without breaking theme or resize',async()=>{
+  for(const encoded of ['%E0%A4%A','%00dark','unknown','']){
+    const view=await monitor({cookieJar:new Map([['agent-workflow.monitor.theme',encoded],['agent-workflow.monitor.width.inspector',encoded]]),savedTheme:'light',savedWidths:{inspector:'380'}});assert.equal(view.document.documentElement.dataset.theme,'light');assert.equal(Number(view.get('inspector-resize').getAttribute('aria-valuenow')),380);
+  }
+  const view=await monitor({cookiesBlocked:true,storageBlocked:true,light:true});assert.equal(view.document.documentElement.dataset.theme,'light');await view.change('theme','dark');assert.equal(view.document.documentElement.dataset.theme,'dark');
+  assert.ok(view.get('inspector-resize'),'Resize separator exists');await view.key(view.get('inspector-resize'),'ArrowLeft');assert.equal(Number(view.get('inspector-resize').getAttribute('aria-valuenow')),316);
+});
+
+test('Change run shows catalog failures and retries in the open selection dialog',async()=>{
+  const ref={dataInstanceId:'data',runId:'current',runtimeId:'runtime'};let fail=true,hold=false,release;
+  const view=await monitor({savedPolling:'manual',run:{monitor:{run:ref,capabilities:{sessionNavigation:true}}},response:async path=>{
+    if(path.startsWith('/api/session/runs'))return fail?{ok:false,status:503,json:async()=>({error:'Catalog temporarily unavailable'})}:hold?new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>({items:[],nextCursor:null})});}):{ok:true,json:async()=>({items:[],nextCursor:null})};
+  }});
+  await view.click(view.get('run-picker'));
+  const error=view.get('run-picker-error');assert.ok(error,'Catalog error is inside Change run');
+  assert.equal(error.closest('#run-popover'),view.get('run-popover'));assert.equal(error.hidden,false);assert.match(error.textContent,/unavailable|503/i);
+  assert.equal(view.get('more-panel').hidden,true);assert.equal(view.document.activeElement,view.get('run-search'));
+  fail=false;hold=true;view.get('retry-runs').focus();await view.click(view.get('retry-runs'));
+  assert.equal(view.document.activeElement===view.get('run-search'),true,'Move focus before disabling the pending retry control');release();await view.flush();
+  assert.equal(error.hidden,true);assert.equal(view.document.activeElement===view.get('run-search'),true,'Successful retry keeps focus in the open dialog');assert.equal(view.get('run-popover').hidden,false);assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('Change run retries the failed pagination page without losing loaded choices',async()=>{
+ const ref=id=>({dataInstanceId:'data',runId:id,runtimeId:'runtime'});let fail=true;
+ const view=await monitor({savedPolling:'manual',run:{monitor:{run:ref('current'),capabilities:{sessionNavigation:true}}},response:path=>{
+  if(!path.startsWith('/api/session/runs'))return;
+  if(path.includes('cursor=page-2'))return fail?{ok:false,status:503,json:async()=>({error:'Page unavailable'})}:{ok:true,json:async()=>({items:[{ref:ref('later'),title:'Later run',executionStatus:'failed'}],nextCursor:null})};
+  return{ok:true,json:async()=>({items:[{ref:ref('current'),title:'Current run',executionStatus:'running'}],nextCursor:'page-2'})};
+ }});
+ await view.click(view.get('run-picker'));const current=view.document.querySelector('[data-run-id="current"]');
+ await view.click(view.get('more-runs'));assert.equal(view.get('run-picker-error').hidden,false);
+ fail=false;await view.click(view.get('retry-runs'));
+ assert.ok(view.document.querySelector('[data-run-id="later"]'),'Retry loads the originally failed page');
+ assert.equal(view.document.querySelector('[data-run-id="current"]'),current);assert.equal(view.get('run-popover').hidden,false);
+});
+
+test('automatic head polling preserves the exact failed page and visible retry',async()=>{
+ const ref=id=>({dataInstanceId:'data',runId:id,runtimeId:'runtime'});let fail=true,headReads=0;
+ const view=await monitor({run:{monitor:{run:ref('current'),capabilities:{sessionNavigation:true}}},response:path=>{
+  if(!path.startsWith('/api/session/runs'))return;
+  if(path.includes('cursor=page-2'))return fail?{ok:false,status:503,json:async()=>({error:'Page unavailable'})}:{ok:true,json:async()=>({items:[{ref:ref('recovered'),title:'Recovered original page',executionStatus:'completed'}],nextCursor:null})};
+  return{ok:true,json:async()=>({items:[{ref:ref('current'),title:'Current run',executionStatus:'running'}],nextCursor:++headReads===1?'page-2':'new-head-page'})};
+ }});
+ await view.click(view.get('run-picker'));await view.click(view.get('more-runs'));assert.equal(view.get('run-picker-error').hidden,false);
+ await view.tick(2000);assert.equal(view.get('run-picker-error').hidden,false,'Unrelated successful head refresh cannot hide failed-page evidence');
+ fail=false;await view.click(view.get('retry-runs'));assert.ok(view.document.querySelector('[data-run-id="recovered"]'),'Retry uses the original failed cursor, not the refreshed head cursor');
+ assert.equal(view.get('run-picker-error').hidden,true);
+});
+
+test('Manual navigation coalesces Show hidden changes during a pending GET into the latest scope',async()=>{
+  const ref=runId=>({dataInstanceId:'data',runId,runtimeId:'runtime'});
+  let release,active=0,peak=0;
+  const view=await monitor({savedPolling:'manual',run:{monitor:{run:ref('current'),capabilities:{sessionNavigation:true}}},response:async path=>{
+    if(!path.startsWith('/api/session/runs'))return;
+    peak=Math.max(peak,++active);
+    if(path.includes('includeHidden=false'))return new Promise(resolve=>{release=()=>{active--;resolve({ok:true,json:async()=>({items:[{ref:ref('old-scope'),title:'Old scope',disposition:'visible'}],nextCursor:null})});};});
+    active--;return {ok:true,json:async()=>({items:[{ref:ref('hidden-run'),title:'Latest hidden record',disposition:'hidden'}],nextCursor:null})};
+  }});
+  assert.equal(typeof release,'function','Initial catalog GET is pending');
+  for(const checked of [true,false,true]){view.get('show-hidden').checked=checked;view.get('show-hidden').dispatchEvent(new view.window.Event('change'));await view.flush();}
+  assert.equal(view.calls.filter(call=>call.path.startsWith('/api/session/runs')).length,1,'No overlapping catalog GET');
+  release();await view.flush();
+  assert.equal(view.calls.filter(call=>call.path.startsWith('/api/session/runs')).length,2,'Latest explicitly requested scope is read after the old GET settles');
+  assert.equal(peak,1);assert.match(view.get('run-options').textContent,/Latest hidden record/);assert.doesNotMatch(view.get('run-options').textContent,/Old scope/);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);assert.equal(view.timers.size,0,'Manual does not schedule a poll');
+});
+
+test('queued navigation scope reads respect hidden, disposed and authentication guards',async()=>{
+  for(const guard of ['hidden','disposed','authentication']){
+    let release;
+    const view=await monitor({savedPolling:'manual',run:{monitor:{capabilities:{sessionNavigation:true}}},response:path=>path.startsWith('/api/session/runs')?new Promise(resolve=>{release=()=>resolve(guard==='authentication'?{ok:false,status:401,json:async()=>({message:'Expired session'})}:{ok:true,json:async()=>({items:[],nextCursor:null})});}):undefined});
+    view.get('show-hidden').checked=true;view.get('show-hidden').dispatchEvent(new view.window.Event('change'));
+    if(guard==='hidden'){view.document.hidden=true;view.document.dispatchEvent(new view.window.Event('visibilitychange'));}
+    if(guard==='disposed')view.window.dispatchEvent(new view.window.Event('pagehide'));
+    release();await view.flush();
+    assert.equal(view.calls.filter(call=>call.path.startsWith('/api/session/runs')).length,1,`${guard} prevents queued GET`);assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  }
+});
 
 test('monitor removes token fragments before requests, restores session auth and persists accessible theme choice', async () => {
   const view = await monitor({ light: true });
@@ -74,6 +401,139 @@ test('monitor removes token fragments before requests, restores session auth and
   assert.equal(missing.calls.length, 0);
   assert.match(missing.get('notice').textContent, /Open the dashboard URL from agent-workflow dashboard to authenticate/);
   assert.equal(missing.get('pause').disabled, true);
+});
+
+test('automatic polling retains unchanged navigation, messages, map and inspector DOM nodes',async()=>{
+  const ref={dataInstanceId:'data',runId:'current',runtimeId:'runtime'};
+  const view=await monitor({run:{monitor:{run:ref,pinnedRunId:'current',capabilities:{sessionNavigation:true,scopedControls:true}}},response:path=>path.startsWith('/api/session/runs')?{ok:true,json:async()=>({items:[{ref,title:'Current',executionStatus:'running',disposition:'visible',createdAt:'2026-10-13T12:00:00Z'}]})}:undefined});
+  await view.click(view.get('more-toggle'));await view.click(view.get('run-picker'));
+  const row=view.document.querySelector('[data-run-id="current"]');assert.ok(row,'Columnar current-run row exists');
+  row.focus();view.get('run-options').scrollTop=87;view.get('workflow-map').scrollLeft=42;
+  const map=view.get('workflow-map').firstElementChild,detail=view.get('detail').firstElementChild,messages=view.get('message-history').firstElementChild;
+  await view.tick(2000);
+  assert.equal(view.document.querySelector('[data-run-id="current"]')===row,true);
+  assert.equal(view.get('workflow-map').firstElementChild===map,true);
+  assert.equal(view.get('detail').firstElementChild===detail,true);
+  assert.equal(view.get('message-history').firstElementChild===messages,true);
+  assert.equal(view.document.activeElement===row,true);assert.equal(view.get('run-popover').hidden,false);
+  assert.equal(view.get('run-options').scrollTop,87);assert.equal(view.get('workflow-map').scrollLeft,42);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('changed polling metadata preserves unrelated map cards, real message rows and paged navigation',async()=>{
+  const ref=id=>({dataInstanceId:'data',runId:id,runtimeId:'runtime'});let changed=false;
+  const item=(id,status)=>({ref:ref(id),title:id,executionStatus:status,disposition:'visible',createdAt:'2026-10-13T12:00:00Z'});
+  const view=await monitor({run:{workers:[worker(0,'completed',{truncations:['prompt']}),worker(1,'running')],monitor:{run:ref('current'),pinnedRunId:'current',capabilities:{sessionNavigation:true,scopedControls:true}}},response:path=>path.startsWith('/api/worker/')?{ok:false,status:503,json:async()=>({message:'Retain this actual message'})}:path.startsWith('/api/session/runs')?{ok:true,json:async()=>({items:path.includes('cursor=')?[item('paged','completed')]:changed?[item('other','running'),item('current','running')]:[item('current','running'),item('other','queued')],nextCursor:path.includes('cursor=')?null:'page-2'})}:undefined});
+  await view.click([...view.get('detail').querySelectorAll('button')].find(button=>button.textContent==='Load worker details'));
+  const message=view.get('message-history').firstElementChild;assert.ok(message);
+  const card=view.get('workflow-map').querySelector('[data-position="0"]'),detail=view.get('detail').firstElementChild;
+  await view.click(view.get('more-toggle'));await view.click(view.get('run-picker'));await view.click(view.get('more-runs'));
+  const row=view.document.querySelector('[data-run-id="current"]'),paged=view.document.querySelector('[data-run-id="paged"]');assert.ok(paged);row.focus();const oldTime=row.querySelector('time').firstChild;
+  changed=true;view.update({updatedAt:'2026-10-13T13:00:00Z',workers:[worker(0,'completed',{truncations:['prompt']}),worker(1,'running',{activity:{summary:'Changed activity'}})],error:{code:'FRESH',message:'A new message'}});
+  await view.tick(2000);
+  assert.equal(view.get('workflow-map').querySelector('[data-position="0"]')===card,true,'Unchanged map card is retained');
+  assert.equal(view.get('detail').firstElementChild===detail,true,'Unchanged inspector is retained');
+  assert.equal(message.isConnected,true,'Earlier message DOM remains when a new notice arrives');
+  assert.equal(view.document.querySelector('[data-run-id="paged"]')===paged,true,'Loaded pagination stays available across head refresh');
+  assert.equal(view.document.querySelector('[data-run-id="current"]')===row,true);assert.equal(view.document.activeElement===row,true);
+  assert.equal(row.querySelector('time').firstChild===oldTime,true);assert.match(view.document.querySelector('[data-run-id="other"] .status-chip').textContent,/running/);assert.match(view.get('workflow-map').textContent,/Changed activity/);
+});
+
+test('unrelated experience and lifecycle polling retains focused inspector evidence while relevant changes render',async()=>{
+  const projection=(outcome='reported',other='unverified',acceptance='unaccepted')=>({phases:[],workers:[{ref:{position:0},task:{declaredOutcome:outcome,verification:'unverified',reason:`Selected ${outcome}`}},{ref:{position:1},task:{declaredOutcome:other}}],artifacts:[{worker:{position:0},claimId:'selected-proof',integrity:'verified',acceptance},{worker:{position:1},claimId:'other-proof',integrity:other,acceptance:'unaccepted'}]});
+  const lifecycle=(revision=1,selected='visible',other='visible')=>({available:true,revision,run:{visibility:'visible'},workers:[{target:{generation:4,position:0,attempt:0},visibility:selected},{target:{generation:4,position:1,attempt:0},visibility:other}]});
+  const view=await monitor({run:{workers:[worker(0,'completed',{result:'Selected evidence\n'.repeat(100)}),worker(1,'running')],experience:projection(),lifecycle:lifecycle()}});
+  const panel=view.get('detail').firstElementChild,disclosure=view.get('detail').querySelector('[data-disclosure="result"]'),pre=disclosure.querySelector('pre');
+  disclosure.open=true;pre.focus();pre.scrollTop=71;pre.scrollLeft=29;view.get('inspector-panel').scrollTop=123;
+  view.update({experience:projection('reported','completed'),lifecycle:lifecycle(2,'visible','hidden'),restartPreview:{position:1,eligible:false,reason:'Unrelated restart fact'}});
+  await view.tick(2000);
+  assert.equal(view.get('detail').firstElementChild===panel,true,'Unrelated projection changes retain the selected inspector');
+  assert.equal(view.get('detail').querySelector('[data-disclosure="result"] pre')===pre,true);assert.equal(pre.isConnected,true);assert.equal(view.document.activeElement===pre,true);
+  assert.equal(pre.scrollTop,71);assert.equal(pre.scrollLeft,29);assert.equal(view.get('inspector-panel').scrollTop,123);assert.equal(disclosure.open,true);
+  view.update({experience:projection('complete','completed'),lifecycle:lifecycle(3,'hidden','hidden')});await view.tick(2000);
+  assert.match(view.get('detail').textContent,/Selected complete/);assert.match(view.get('detail').textContent,/Disposition: hidden/);
+  view.update({experience:projection('complete','completed','accepted')});await view.tick(2000);assert.match(view.get('detail').textContent,/selected-proof: retained integrity verified; acceptance accepted/);
+  view.update({workers:[worker(0,'completed',{dependencies:[1]}),worker(1,'running') ]});await view.tick(2000);
+  assert.match(view.get('detail').querySelector('[data-prerequisite="1"]').textContent,/hidden/);
+  view.update({lifecycle:lifecycle(4,'hidden','visible')});await view.tick(2000);assert.doesNotMatch(view.get('detail').querySelector('[data-prerequisite="1"]').textContent,/hidden/);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('loaded full evidence survives sibling timestamps and expires when its own preview changes',async()=>{
+  const preview=worker(0,'completed',{truncations:['prompt','result']}),full=worker(0,'completed',{prompt:'Full prompt\n'.repeat(100),result:'Full result\n'.repeat(100)});
+  const view=await monitor({run:{workers:[preview,worker(1,'running')]},response:path=>path.startsWith('/api/worker/0?')?{ok:true,json:async()=>full}:undefined});
+  await view.click([...view.get('detail').querySelectorAll('button')].find(button=>button.textContent==='Load worker details'));
+  const pre=view.get('detail').querySelector('[data-disclosure="result"] pre'),panel=view.get('detail').firstElementChild;assert.match(pre.textContent,/Full result/);
+  pre.parentElement.open=true;pre.focus();pre.scrollTop=69;pre.scrollLeft=27;view.get('inspector-panel').scrollTop=121;
+  view.update({updatedAt:'2026-10-13T14:00:00Z',workers:[preview,worker(1,'completed')]});await view.tick(2000);
+  assert.equal(view.get('detail').firstElementChild===panel,true,'A global timestamp does not expire selected full evidence');
+  assert.equal(view.get('detail').querySelector('[data-disclosure="result"] pre')===pre,true);assert.equal(pre.isConnected,true);assert.equal(view.document.activeElement===pre,true);
+  assert.equal(pre.scrollTop,69);assert.equal(pre.scrollLeft,27);assert.equal(view.get('inspector-panel').scrollTop,121);
+  view.update({updatedAt:'2026-10-13T15:00:00Z',workers:[{...preview,prompt:'New bounded prompt',result:'New bounded result'},worker(1,'completed')]});await view.tick(2000);
+  assert.match(view.get('detail').textContent,/New bounded result/);assert.doesNotMatch(view.get('detail').textContent,/Full result/);
+  assert.ok([...view.get('detail').querySelectorAll('button')].some(button=>button.textContent==='Load worker details'),'Changed selected preview requires a fresh full read');
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('a pending automatic poll stays single flight and late hidden responses cannot rearm controls',async()=>{
+  let delayed=false,release;const view=await monitor({response:path=>delayed&&path==='/api/run'?new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>({generation:4,status:'running',acceptingControls:true,workers:[worker(0)],meta:{name:'Late hidden response'}})});}):undefined});
+  delayed=true;await view.tick(2000);assert.equal(view.calls.filter(call=>call.path==='/api/run').length,2);
+  await view.change('poll-interval','1');assert.equal([...view.timers.values()].filter(timer=>timer.delay===1000).length,0);
+  await view.refresh();assert.equal(view.calls.filter(call=>call.path==='/api/run').length,2);
+  view.document.hidden=true;view.document.dispatchEvent(new view.window.Event('visibilitychange'));
+  release();await view.flush();assert.equal(view.get('pause').disabled,true);assert.doesNotMatch(view.get('run-title').textContent,/Late hidden/);assert.equal(view.timers.size,0);
+  await view.change('poll-interval','manual');const before=view.calls.length;view.document.hidden=false;view.document.dispatchEvent(new view.window.Event('visibilitychange'));await view.flush();assert.equal(view.calls.length,before,'Manual waits for explicit Refresh now after visibility return');
+});
+
+test('saved data polling choices reschedule once, Manual keeps Refresh now and hidden/auth states stop polling',async()=>{
+  const view=await monitor();assert.equal(view.get('poll-interval')?.value,'2','Default polling is two seconds');
+  for(const [choice,delay] of [['1',1000],['2',2000],['5',5000],['10',10000],['30',30000]]){await view.change('poll-interval',choice);assert.deepEqual([...view.timers.values()].map(timer=>timer.delay),[delay]);}
+  await view.change('poll-interval','5');assert.equal(view.local.get('agent-workflow.monitor.polling'),'5');
+  assert.deepEqual([...view.timers.values()].map(timer=>timer.delay),[5000]);
+  await view.change('poll-interval','manual');assert.equal(view.timers.size,0);
+  const calls=view.calls.length;await view.refresh();assert.ok(view.calls.length>calls);assert.equal(view.timers.size,0);
+  view.window.dispatchEvent(new view.window.Event('pagehide'));const beforeRestore=view.calls.length;
+  const restored=new view.window.Event('pageshow');restored.persisted=true;view.window.dispatchEvent(restored);await view.flush();
+  assert.equal(view.calls.length,beforeRestore,'Manual remains explicit after a persisted-page restore');assert.equal(view.timers.size,0);
+  assert.equal(view.get('pause').disabled,true,'Restored data stays stale until an explicit read');
+  await view.refresh();assert.ok(view.calls.length>beforeRestore,'Manual Refresh now works after restore');
+  const retained=await monitor({savedPolling:'30'});assert.equal(retained.get('poll-interval').value,'30');assert.deepEqual([...retained.timers.values()].map(timer=>timer.delay),[30000]);
+  retained.document.hidden=true;retained.document.dispatchEvent(new retained.window.Event('visibilitychange'));assert.equal(retained.timers.size,0);
+  const denied=await monitor({response:path=>path==='/api/health'?{ok:false,status:403,json:async()=>({})}:undefined});assert.equal(denied.timers.size,0);assert.equal(denied.get('pause').disabled,true);assert.match(denied.get('connection').textContent,/Authentication required/);assert.match(denied.get('notice').textContent,/authenticate/);
+});
+
+test('run menu is an accessible icon popover with Escape focus return',async()=>{
+  const view=await monitor();assert.equal(view.get('more-toggle').getAttribute('aria-label'),'Run menu');
+  assert.equal(view.get('more-toggle').getAttribute('aria-haspopup'),'dialog');assert.doesNotMatch(view.get('more-toggle').textContent,/More/);
+  await view.click(view.get('more-toggle'));assert.equal(view.get('more-panel').getAttribute('role'),'dialog');
+  await view.escape();assert.equal(view.get('more-panel').hidden,true);assert.equal(view.document.activeElement,view.get('more-toggle'));
+});
+
+test('run picker filters loaded pages truthfully and pins a disappeared viewed context with keyboard access',async()=>{
+  const ref=id=>({dataInstanceId:'data',runId:id,runtimeId:'runtime'}),current=ref('current');let disappeared=false;
+  const item=(id,status)=>({ref:ref(id),title:id==='failed'?'<img src=x onerror=alert(1)>':id,executionStatus:status,disposition:'visible',createdAt:'2026-10-13T12:00:00Z'});
+  const view=await monitor({run:{monitor:{run:current,pinnedRunId:'current',capabilities:{sessionNavigation:true,scopedControls:true}}},response:path=>path.startsWith('/api/session/runs')?{ok:true,json:async()=>({items:path.includes('cursor=')?[{...item('paged','completed'),disposition:path.includes('includeHidden=true')?'hidden':'visible'}]:disappeared?[item('unknown','unknown')]:[item('current','running'),item('completed','completed'),item('failed','failed'),item('unknown','unknown'),item('unavailable','unavailable')],nextCursor:path.includes('cursor=')?null:'page-2'})}:undefined});
+  await view.click(view.get('more-toggle'));await view.click(view.get('run-picker'));
+  assert.equal(view.get('run-picker').getAttribute('aria-haspopup'),'dialog');assert.equal(view.get('run-popover').getAttribute('role'),'dialog');
+  assert.match(view.get('run-scope').textContent,/loaded.*page/i);assert.equal(view.document.querySelectorAll('img').length,0);
+  assert.match(view.get('run-popover').querySelector('.run-columns').textContent,/Created/);
+  assert.equal(view.document.querySelector('[data-run-id="current"] time').textContent,new Date('2026-10-13T12:00:00Z').toLocaleString());
+  const visible=()=>[...view.get('run-options').querySelectorAll('[data-run-id]')].filter(row=>!row.hidden).map(row=>row.dataset.runId);
+  const filter=label=>view.click([...view.get('run-filters').querySelectorAll('button')].find(button=>button.textContent===label));
+  await filter('Completed');assert.deepEqual(visible(),['current','completed']);
+  await view.click(view.get('more-runs'));assert.deepEqual(visible(),['current','completed','paged']);
+  await filter('Needs attention');assert.deepEqual(visible(),['current','failed','unknown','unavailable']);
+  await filter('Active');assert.deepEqual(visible(),['current']);
+  await filter('All');const row=view.document.querySelector('[data-run-id="completed"]');row.focus();
+  await view.key(row,'ArrowDown');assert.equal(view.document.activeElement.dataset.runId,'failed');
+  await view.key(view.document.activeElement,'Home');assert.equal(view.document.activeElement.dataset.runId,'current');
+  disappeared=true;await view.tick(2000);assert.ok(visible().includes('current'));assert.equal(view.get('run-title').textContent,'Fixture workflow');
+  await view.escape();assert.equal(view.get('run-popover').hidden,true);assert.equal(view.document.activeElement,view.get('run-picker'));assert.equal(view.get('more-panel').hidden,true,'Change run is independent of the closed Run menu');
+  view.get('show-hidden').checked=true;await view.change('show-hidden','');
+  await view.click(view.get('run-picker'));assert.equal(view.get('more-runs').hidden,false,'Changing includeHidden resets the pagination scope');
+  await view.click(view.get('more-runs'));assert.match(view.document.querySelector('[data-run-id="paged"] .run-option-state').textContent,/hidden/);
+  view.get('show-hidden').checked=false;await view.change('show-hidden','');assert.equal(view.document.querySelector('[data-run-id="paged"]'),null,'Pages from a different visibility query are discarded');
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
 });
 
 test('phone-game membership starts at its phase anchor without fabricating a dependency',async()=>{
@@ -96,16 +556,19 @@ test('delivery, cleanup and dashboard health remain separate and a healthy faile
 
 test('unavailable startup stays navigable without invented generation, counts or execution controls',async()=>{
  const ref={dataInstanceId:'data',runId:'startup',runtimeId:'retained'};
- const view=await monitor({run:{status:'unavailable',generation:null,availability:{status:'unavailable',reason:'Saved execution data is unavailable. Original records were preserved.'},workers:[],coverage:undefined,attempts:undefined,cleanup:undefined,monitor:{run:ref,pinnedRunId:'startup',capabilities:{sessionNavigation:true,scopedControls:false,lifecycle:false}},lifecycle:{available:false,visibilityKnown:false}},response:path=>path.startsWith('/api/session/runs')?{ok:true,json:async()=>({items:[{ref,title:'Startup',executionStatus:'unavailable',disposition:'visible'}],nextCursor:null,unavailableCount:1,hiddenCount:0,unknownCount:0})}:undefined});
+ const view=await monitor({run:{status:'unavailable',generation:null,availability:{status:'unavailable',reason:'Saved execution data is unavailable. Original records were preserved.'},workers:[],coverage:undefined,attempts:undefined,cleanup:undefined,monitor:{run:ref,pinnedRunId:'startup',capabilities:{sessionNavigation:true,scopedControls:false,lifecycle:false}},lifecycle:{available:false,visibilityKnown:false}},response:path=>path==='/api/runs/startup/run'?{ok:true,json:async()=>({generation:4,status:'running',acceptingControls:true,workers:[worker(0,'running')],monitor:{run:ref,pinnedRunId:'startup',capabilities:{sessionNavigation:true,scopedControls:true}}})}:path.startsWith('/api/session/runs')?{ok:true,json:async()=>({items:[{ref,title:'Startup',executionStatus:'unavailable',disposition:'visible'}],nextCursor:null,unavailableCount:1,hiddenCount:0,unknownCount:0})}:undefined});
  assert.equal(view.get('run-status').textContent,'unavailable');assert.match(view.get('generation').textContent,/unavailable/i);
  assert.doesNotMatch(view.get('generation').textContent,/Generation (null|0|1)/);
  for(const id of ['completed','attempts','cached'])assert.equal(view.get(id).textContent,'Unavailable');
  assert.match(view.get('flow-progress').textContent,/execution.*unavailable/i);assert.doesNotMatch(view.get('flow-progress').textContent,/0 failed|0 unknown/);
  assert.match(view.get('worker-count').textContent,/unavailable/i);assert.match(view.get('empty').textContent,/unavailable/i);
  assert.doesNotMatch(view.get('workflow-map').textContent,/Generation null/);assert.doesNotMatch(view.get('visibility-count').textContent,/0 unknown/);
- assert.match(view.get('session-counts').textContent,/1 unavailable/);assert.match(view.get('run-picker').textContent,/unavailable/);
+ assert.match(view.get('session-counts').textContent,/1 unavailable/);assert.match(view.get('run-options').textContent,/unavailable/);
  assert.equal(view.get('run-picker').disabled,false);assert.equal(view.get('close-monitor').disabled,false);
- for(const id of ['pause','stop','resume','arm-control','load-script','hide-run','archive-run','review-prune'])assert.equal(view.get(id).disabled,true,id);
+ for(const id of ['pause','stop','resume','load-script','hide-run','archive-run','review-prune'])assert.equal(view.get(id).disabled,true,id);
+ await view.click(view.get('more-toggle'));await view.click(view.get('run-picker'));await view.click(view.document.querySelector('[data-run-id="startup"]'));
+ assert.equal(view.get('run-status').textContent,'running');assert.equal(view.get('arm-control'),null);
+ assert.equal(view.get('stop').disabled,false,'Deliberate current-run selection uses the fresh authorized identity');assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
 });
 
 test('visibility filtering preserves counts and discloses hidden prerequisites; missing lifecycle is unavailable',async()=>{
@@ -138,9 +601,9 @@ test('following a replacement changes viewing without arming Stop and keeps the 
   view.get('follow-run').checked=true;view.get('follow-run').dispatchEvent(new view.window.Event('change'));await view.flush();await view.flush();
   assert.equal(view.get('run-title').textContent,'Replacement');assert.equal(view.get('stop').disabled,true);assert.match(view.get('control-target').textContent,/original/);assert.match(view.get('session-counts').textContent,/2 hidden runs.*1 unknown runs/);
   view.context.confirm=()=>true;await view.click(view.get('stop'));assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
-  await view.click(view.get('arm-control'));await view.click(view.get('stop'));
+  await view.click(view.get('run-picker'));await view.click(view.document.querySelector('[data-run-id="replacement"]'));await view.flush();await view.click(view.get('stop'));
   const posted=view.calls.find(call=>call.method==='POST');assert.equal(posted.path,'/api/runs/replacement/control');assert.deepEqual(JSON.parse(posted.body).target,{...b,generation:4});
-  view.get('follow-run').checked=false;await view.change('run-picker','original');await view.flush();assert.equal(view.get('steer-text').value,'Original draft');assert.equal(view.get('stop').disabled,true);
+  view.get('follow-run').checked=false;await view.click(view.get('run-picker'));await view.click(view.document.querySelector('[data-run-id="original"]'));await view.flush();assert.equal(view.get('steer-text').value,'Original draft');assert.equal(view.get('stop').disabled,false,'Explicit row selection makes the original run current again');
 });
 
 test('active visibility stays reversible and settled pruning preserves exact preview and unknown receipts',async()=>{
@@ -168,6 +631,7 @@ test('a reviewed zero-candidate retirement remains actionable with explicit tomb
   const ref={dataInstanceId:'data',runId:'settled',runtimeId:'runtime'};
   const view=await monitor({run:{status:'completed',monitor:{run:ref,pinnedRunId:ref.runId,capabilities:{lifecycle:true}},lifecycle:{available:true,revision:1,workers:[]}},response:(path,input)=>input.method==='POST'?{ok:true,json:async()=>({preview:{id:'retirement',planHash:'b'.repeat(64),candidates:[],blocked:[]}})}:undefined});
   await view.click(view.get('review-prune'));assert.ok(view.get('apply-prune'));assert.equal(view.get('apply-prune').disabled,false);assert.match(view.get('lifecycle-preview').textContent,/tombstone.*audit/i);assert.match(view.get('lifecycle-preview').textContent,/no retained files/i);
+  const reviewed=view.get('apply-prune');reviewed.focus();await view.tick(2000);assert.equal(view.get('apply-prune')===reviewed,true,'Unchanged reviewed preview retains the actual focused control');assert.equal(view.document.activeElement===reviewed,true);
 });
 
 for(const action of ['hide','applyPrune'])test(`lost ${action} response retains the exact durable receipt identity without resubmitting`,async()=>{
@@ -522,7 +986,7 @@ test('late full worker reads cannot replace a newer attempt in the same generati
 test('new run failures remain visible and retained after an earlier read notice',async()=>{
   const view=await monitor({run:{workers:[worker(0,'completed',{truncations:['prompt']})]},response:path=>path.startsWith('/api/worker/')?{ok:false,status:503,json:async()=>({message:'Earlier detail read failed'})}:undefined});
   await view.click([...view.get('detail').querySelectorAll('button')].find(button=>button.textContent==='Load worker details'));
-  view.update({status:'failed',error:{code:'NEW_FAILURE',message:'New execution failure'}});[...view.timers.values()].find(timer=>timer.delay===1000).callback();await view.flush();
+  view.update({status:'failed',error:{code:'NEW_FAILURE',message:'New execution failure'}});await view.tick(2000);
   assert.match(view.get('notice').textContent,/New execution failure/);assert.match(view.get('message-history').textContent,/Earlier detail read failed/);assert.match(view.get('message-history').textContent,/New execution failure/);
 });
 
@@ -563,7 +1027,7 @@ test('lost control responses are not retried and stale polling disables controls
   view.document.hidden = true;
   view.document.dispatchEvent(new view.window.Event('visibilitychange'));
   assert.equal(view.get('pause').disabled, true);
-  assert.equal([...view.timers.values()].filter(timer => timer.delay === 1000).length, 0);
+  assert.equal([...view.timers.values()].filter(timer => timer.delay === 2000).length, 0);
   view.window.dispatchEvent(new view.window.Event('pagehide'));
   assert.equal(view.timers.size, 0);
 });

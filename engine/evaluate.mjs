@@ -3,12 +3,20 @@ import { fileURLToPath } from 'node:url';
 import { parseScript } from './script.mjs';
 import { fault } from '../foundation/client.mjs';
 
-export async function evaluate(script, { args = null, call, timeoutMs = null, idleTimeoutMs = 5000, cpuMs = 1000, signal } = {}) {
+export const MAX_EVALUATOR_INPUT_BYTES = 2 * 1024 * 1024;
+
+// Serialize exactly the envelope sent to the child; this parses but never runs guest code.
+export function preflightEvaluatorInput(script, args = null, cpuMs = 1000) {
   const { body } = parseScript(script);
+  const input = JSON.stringify({ kind: 'start', body, args, cpuMs });
+  if (Buffer.byteLength(input) > MAX_EVALUATOR_INPUT_BYTES) throw fault('EVALUATOR_INPUT', 'Combined workflow script and args exceed the 2 MiB evaluator input limit; use file-backed manifests with hashes and bounded ranges');
+  return input;
+}
+
+export async function evaluate(script, { args = null, call, timeoutMs = null, idleTimeoutMs = 5000, cpuMs = 1000, signal } = {}) {
   if (typeof call !== 'function' || timeoutMs!==null&&(!Number.isFinite(timeoutMs)||timeoutMs<=0) || !Number.isFinite(idleTimeoutMs)||idleTimeoutMs<=0 || !Number.isFinite(cpuMs) || cpuMs <= 0) throw fault('EVALUATOR_INPUT', 'A broker and positive execution limits are required');
   if (signal?.aborted) throw fault('EVALUATOR_ABORTED', 'Workflow evaluation was cancelled');
-  const input = JSON.stringify({ kind: 'start', body, args, cpuMs });
-  if (Buffer.byteLength(input) > 2 * 1024 * 1024) throw fault('EVALUATOR_INPUT', 'Workflow input exceeded its limit');
+  const input = preflightEvaluatorInput(script, args, cpuMs);
   const child = fork(fileURLToPath(new URL('./evaluator-child.mjs', import.meta.url)), [], {
     windowsHide: true, silent: true, execArgv: [],
     // The child needs only Node and installed WASM; never inherit credentials/preloads.

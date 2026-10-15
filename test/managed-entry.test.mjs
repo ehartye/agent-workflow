@@ -18,6 +18,58 @@ import {parseCommand} from '../bin/arguments.mjs';
 import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
 const execute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 
+test('public args-file snapshots large UTF8 JSON and rejects invalid input before binding',async t=>{
+ const temp=await mkdtemp(join(root,'.args-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const script=join(temp,'script.js'),file=join(temp,'args.json'),hook=join(temp,'hook.mjs'),trace=join(temp,'trace'),runDir=join(temp,'run');
+ await writeFile(script,'export const meta={name:"args",description:"snapshot"};return args;');
+ const value={text:'漢字🙂e\u0301\r\n'.repeat(10000),nil:null,missing:{},rows:[0,false,'']};
+ assert.ok(JSON.stringify(value).length>32767,'fixture exceeds the Windows command-line capacity');
+ await writeFile(file,JSON.stringify(value));
+ const runtime=`export * from ${JSON.stringify(new URL('../bin/managed-runtime.mjs?args-fixture',import.meta.url).href)};import{appendFileSync}from'node:fs';export const pluginRoot=${JSON.stringify(root)};export async function selectRuntime(){return{path:pluginRoot,codex:'fixture'};}export async function bindRun(){appendFileSync(${JSON.stringify(trace)},'bind\\n');return{id:'args-id',runDir:${JSON.stringify(runDir)}};}`;
+ const backend=`import{appendFileSync}from'node:fs';export async function createManagedBackend({accessPolicy}){appendFileSync(${JSON.stringify(trace)},'backend\\n');return{identity:'args-fixture',accessPolicy,execute:async()=>{throw Error('inference forbidden');},close:async()=>({serverExited:true,descendants:'notVerified'})};}`;
+ await writeFile(hook,`import{registerHooks}from'node:module';const base=${JSON.stringify(new URL('../',import.meta.url).href)};registerHooks({load(url,context,next){const source=url===new URL('bin/managed-runtime.mjs',base).href?${JSON.stringify(runtime)}:url===new URL('engine/backend.mjs',base).href?${JSON.stringify(backend)}:undefined;return source===undefined?next(url,context):{format:'module',source,shortCircuit:true};}});`);
+ const env={...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`};delete env.AGENT_WORKFLOW_WORKER;
+ const invoke=(flags,{foreground=true}={})=>execute(process.execPath,[join(root,'bin','launch.mjs'),'run','--script',script,'--session','args-owner','--data-dir',join(temp,'data'),'--access','restricted',...(foreground?['--foreground']:[]),...flags],{cwd:temp,env,windowsHide:true,timeout:10000,maxBuffer:4*1024*1024});
+ const result=JSON.parse((await invoke(['--args-file',file])).stdout);
+ assert.equal(result.status,'completed');assert.deepEqual(result.result,value);
+ await writeFile(file,'{"changed":true}');
+ const {readRun,runWorkflow}=await import('../engine/controller.mjs');
+ const saved=await readRun(runDir);assert.deepEqual(saved.args,value);
+ const replay=await runWorkflow({runDir,sessionId:'args-owner',script:saved.script,args:saved.args,resume:true,backend:{identity:'args-fixture',accessPolicy:saved.accessPolicy,execute:async()=>{throw Error('inference forbidden');},close:async()=>({serverExited:true,descendants:'notVerified'})}});
+ assert.deepEqual(replay.result,value);assert.equal(replay.version,saved.version);assert.equal(replay.runtimeIdentity,saved.runtimeIdentity);
+ await rm(trace);
+ for(const [contents,flags,pattern] of [
+  ['{}',['--args','{}','--args-file',file],/mutually exclusive/],
+  ['{',['--args-file',file],/JSON/],
+  [Buffer.from([0xc3,0x28]),['--args-file',file],/UTF|encoded/],
+  ['{}',['--args-file',temp],/regular|EISDIR|EPERM/],
+  [' '.repeat(2*1024*1024+1),['--args-file',file],/bounded limit/],
+  [JSON.stringify('x'.repeat(2*1024*1024-2)),['--args-file',file],/2 MiB/],
+ ]){
+  await writeFile(file,contents);await assert.rejects(invoke(flags),error=>pattern.test(error.stderr));
+  await assert.rejects(readFile(trace),{code:'ENOENT'});
+ }
+ await writeFile(script,'export const meta={name:"args",description:"snapshot"};/*'+'"'.repeat(1040000)+'*/return args;');
+ const combinedArgs=JSON.stringify('x'.repeat(20000));await writeFile(file,combinedArgs);
+ for(const flags of [['--args-file',file],['--args',combinedArgs]]){
+  await assert.rejects(invoke(flags),error=>/2 MiB/.test(error.stderr));
+  await assert.rejects(readFile(trace),{code:'ENOENT'});
+ }
+ // Metadata is duplicated in the persisted header but absent from the evaluator body.
+ await rm(runDir,{recursive:true,force:true});
+ await writeFile(script,`export const meta={name:"args",description:${JSON.stringify('m'.repeat(600000))}};return args;`);
+ await writeFile(file,JSON.stringify('x'.repeat(1500000)));
+ for(const foreground of [true,false]){
+  await assert.rejects(invoke(['--args-file',file],{foreground}),error=>/persisted run input.*2 MiB/.test(error.stderr));
+  await assert.rejects(readFile(trace),{code:'ENOENT'});
+ }
+ await writeFile(script,'export const meta={name:"args",description:"snapshot"};return args;');
+ await rm(runDir,{recursive:true,force:true});
+ const inline=JSON.parse((await invoke(['--args','{"inline":"雪","nil":null}'])).stdout);
+ assert.deepEqual(inline.result,{inline:'雪',nil:null});
+ for(const command of ['resume','restart-worker'])assert.throws(()=>parseCommand([command,'saved','--session','args-owner','--args-file',file],{}),/not valid/);
+});
+
 test('doctor preserves known admission labels without exposing snapshots or native catalog payloads',()=>{
  for(const code of ['ACCESS_POLICY','ACCESS_OVERRIDE','PARENT_ACCESS_REQUIRED','PARENT_ACCESS_INVALID','PARENT_CAPABILITIES','JOB_SIGNATURE','JOB_SIGNATURE_CHECK']){
   const report=doctorFailure({code,message:'PRIVATE_PARENT_SENTINEL',parentAccess:{secret:'PRIVATE_PARENT_SENTINEL'},evidence:{parentCapabilities:{secret:'PRIVATE_PARENT_SENTINEL'}}});

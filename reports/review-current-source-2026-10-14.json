@@ -1,0 +1,128 @@
+{
+  "createdAt": "2026-10-15T03:03:20.039Z",
+  "status": "locallyVerifiedUnpublishedFinalReaderPending",
+  "sources": [
+    {
+      "path": "engine/monitor/app.mjs",
+      "sha256": "6e8ede5d5265b61db7a62806aee5b009035464aed6810d98c3b55293210a31ae"
+    },
+    {
+      "path": "engine/monitor/index.html",
+      "sha256": "b41e61f8b22725ba6a3d7ec7af613648c17c3a74907c334810a9649f423c012a"
+    },
+    {
+      "path": "engine/monitor/style.css",
+      "sha256": "fe83f3b4d95f7bc2494cf7e019c575f6d7bd41c1463c4e09d66e919defb4a82f"
+    },
+    {
+      "path": "test/engine-monitor-ui.test.mjs",
+      "sha256": "2d077e5078a48d3a296fb00d8d3b7a80e63b792b56b57e9090449b2c09147df0"
+    },
+    {
+      "path": "test/engine-monitor.test.mjs",
+      "sha256": "448a8941d90767c24a38a390cd70f82fa99f74aae8232998813a6aebdc792671"
+    },
+    {
+      "path": "bin/arguments.mjs",
+      "sha256": "73fabac7a5ee52c95812c209a75b91c20224d1ea5baeccb0229a7eeb1db8d1e4"
+    },
+    {
+      "path": "bin/command.mjs",
+      "sha256": "38ece2b7719fb2d2b93a7456ab86f5fdb6aaa59f81a88960598a6fc56e736d98"
+    },
+    {
+      "path": "engine/evaluate.mjs",
+      "sha256": "3d6bc4abd4041f66e0bcbe13468e34e651ba17217d336abedaa3c416ab8fda9f"
+    },
+    {
+      "path": "engine/controller.mjs",
+      "sha256": "ce909b5b3c1efaf2a12bf76726da18e08965457a2e60489e224c3b9218609db2"
+    },
+    {
+      "path": "engine/background.mjs",
+      "sha256": "ffe465e603610acce0577ff8385d134b265f7032f44d69d9f79c365152164330"
+    },
+    {
+      "path": "foundation/client.mjs",
+      "sha256": "3b2a79a053960cc80d1cd205f903c6249f163eddd1a8396deb0361bbaaa068a9"
+    },
+    {
+      "path": "test/managed-entry.test.mjs",
+      "sha256": "1812faa63cfa2399b492414a186658e69cd2266c201322d8e5cef32deb82b559"
+    },
+    {
+      "path": "test/engine-evaluator.test.mjs",
+      "sha256": "b1a150e1c80cf5a9c28f7dfec57cfb649ed0e2914308720b57b179a5f9e500c3"
+    },
+    {
+      "path": "test/engine-controller.test.mjs",
+      "sha256": "ae2d86a3b2470f81278b6f5f7a6bf795bd4b1eab863d7bd244700fb4af5b12bc"
+    },
+    {
+      "path": "test/codex-foundation.test.mjs",
+      "sha256": "0e57003d1e4cc5452b545b7cbd3442848b2535ee2afe1be88fe573d053274fcf"
+    },
+    {
+      "path": "test/codex-turn.test.mjs",
+      "sha256": "52de5cce12529c2fd4ae213b706c5b6d19625325a06e0ff4f70baa692ccf50f5"
+    },
+    {
+      "path": "test/fixtures/foundation-server.mjs",
+      "sha256": "90ffd1c906b575c3324010630eaf24858d6d5d4e7203f54fb2997ac0ef5b17c1"
+    },
+    {
+      "path": "docs/monitor-design.md",
+      "sha256": "1d9810ac57f0ad6315f9884f9560fdd849da066c989e20b9e74c49aa494bbccd"
+    },
+    {
+      "path": "docs/api.md",
+      "sha256": "2940f50bf44c571da479b1c320134bc764627fd09c0980b0ff166e1c006ea98d"
+    },
+    {
+      "path": "docs/worker-output-limits.md",
+      "sha256": "4eb5f42d3b74f2243e1720f5df16bde8d8f422abc2736175aafad88d590e7c2b"
+    },
+    {
+      "path": "skills/workflow-authoring/SKILL.md",
+      "sha256": "cd1d1981f13707dead2b96e1d9fc8a37b019bca8444e698fd68daf2080389c2b"
+    },
+    {
+      "path": "skills/workflow-authoring/references/large-inputs-and-batches.md",
+      "sha256": "05931880e9b5d74b891399d25060ff2d9b36f2fb9172f17b6df2f49ce7270a56"
+    },
+    {
+      "path": "skills/agent-workflow/references/runtime-api.md",
+      "sha256": "a391398485d25bbe9dd1a99f70982e834d9a19072080ccaf7007914e175ea1d2"
+    },
+    {
+      "path": "skills/agent-workflow/references/controls.md",
+      "sha256": "9e11423675998e414d493aec1053b2806b26ec4a7f4f7bd8557ba4ab19c8434d"
+    }
+  ],
+  "previousManifest": "reports/review-final-source-2026-10-14.json",
+  "changedPaths": [
+    "engine/monitor/app.mjs",
+    "engine/monitor/style.css",
+    "test/engine-monitor-ui.test.mjs"
+  ],
+  "checks": {
+    "tests": {
+      "passed": 541,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 130725.854
+    },
+    "affectedUI": 68,
+    "browser": {
+      "retained": 119,
+      "newInteractions": 39
+    }
+  },
+  "hostedActions": "disabledByOwner",
+  "limits": [
+    "Original producer remains incomplete66/68; coordinator corrections accepted separately.",
+    "GET browser fixtures do not establish native mutation, physical touch, screenreader or actual host OS theme behavior.",
+    "Native main-root metadata and exact source identity do not prove all skill bodies, reference pagination, instruction adherence or skill efficacy.",
+    "Live append is a proposed design awaiting owner approval; no implementation/release/install claimed."
+  ]
+}

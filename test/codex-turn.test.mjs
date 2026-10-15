@@ -45,6 +45,32 @@ test('final answer size remains a hard bounded failure without silent truncation
   await assert.rejects(runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:3000}),{code:'TURN_OUTPUT_LIMIT'});
 });
 
+test('default transport admits a 2 MiB UTF-8 tool frame and snapshots with bounded retained output',async t=>{
+  const {client,runTurn}=await setup(t,'turn-large-frame');
+  let deltas=0,completed=0,terminals=0;
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:15000,onEvent:message=>{
+    if(message.method==='item/commandExecution/outputDelta'){
+      deltas++; assert.equal(Buffer.byteLength(message.params.delta),2*1024*1024);
+      assert.ok(message.params.delta.startsWith('café 🧪|')); assert.ok(message.params.delta.endsWith('|fin 🧪'));
+      assert.equal(message.params.delta.includes('\uFFFD'),false);
+    }
+    if(message.method==='item/completed'&&message.params.item.id==='read')completed++;
+    if(message.method==='turn/completed')terminals++;
+  }});
+  assert.equal(result.status,'completed'); assert.equal(result.text,'Read complete.');
+  const item=result.items.find(value=>value.id==='read');
+  assert.equal(item.status,'completed'); assert.equal(item.exitCode,0);
+  assert.ok(item.aggregatedOutput.startsWith('café 🧪|')); assert.equal(item.aggregatedOutput.includes('\uFFFD'),false);
+  assert.ok(item.aggregatedOutput.length<=4000); assert.ok(item.truncated.includes('aggregatedOutput'));
+  assert.equal(result.items.filter(value=>value.id==='read').length,1);
+  assert.equal(deltas,1); assert.equal(completed,1); assert.equal(terminals,1);
+  assert.equal(result.output.truncatedItems,1); assert.ok(result.output.retainedBytes<=1024*1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(result))<32000); assert.ok(result.output.observedBytes>6*1024*1024);
+  assert.equal(await client.request('echo',{value:'still routed',delay:0}),'still routed');
+  assert.equal(await client.request('interrupt-count'),0);
+  assert.equal((await client.close()).serverExited,true);
+});
+
 test('terminal snapshots cannot erase known message phases or promote progress into the answer',async t=>{
   const {client,runTurn}=await setup(t,'turn-phase-snapshot');
   const result=await runTurn(client,{threadId:'one',prompt:'fixture'});
@@ -220,17 +246,23 @@ for(const mode of ['early-overflow','confirmed-overflow'])test(`${mode} bounds s
   assert.ok(Buffer.byteLength(JSON.stringify(result))<120000);
 });
 
-test('shared transport failure cannot transfer pre-start annotations into an active turn',async t=>{
-  const {client,runTurn}=await setup(t,'turn-hang');let announce;
+for(const cause of ['timeout','oversize'])test(`shared ${cause} failure preserves active turn history without transferring pre-start annotations`,async t=>{
+  const {client,runTurn}=await setup(t,'turn-hang-after-command');let announce;
   const active=new Promise(resolve=>{announce=resolve;});
-  const turn=runTurn(client,{threadId:'running',prompt:'fixture',onActive:announce,interruptTimeoutMs:100}).catch(error=>error);
+  const turn=runTurn(client,{threadId:'running',prompt:'fixture',onEvent:message=>{if(message.method==='item/completed')announce();},interruptTimeoutMs:100}).catch(error=>error);
   await active;
-  const failed=await client.request('hang',{}, {timeoutMs:20}).catch(error=>{error.notStarted=true;error.evidence={privateToOtherWorker:true};return error;});
+  const failed=await (cause==='timeout'?client.request('hang',{}, {timeoutMs:20}):client.request('frame',{bytes:16*1024*1024+1,terminated:true},{timeoutMs:15000})).catch(error=>{error.notStarted=true;error.evidence={privateToOtherWorker:true};return error;});
   const result=await turn;
   assert.notEqual(result,failed);
   assert.equal(result.notStarted,undefined);assert.equal(result.evidence,undefined);
-  assert.equal(result.code,'REQUEST_TIMEOUT');assert.equal(result.interruption.terminalObserved,false);
+  assert.equal(result.code,cause==='timeout'?'REQUEST_TIMEOUT':'PROTOCOL_LIMIT');
+  assert.equal(result.interruption.terminalObserved,false);assert.equal(result.interruption.terminalStatus,null);
+  assert.deepEqual(result.output.commandEvidence,{coverage:'retainedItemsOnly',commands:[{status:'completed',exitCode:0}]});
+  assert.ok(result.output.observedMessages>0);
+  await assert.rejects(runTurn(client,{threadId:'running',prompt:'must not retry'}),{code:'THREAD_BUSY'});
   const late=await client.request('echo',{}).catch(error=>error);assert.equal(late.notStarted,undefined);
+  assert.equal(late.code,result.code);
+  const cleanup=await client.close();assert.equal(cleanup.serverExited,true);assert.equal(cleanup.descendants,'notVerified');
 });
 
 test('native turns forward explicit model reasoning and output schema unchanged',async t=>{

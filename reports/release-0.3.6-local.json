@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-15T04:27:41.884Z",
+  "version": "0.3.6",
+  "scope": "Local Windows release preparation; publication and final installation are separate evidence",
+  "published": false,
+  "ownerInstallationVerified": false,
+  "source": {
+    "baseCommit": "54a6b3603c48e9ba7c2588e8dcc96e27ab7af505",
+    "runtimeDigest": "d38c52e87c8ac6d4dc575ee32cc7e8478855af103c76d5dc59f2b4abf6818038",
+    "sha256": {
+      "engine/monitor/app.mjs": "22d6501af8f7ab923da2d65a3d78d4995d420236d822127729ce6aacf48bd031",
+      "engine/monitor/index.html": "331e9b10b3c3cae84f9e8e2d388bb8c650a1f04ea8d2b67d832ce7e15209f83f",
+      "engine/monitor/style.css": "fe83f3b4d95f7bc2494cf7e019c575f6d7bd41c1463c4e09d66e919defb4a82f",
+      "test/engine-monitor-ui.test.mjs": "dce34199a90f1c084ae1bdf18e9e23f1b4474a631d646a677aded78dc65cc252",
+      "package.json": "0aa299905d39e42017f1c5d1640d2c5b0c9dedc34dfb4de3d16159672ebe9536",
+      "package-lock.json": "59dc2f6c722b35edf32ffe18c44a9bb994308e66e3b2e61b7db62aaae4e4cd5d",
+      "plugin.json": "d4ef32d8ec9488892de7538f2ea938ebc68a9673b488b31ff063f5c40c48a997",
+      ".codex-plugin/plugin.json": "0c0f36a8a65f5fb43ff21e482d3afe2fd3a559ef24862648e020eadd21401c07",
+      "CHANGELOG.md": "2f48ab4fc992e736268b4936d6616777fbc8e01632054b0cd9410fe897aa3726",
+      "README.md": "6eb08542640420d92fcb6bacafdd95bd04fe622c8f4d1f95d3ffe7fe0cc59df9",
+      "docs/api.md": "061bd88b30629991e4b16aefe705bc93a036df07ab019097aee38a1a291bb620",
+      "docs/verification.md": "4ec7e1d17e6d08d419324ed6d152d9df180dfea5ae5428f095e7d94fd92d5a75",
+      "docs/releases/0.3.6.md": "64b963a146315e24cef7fd5fda44b782cd75ebd1a9536e644c6c528396d6c608",
+      "docs/worker-output-limits.md": "26298d47fc6e9efdff47eb5157737242e55cc74d77f26e7ba4ff812f6eb590f1",
+      "skills/agent-workflow/references/runtime-api.md": "431d7efa3825009fadaefa024111c59e43c18c23687400ab6e6c6e524a5ee51f",
+      "skills/workflow-authoring/references/large-inputs-and-batches.md": "d411236475a5695f5875b54b2bd76568868a89abd57c2df465d0745916cafebf"
+    },
+    "htmlNormalization": {
+      "beforeSha256": "5025f0ee754bca4a2debc476b4c16fa5ee220cbfef0e2796fbb481c8b530d939",
+      "afterSha256": "331e9b10b3c3cae84f9e8e2d388bb8c650a1f04ea8d2b67d832ce7e15209f83f",
+      "beforeBytes": 13289,
+      "afterBytes": 13288,
+      "textEquivalent": true,
+      "change": "CRLF to LF only; original contained mixed line endings"
+    },
+    "receiptOutsideRuntimeDigest": true
+  },
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "node": "v24.18.0"
+  },
+  "gates": [
+    {
+      "stage": "ci",
+      "command": "npm.cmd ci --ignore-scripts",
+      "exitCode": 0,
+      "startedAt": "2026-10-15T04:24:54.8823634Z",
+      "finishedAt": "2026-10-15T04:24:57.8949351Z",
+      "durationMs": 3014.3226,
+      "logSha256": "56923cadc0ce03dc5fcc89dec6483768065441466b4b24a47da62339860f3f15"
+    },
+    {
+      "stage": "test",
+      "command": "npm.cmd test",
+      "exitCode": 0,
+      "startedAt": "2026-10-15T04:24:57.9033093Z",
+      "finishedAt": "2026-10-15T04:27:11.3712072Z",
+      "durationMs": 133467.9021,
+      "logSha256": "f3644cf207e33bca35bb9ed61764b09bc1dd07bda47838d3a57466f245a7cb0b"
+    },
+    {
+      "stage": "check",
+      "command": "npm.cmd run check",
+      "exitCode": 0,
+      "startedAt": "2026-10-15T04:27:11.3733215Z",
+      "finishedAt": "2026-10-15T04:27:11.7704306Z",
+      "durationMs": 397.1141,
+      "logSha256": "8f815d21d0e09a6a2f32ef70555650c1431a99390477ba2d138a3b9d8e2c7983"
+    },
+    {
+      "stage": "smoke",
+      "command": "npm.cmd run smoke",
+      "exitCode": 0,
+      "startedAt": "2026-10-15T04:27:11.7718605Z",
+      "finishedAt": "2026-10-15T04:27:12.6259077Z",
+      "durationMs": 854.0526,
+      "logSha256": "b649599e227b5b44ecd10330cb9fe8d3128a8ea667bca7b90f410453dec4caa1"
+    },
+    {
+      "stage": "clean-install",
+      "command": "node scripts/check-install.mjs",
+      "exitCode": 0,
+      "startedAt": "2026-10-15T04:27:12.6275963Z",
+      "finishedAt": "2026-10-15T04:27:37.6775844Z",
+      "durationMs": 25049.992,
+      "logSha256": "db3f97b364b73c95ab9526d574beffe3b39dfa1f74f473c795a2bad1b64f6299"
+    },
+    {
+      "stage": "audit",
+      "command": "npm.cmd audit --omit=dev --json",
+      "exitCode": 0,
+      "startedAt": "2026-10-15T04:27:37.6790543Z",
+      "finishedAt": "2026-10-15T04:27:38.2859431Z",
+      "durationMs": 606.9419,
+      "logSha256": "6004026fd73d7a6a6274e333e74fb7ff5a72ea9624dca02792de90c9df6aaa14"
+    }
+  ],
+  "tests": {
+    "tests": 544,
+    "suites": 0,
+    "pass": 544,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "duration_ms": 133195.8061
+  },
+  "audit": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "actions": {
+    "enabled": false,
+    "queriedAt": "2026-10-15T04:27:41.885Z",
+    "newCIResult": null
+  },
+  "browser": {
+    "historicalMatrix": {
+      "checks": 158,
+      "suites": {
+        "navigation": {
+          "checks": 72,
+          "failed": 0
+        },
+        "resize": {
+          "checks": 35,
+          "failed": 0
+        },
+        "projection": {
+          "checks": 12,
+          "failed": 0
+        },
+        "interactions": {
+          "checks": 39,
+          "failed": 0
+        }
+      },
+      "additionalProbes": {
+        "heldReadThen401": "passed",
+        "explicitCloseAbort": "passed",
+        "outsideClickAbort": "passed"
+      },
+      "sourceSha256": {
+        "app.mjs": "6e8ede5d5265b61db7a62806aee5b009035464aed6810d98c3b55293210a31ae",
+        "style.css": "fe83f3b4d95f7bc2494cf7e019c575f6d7bd41c1463c4e09d66e919defb4a82f",
+        "index.html": "b41e61f8b22725ba6a3d7ec7af613648c17c3a74907c334810a9649f423c012a"
+      }
+    },
+    "finalPicker": {
+      "widths": [
+        1440,
+        390
+      ],
+      "exactFailedPageRetried": true,
+      "pendingAndCompletedFocusInsideDialog": true,
+      "selectionUnchanged": true,
+      "pageErrors": 0,
+      "mutatingRequests": 0,
+      "sourceSha256": {
+        "app.mjs": "22d6501af8f7ab923da2d65a3d78d4995d420236d822127729ce6aacf48bd031",
+        "index.html": "5025f0ee754bca4a2debc476b4c16fa5ee220cbfef0e2796fbb481c8b530d939",
+        "style.css": "fe83f3b4d95f7bc2494cf7e019c575f6d7bd41c1463c4e09d66e919defb4a82f"
+      }
+    },
+    "limitations": [
+      "The 158-check matrix preceded the final picker error/retry fixes; those fixes have separate focused desktop/390px browser evidence and current full-suite coverage.",
+      "Final HTML differs from painted picker HTML only by one CRLF-to-LF normalization, verified text-equivalent.",
+      "Browser-only GET fixtures and emulated phone viewports; no physical-phone or new native workflow acceptance.",
+      "Pointercancel and persisted pageshow were synthesized; actual OS cancellation and browser BFCache restoration are not established.",
+      "No backend control mutation was submitted."
+    ]
+  },
+  "limitations": [
+    "GitHub Actions remains disabled by owner instruction; local results are not a CI result.",
+    "Clean installation uses an isolated temporary Codex home with zero model turns and owned App Server cleanup; it is not the final owner installation.",
+    "No live append, durable command-fact storage, consumer observer receipts or new deadline work is included.",
+    "No publication, marketplace update, commit or push was performed by this preparation."
+  ]
+}
