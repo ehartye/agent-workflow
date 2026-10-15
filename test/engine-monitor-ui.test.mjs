@@ -75,6 +75,20 @@ async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, 
   };
 }
 
+test('added workers disclose their origin and live deadline without inventing runtime support',async()=>{
+ const added=worker(0,'running',{origin:{kind:'append',generation:4,requestId:'queued-request',taskId:'late <img src=x>'},dependencies:[],deadline:{configuredTimeoutMs:null,revision:0,remainingMs:null,expiresAt:null,status:'active'}});
+ const view=await monitor({run:{workers:[added]}}),card=view.document.querySelector('.map-worker');
+ assert.equal(card.querySelector('.node-role').textContent,'ADDED 1');assert.match(card.getAttribute('aria-label'),/added during run/i);
+ assert.match(view.document.querySelector('.worker-origin').textContent,/Added during run.*late <img src=x>/);
+ assert.equal(view.get('detail').querySelector('img'),null);
+ assert.match(view.document.querySelector('.worker-deadline').textContent,/No worker deadline/);
+ view.update({workers:[{...added,deadline:{...added.deadline,revision:1,remainingMs:60000,expiresAt:Date.parse('2026-10-15T12:01:00Z')}}]});
+ await view.tick(2000);assert.match(view.document.querySelector('.worker-deadline').textContent,/Worker deadline at/);
+ view.update({workers:[worker(0,'running')]});await view.tick(2000);
+ assert.equal(view.document.querySelector('.worker-origin'),null);assert.equal(view.document.querySelector('.worker-deadline'),null,'Older runtimes have no invented live deadline evidence');
+ assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
 test('every map card offers a separate accessible evidence menu and readonly worker receipts',async()=>{
   const view=await monitor({run:{controls:[
     {id:'steer-1',generation:4,position:1,attempt:2,action:'steer',status:'applied',text:'Read <img src=x onerror=alert(1)>',requestedAt:'2026-10-14T12:00:00Z'},

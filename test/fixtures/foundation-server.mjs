@@ -112,6 +112,13 @@ createInterface({ input: process.stdin }).on('line', line => {
       if(mode==='turn-hang-after-command')notification('item/completed',{threadId,turnId,item:{id:'read-before-stall',type:'commandExecution',status:'completed',exitCode:0,command:'PRIVATE_COMMAND',cwd:'PRIVATE_CWD',aggregatedOutput:'PRIVATE_OUTPUT'}});
       return;
     }
+    if(mode==='turn-command-pressure'){
+      notification('item/started',{threadId,turnId:'foreign',item:{id:'wrong',type:'commandExecution',command:'WRONG'}});
+      notification('item/started',{threadId,turnId,item:{id:'early',type:'commandExecution',command:['pwsh','-Command','SECRET_COMMAND'],status:'inProgress'}});
+      notification('item/completed',{threadId,turnId,item:{id:'early',type:'commandExecution',status:'failed',exitCode:7,aggregatedOutput:'SECRET_OUTPUT'}});
+      for(let i=0;i<2500;i++)notification(i%2?'item/agentMessage/delta':'item/commandExecution/outputDelta',{threadId,turnId,itemId:'noise',delta:'pressure'});
+      notification('item/completed',{threadId,turnId,item:{id:'reason',type:'reasoning',content:['RAW_REASONING']}});
+    }
     if(mode==='turn-activity'){
       notification('item/started',{threadId,turnId:'unrelated',item:{id:'wrong',type:'commandExecution',command:'WRONG'}});
       notification('item/started',{threadId,turnId,item:{id:'command',type:'commandExecution',command:'fixture read',status:'inProgress'}});

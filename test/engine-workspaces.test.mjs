@@ -18,6 +18,7 @@ import {captureInputs,describeInputs,loadInputs,createWorkspace,collectWorkspace
 import * as workspaces from '../engine/workspaces.mjs';
 import {runWorkspaces} from '../engine/workspace-run.mjs';
 import {createSettings} from '../engine/settings.mjs';
+import {runWorkerSession} from '../engine/worker-session.mjs';
 
 // Controller-only cases require installed dependencies; capture cases use Node/Git only.
 const runWorkflow=async options=>(await import('../engine/controller.mjs')).runWorkflow(options);
@@ -391,12 +392,12 @@ test('a writer rejected before any process starts retains its empty diff with a 
     backend:writerBackend(async()=>{throw Object.assign(new Error('Admission closed'),{code:'RUN_STOPPED',notStarted:true,noProcessStarted:true});})});
   const worker=result.workers[0];assert.equal(worker.status,'failed');assert.equal(worker.notStarted,true);assert.equal(worker.workspaceError,undefined);assert.deepEqual(worker.workspace.changedFiles,[]);assert.equal(await readFile(worker.workspace.patchPath,'utf8'),'');
 });
-test('writer preparation cannot bypass an attempt budget consumed by a concurrent correction',async t=>{
-  const {root,source}=await fixture(t),runDir=join(root,'run');let writers=0,retryReserved=false,preparations=0;
-  const preparing=Promise.withResolvers(),release=Promise.withResolvers();
+test('reader correction cannot consume capacity reserved during writer preparation',async t=>{
+  const {root,source}=await fixture(t),runDir=join(root,'run');let writers=0,retryReserved=false,preparations=0,readerTurns=0;
+  const preparing=Promise.withResolvers(),release=Promise.withResolvers(),writerFinished=Promise.withResolvers();
   // Run actual Git, holding only this owned worktree-add completion until the
-  // reader has durably consumed the remaining attempt. A slow capture cannot
-  // make the fixture skip its precondition and accuse the budget guard instead.
+  // reader attempts a correction. The original writer already owns a durable
+  // reservation; a slow capture must not let another worker consume that slot.
   const original=childProcess.execFile;
   childProcess.execFile=function(file,args,options,callback){
     if(file==='git'&&options?.cwd===source&&args.includes('worktree')&&args.includes('add')&&args.includes('--no-checkout')){
@@ -412,18 +413,32 @@ test('writer preparation cannot bypass an attempt budget consumed by a concurren
     result=await runWorkflow({runDir,sessionId:'s',launch:{cwd:source},maxAgents:2,
       script:'export const meta={name:"budget",description:"proof"};return await parallel([()=>agent("reader",{permissions:{sandbox:"read-only"}}),()=>agent("writer")]);',
       backend:writerBackend(async({workspace,reserveRetry})=>{
-        if(workspace)writers++;
+        if(workspace){writers++;writerFinished.resolve();}
         else{
-          try{await preparing.promise;await reserveRetry();retryReserved=true;}
-          finally{release.resolve();}
+          try{
+            return await runWorkerSession({}, {threadId:'reader-thread',prompt:'Return valid JSON',settings:{model:'fixture',effort:'low',maxAttempts:2},
+              schema:{type:'object',properties:{ok:{type:'boolean'}},required:['ok'],additionalProperties:false},
+              turn:async()=>{readerTurns++;assert.equal(readerTurns,1,'No correction may dispatch without its own reservation');return{turnId:'reader-first',text:'invalid JSON',items:[],output:{events:1,bytes:12}};},
+              reserveRetry:async()=>{
+                await preparing.promise;
+                try{await reserveRetry();retryReserved=true;}
+                catch(error){
+                  // Hold the same reservation rejection until the admitted writer
+                  // executes, then propagate it to the unchanged run fail-fast policy.
+                  release.resolve();await writerFinished.promise;throw error;
+                }finally{release.resolve();}
+              }});
+          }catch(error){error.evidence={...error.evidence,cleanup};throw error;}
         }
         return{value:'done',terminalObserved:true,evidence:{cleanup}};
       })});
   }finally{clearTimeout(deadline);release.resolve();childProcess.execFile=original;syncBuiltinESMExports();}
   assert.equal(preparations,1,'Fixture reached real Git writer preparation');
-  assert.equal(retryReserved,true,'Reader reserved the correction before preparation completed');
-  assert.equal(result.workers[0].status,'completed');assert.equal(result.workers[0].attempts,2);
-  assert.equal(result.attempts,2);assert.equal(writers,0);assert.equal(result.workers[1].notStarted,true);assert.equal(result.workers[1].error.code,'AGENT_LIMIT');
+  assert.equal(retryReserved,false,'Reader cannot consume the original writer reservation');
+  assert.equal(result.workers[0].status,'failed');assert.equal(result.workers[0].error.code,'AGENT_LIMIT');assert.equal(result.workers[0].attempts,1);
+  assert.equal(result.status,'failed');assert.equal(result.error.code,'AGENT_LIMIT');assert.equal(readerTurns,1);
+  assert.equal(result.workers[0].evidence.attempts[0].status,'invalid');assert.equal(result.workers[0].evidence.attempts[0].turnId,'reader-first');
+  assert.equal(result.attempts,2);assert.equal(result.reservedAttempts,0);assert.equal(writers,1);assert.equal(result.workers[1].status,'completed');assert.equal(result.workers[1].attempts,1);
 });
 test('controller persists writer diffs, reuses intact work and rejects changed retained files before dispatch',async t=>{
   const {root,source}=await fixture(t);await writeFile(join(source,'local.txt'),'local input');let calls=0;

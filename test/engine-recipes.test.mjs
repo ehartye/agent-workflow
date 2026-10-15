@@ -89,6 +89,13 @@ test('delivery scouts become isolated deliverable workers and JSON dependencies 
  assert.deepEqual(result.expectedObjectiveIds,['objective-ui','objective-assets']);assert.equal(result.rows[0].outcome,'delivered');assert.equal(result.rows[0].accepted,false);assert.equal(result.rows[0].workerRef,null);
  assert.equal(result.integration.status,'coordinatorRequired');assert(result.verification.rows.every(row=>row.result===null));assert.deepEqual(result.missingObjectiveIds,result.expectedObjectiveIds);assert.equal(result.complete,false);
 });
+
+test('delivery honors explicit unbounded or long worker budgets without imposing a recipe ceiling',async t=>{
+ const plan=deliveryPlan();plan.tasks[0].limits.timeoutMs=null;plan.tasks[1].limits.timeoutMs=7200000;
+ const {calls}=await recipe(t,'decomposition-delivery',{planRevision:plan},request=>request.phase==='Scout'?scoutReport(request):taskReport(request.label),{permissions:deliveryPermissions});
+ assert.equal(calls.length,4);
+ for(const call of calls)assert.equal(call.timeoutMs,call.label==='ui'?null:7200000);
+});
 test('missing rendering prerequisites preserve source authoring and exact blocked checks',async t=>{
  const plan=deliveryPlan(['audio']);plan.tasks[0].prerequisites=[{id:'renderer',command:'render audio.wav',executablePath:'C:/verified/render.exe',cachePath:'C:/verified/render-cache',requiredFor:'verification'}];
  const {result,calls}=await recipe(t,'decomposition-delivery',{planRevision:plan},request=>{

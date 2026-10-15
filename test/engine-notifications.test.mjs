@@ -9,7 +9,9 @@ import {mkdtemp,rm,mkdir} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {randomUUID} from 'node:crypto';
 import {runWorkflow} from '../engine/controller.mjs';
+import {requestAppend} from '../engine/append.mjs';
 import {fault} from '../foundation/client.mjs';
 
 const meta='export const meta={name:"notifications",description:"durable observation fixture"};\n';
@@ -39,6 +41,53 @@ test('terminal-before-watch survives reconnect, pages without dropping terminal 
  await assert.rejects(read({}),{code:'NOTIFICATIONS_GENERATION'});
  await assert.rejects(read({generation:2,after:first.nextCursor}),{code:'NOTIFICATIONS_CURSOR'});
  const replay=await read({generation:2});assert.equal(replay.events.length,2);assert.ok(replay.events[0].seq>last.nextCursor);assert.equal(replay.terminal,true);
+});
+
+test('watch sees accepted additions before dispatch and never invents their terminal events',async t=>{
+ const {input,read}=await setup(t);let observed;
+ input.script=meta+'return "PRIVATE_GUEST_RESULT";';
+ input.onReady=async()=>{
+  await requestAppend(input.runDir,{sessionId:'owner',generation:1,requestId:randomUUID(),tasks:[{id:'private-task',prompt:'PRIVATE_ADDITION'}]});
+  observed=await read({});
+ };
+ const result=await runWorkflow(input);assert.equal(result.status,'completed');
+ assert.deepEqual(observed.workers,[{position:0,attempt:0,status:'queued'}]);
+ assert.equal(observed.events.length,0);assert.equal(observed.terminal,false);
+ assert.equal(JSON.stringify(observed).includes('PRIVATE'),false);
+ const ended=await read({});
+ assert.deepEqual(ended.workers.map(worker=>[worker.position,worker.status]),[[0,'completed']]);
+ assert.deepEqual(ended.events.map(event=>event.kind),['worker-terminal','run-terminal']);
+});
+
+test('watch preserves uncertain append dispatch and rejects missing or conflicting admission evidence',async t=>{
+ const {input,read}=await setup(t);
+ input.script=meta+'return null;';
+ input.onReady=()=>requestAppend(input.runDir,{sessionId:'owner',generation:1,requestId:randomUUID(),tasks:[{id:'private-task',prompt:'PRIVATE_ADDITION'}]});
+ await runWorkflow(input);
+ // Reconstruct the committed boundary after consuming an attempt but before
+ // the controller persists running evidence. No execution is retried.
+ const db=new DatabaseSync(join(input.runDir,'run.sqlite'));
+ try{
+  const header=JSON.parse(db.prepare('SELECT value FROM header WHERE id=1').get().value);
+  header.status='running';delete header.cleanup;delete header.result;
+  db.prepare('UPDATE header SET value=? WHERE id=1').run(JSON.stringify(header));
+  const worker=JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value);
+  worker.status='queued';worker.attempts=0;delete worker.startedAt;delete worker.completedAt;delete worker.result;delete worker.evidence;
+  db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(JSON.stringify(worker));
+  db.exec('DELETE FROM notifications; DELETE FROM notification_progress');
+  const uncertain=await read({});
+  assert.deepEqual(uncertain.workers,[{position:0,attempt:0,status:'unknown'}]);
+  assert.equal(uncertain.events.length,0);assert.equal(uncertain.terminal,false);
+  const original=JSON.stringify(worker);
+  worker.origin.taskId='different-task';db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(JSON.stringify(worker));
+  await assert.rejects(read({}),{code:'NOTIFICATIONS_CORRUPT'});
+  db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(original);
+  header.appendVersion=2;db.prepare('UPDATE header SET value=? WHERE id=1').run(JSON.stringify(header));
+  await assert.rejects(read({}),{code:'NOTIFICATIONS_CORRUPT'});
+  header.appendVersion=1;db.prepare('UPDATE header SET value=? WHERE id=1').run(JSON.stringify(header));
+  db.exec('DELETE FROM admission WHERE generation=1');
+  await assert.rejects(read({}),{code:'NOTIFICATIONS_CORRUPT'});
+ }finally{db.close();}
 });
 
 test('worker failure is durable while sibling runs; command progress survives prose and activity eviction; run terminal waits for cleanup',async t=>{

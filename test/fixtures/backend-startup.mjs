@@ -45,7 +45,7 @@ if(mode==='cli'){
   createInterface({input:process.stdin}).on('line',line=>{
     const request=JSON.parse(line),{id,method,params}=request;
     if(method==='initialized')return;
-    appendFileSync('trace.jsonl',JSON.stringify({stage,method,...(params.sandboxPolicy?{sandboxPolicy:params.sandboxPolicy}:{}),...(params.runtimeWorkspaceRoots?{cwd:params.cwd,runtimeWorkspaceRoots:params.runtimeWorkspaceRoots}:{}),...(method==='thread/start'?{sandbox:params.sandbox,experimentalRawEvents:params.experimentalRawEvents===true,experimentalApi,roots:params.selectedCapabilityRoots??[]}:{}) ,...(method==='turn/start'?{inputTypes:params.input.map(item=>item.type),nativeSkillGuidance:params.input.some(item=>item.type==='text'&&item.text.includes('skills.list')&&item.text.includes('skills.read'))}:{})})+'\n');
+    appendFileSync('trace.jsonl',JSON.stringify({stage,method,...(method==='command/exec'?{commandTimeoutMs:params.timeoutMs}:{}),...(params.sandboxPolicy?{sandboxPolicy:params.sandboxPolicy}:{}),...(params.runtimeWorkspaceRoots?{cwd:params.cwd,runtimeWorkspaceRoots:params.runtimeWorkspaceRoots}:{}),...(method==='thread/start'?{sandbox:params.sandbox,experimentalRawEvents:params.experimentalRawEvents===true,experimentalApi,roots:params.selectedCapabilityRoots??[]}:{}) ,...(method==='turn/start'?{inputTypes:params.input.map(item=>item.type),nativeSkillGuidance:params.input.some(item=>item.type==='text'&&item.text.includes('skills.list')&&item.text.includes('skills.read'))}:{})})+'\n');
     if(scenario.requestFailure===method)return fail(id);
     if(method==='initialize'){experimentalApi=params.capabilities.experimentalApi;return reply(id,{userAgent:'fixture/0.162.1'});}
     if(method==='config/read')return reply(id,{config:{...config,sandbox_mode:full?'danger-full-access':'read-only',...(all.parentAccess?{plugins:{'fixture-plugin':{enabled:true,token:secret}},mcp_servers:{'fixture-server':{enabled:true,token:secret}}}:{}),...(stage==='worker'&&(all.nativeSkills||all.parentAccess)?{features:{...config.features,code_mode:{direct_only_tool_namespaces:['skills']}}}:{}),...(scenario.badIntegration?{mcp_servers:{'bad\nidentifier':{enabled:true}}}:{})},layers:[{config:{}}]});
@@ -116,9 +116,10 @@ if(mode==='cli'){
         }
         if(calls!=='paired')notify('item/completed',{threadId:params.threadId,turnId:'fixture-turn',item:{id:'manual',type:'commandExecution',command:'manual file/CLI imitation',status:'completed',exitCode:0}});
       }
-      notify('item/completed',{threadId:params.threadId,turnId:'fixture-turn',item:{id:'answer',type:'agentMessage',phase:'final_answer',text:'BACKEND_OK'}});
-      return notify('turn/completed',{threadId:params.threadId,turn:{id:'fixture-turn',status:'completed',items:[]}});
+      const finishTurn=()=>{notify('item/completed',{threadId:params.threadId,turnId:'fixture-turn',item:{id:'answer',type:'agentMessage',phase:'final_answer',text:'BACKEND_OK'}});notify('turn/completed',{threadId:params.threadId,turn:{id:'fixture-turn',status:'completed',items:[]}});};
+      if(scenario.turnDelayMs)return setTimeout(finishTurn,scenario.turnDelayMs);return finishTurn();
     }
+    if(method==='turn/interrupt'){reply(id,{});const finish=()=>notify('turn/completed',{threadId:params.threadId,turn:{id:params.turnId,status:'interrupted',items:[]}});if(scenario.interruptDelayMs)return setTimeout(finish,scenario.interruptDelayMs);return finish();}
     throw Error('Unexpected protocol method');
   }).on('close',()=>{
     // A controlled receipt tests backend proof handling. This is not a native
@@ -233,9 +234,11 @@ if(mode==='cli'){
         catch(error){restart={error:diagnostic(error)};}
         report={ok:true,state,preview:restartPreview(state),restart,withoutReconciliation,unchanged:JSON.stringify(await readRun(runDir))===JSON.stringify(state)};
       }else{
-      const result=scenario.execute?await backend.execute({prompt:'Controlled fixture answer',position:0,workspace,options:{...(scenario.nativeSkills?{skills:scenario.twoSkills?['native-fixture','native-second']:['native-fixture']}:{}),...(scenario.timeoutMs?{timeoutMs:scenario.timeoutMs}:{}),...scenario.workerOptions}}):undefined;
+      let deadlineHandle,deadlineRegistered;
+      const onDeadline=handle=>{deadlineHandle=handle;deadlineRegistered=handle.snapshot();if(scenario.liveChange){const apply=()=>handle.apply({...scenario.liveChange,expectedRevision:handle.snapshot().revision});if(scenario.liveChangeDelayMs)setTimeout(apply,scenario.liveChangeDelayMs);else apply();}};
+      const result=scenario.execute?await backend.execute({onDeadline,onActive:()=>{if(scenario.activeChange)deadlineHandle.apply({...scenario.activeChange,expectedRevision:deadlineHandle.snapshot().revision});if(scenario.activeFailure)throw fault('CONTROL_FIXTURE','Controlled active registration failure');},prompt:'Controlled fixture answer',position:0,workspace,options:{...(scenario.nativeSkills?{skills:scenario.twoSkills?['native-fixture','native-second']:['native-fixture']}:{}),...(scenario.timeoutMs?{timeoutMs:scenario.timeoutMs}:{}),...scenario.workerOptions}}):undefined;
       const closing=backend.close(),again=backend.close();
-      report={ok:true,effective:backend.resolveOptions(),parentCapabilities:backend.parentCapabilities,admission:backend.admission,value:result?.value,workerEvidence:result?.evidence,cleanup:await closing,sameClose:closing===again};
+      report={ok:true,effective:backend.resolveOptions(),parentCapabilities:backend.parentCapabilities,admission:backend.admission,value:result?.value,workerEvidence:result?.evidence,deadlineRegistered,deadlineFinal:deadlineHandle?.snapshot(),cleanup:await closing,sameClose:closing===again};
       }
     }catch(error){
       const {doctorFailure}=await import('../../bin/doctor-diagnostics.mjs');

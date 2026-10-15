@@ -28,11 +28,13 @@ export async function steerTurn(client,{threadId,turnId,text}){
   if(result?.turnId!==turnId)throw fault('CONTROL_TURN','Codex did not confirm the targeted turn');
   return{turnId};
 }
-export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, interruptTimeoutMs = 3000, signal, model, effort, outputSchema, execution, onActive, onEvent }) {
+export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, liveDeadline, interruptTimeoutMs = 3000, signal, model, effort, outputSchema, execution, onActive, onEvent }) {
   if (!boundedToolId(threadId) || typeof prompt !== 'string' || !prompt ||
-      !Number.isFinite(timeoutMs) || timeoutMs <= 0 || !Number.isFinite(interruptTimeoutMs) || interruptTimeoutMs <= 0) {
+      timeoutMs!==null&&(!Number.isFinite(timeoutMs) || timeoutMs <= 0) || !Number.isFinite(interruptTimeoutMs) || interruptTimeoutMs <= 0) {
     throw fault('TURN_INPUT', 'A thread, prompt and positive deadlines are required');
   }
+  if(liveDeadline&&['pending','closed'].includes(liveDeadline.snapshot().status))throw Object.assign(fault('DEADLINE_INACTIVE','Worker deadline must be active before dispatch'),{notStarted:true});
+  if(liveDeadline&&liveDeadline.remaining()<=0)throw Object.assign(fault('TURN_TIMEOUT','Worker deadline expired before turn dispatch'),{notStarted:true});
   if (signal?.aborted) throw Object.assign(fault('TURN_CANCELLED', 'Codex turn was cancelled before dispatch'), {notStarted:true});
   if (!active.has(client)) active.set(client, new Set());
   if(!confirmed.has(client))confirmed.set(client,new Map());
@@ -89,11 +91,17 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, in
   };
   const done = new Promise(resolve => { resolveTerminal = resolve; });
   const failure = new Promise((_, reject) => { rejectFailure = error => { failureError ??= error; reject(error); }; });
-  const cancel = () => rejectFailure(fault('TURN_CANCELLED', 'Codex turn was cancelled'));
+  const cancel = () => rejectFailure(liveDeadline?.signal.aborted?fault('TURN_TIMEOUT','Worker exceeded its live wall deadline'):fault('TURN_CANCELLED', 'Codex turn was cancelled'));
   signal?.addEventListener('abort',cancel,{once:true});
   // Subscribe before dispatch: notifications can precede the turn/start reply.
+  let deadlineExpired;
   const deadline = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(fault('TURN_TIMEOUT', 'Codex turn exceeded its deadline')), timeoutMs);
+    deadlineExpired=()=>reject(fault('TURN_TIMEOUT','Worker exceeded its live wall deadline'));
+    if(liveDeadline){liveDeadline.signal.addEventListener('abort',deadlineExpired,{once:true});if(liveDeadline.signal.aborted)deadlineExpired();}
+    else if(timeoutMs!==null){
+      const begun=performance.now();
+      const arm=()=>{const remaining=timeoutMs-(performance.now()-begun);if(remaining<=0){deadlineExpired();return;}timer=setTimeout(arm,Math.min(2147483647,Math.ceil(remaining)));};arm();
+    }
   });
   const stopFailure = client.onFailure(rejectFailure);
   const consume = (message,bytes=Buffer.byteLength(JSON.stringify(message))) => {
@@ -200,6 +208,7 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, in
   } finally {
     retired = true;
     clearTimeout(timer);
+    liveDeadline?.signal.removeEventListener('abort',deadlineExpired);
     signal?.removeEventListener('abort',cancel);
     stopNotifications();
     stopFailure();

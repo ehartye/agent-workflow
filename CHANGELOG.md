@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 (candidate)
+
+- Default new workers to unbounded wall time. Keep explicit budgets without a 30-minute ceiling, and set, extend or clear an active budget through revisioned CLI controls without restarting its native turn. Preserve separate startup, command, interruption and cleanup bounds and retained runtime behavior.
+- Append bounded independent tasks to an active generation using an idempotent request receipt, original inputs/capabilities and the shared scheduler/attempt ledger. Preserve guest/physical task origins, closed admission and unknown effects across reads and replay.
+- Retain bounded sanitized command facts separately from the activity tail. Add consumer-owned processed-cursor receipts with explicit observation gaps; neither channel promises full shell bodies or native parent-chat delivery.
+- Correct complete-plan authoring guidance, skill selection and captured dependency instructions. Preserve original incomplete/failed evaluations and distinguish native skill activation from semantic artifact acceptance.
+- Identify added workers and retained deadline evidence in the inspector. Update the existing browser verification harness for the shipped Current run dialog and HTML graph cards.
+
 ## 0.3.6
 
 - Add a compact Current run panel and Change run dialog: deliberate row selection enables only fresh, matching controls. Keep errors and exact-page retry inside the dialog, with keyboard focus preserved.

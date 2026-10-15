@@ -104,3 +104,68 @@ test('a timed-out native turn retains prior command outcomes with explicit parti
     return true;
   });
 });
+
+test('expiry while assembling an observed terminal retains its identity output and command facts',async()=>{
+  const {createLiveDeadline}=await import('../engine/live-deadline.mjs'),run=await runner();
+  let now=0,calls=0,reservations=0;
+  const liveDeadline=createLiveDeadline(10,{clock:{now:()=>now,wallNow:()=>now,setTimeout:()=>1,clearTimeout:()=>{}}});liveDeadline.start();
+  const output={observedMessages:3,observedBytes:25,commandEvidence:{coverage:'retainedItemsOnly',commands:[{status:'completed',exitCode:0}]}};
+  try{
+    await assert.rejects(run({}, {threadId:'thread',prompt:'Finish',schema,settings,liveDeadline,reserveRetry:async()=>{reservations++;},turn:async()=>{
+      calls++;now=11;return{...result('{"count":2}','completed-turn'),output,items:[{type:'commandExecution',status:'completed',exitCode:0,command:'PRIVATE_COMMAND',aggregatedOutput:'PRIVATE_OUTPUT'}]};
+    }}),error=>{
+      assert.equal(error.code,'TURN_TIMEOUT');assert.equal(error.terminalObserved,true);assert.notEqual(error.noInference,true);
+      assert.deepEqual(error.evidence.commands,[{status:'completed',exitCode:0}]);assert.equal(error.evidence.commandCoverage,'retainedItemsOnly');
+      assert.equal(error.evidence.attempts.length,1);const attempt=error.evidence.attempts[0];
+      assert.equal(attempt.turnId,'completed-turn');assert.deepEqual(attempt.output,output);
+      assert.equal(attempt.status,'failed');assert.equal(attempt.error.code,'TURN_TIMEOUT');
+      assert.doesNotMatch(JSON.stringify(error.evidence),/PRIVATE_COMMAND|PRIVATE_OUTPUT/);return true;
+    });
+    assert.equal(calls,1);assert.equal(reservations,0);
+  }finally{liveDeadline.close();}
+});
+
+
+test('live changes extend and clear the same native turn without redispatch or interruption',async t=>{
+ const {createLiveDeadline}=await import('../engine/live-deadline.mjs');
+ let elapsed=0;const timers=new Map();let next=0;
+ const clock={now:()=>elapsed,wallNow:()=>1700000000000+elapsed,setTimeout:(fn,ms)=>{const id=++next;timers.set(id,{fn,at:elapsed+ms});return id;},clearTimeout:id=>timers.delete(id)};
+ const advance=ms=>{elapsed+=ms;for(const [id,v] of [...timers])if(v.at<=elapsed){timers.delete(id);v.fn();}};
+ const liveDeadline=createLiveDeadline(100,{clock});liveDeadline.start();
+ const client=await AppServer.connect({command:process.execPath,args:[fileURLToPath(new URL('./fixtures/foundation-server.mjs',import.meta.url)),'turn-steer'],shutdownMs:1000});
+ const abort=new AbortController();let active;const ready=new Promise(resolve=>{active=resolve;});
+ const run=await runner(),pending=run(client,{threadId:'thread',prompt:'Keep working',settings,timeoutMs:null,liveDeadline,signal:abort.signal,onActive:active});
+ try{
+  const identity=await Promise.race([ready,pending]);assert.ok(identity.turnId);
+  advance(80);liveDeadline.apply({operation:'extend',valueMs:100,expectedRevision:0});advance(50);assert.equal(liveDeadline.signal.aborted,false);
+  liveDeadline.apply({operation:'clear',expectedRevision:1});advance(2**32);assert.equal(liveDeadline.signal.aborted,false);
+  assert.equal(await client.request('interrupt-count'),0);
+  await client.request('turn/steer',{threadId:identity.threadId,expectedTurnId:identity.turnId,input:[{type:'text',text:'Return STEERED'}]});
+  const result=await pending;assert.equal(result.value,'STEERED');assert.equal(result.evidence.attempts.length,1);assert.equal(await client.request('interrupt-count'),0);
+ }finally{abort.abort();await pending.catch(()=>{});liveDeadline.close();assert.equal((await client.close()).serverExited,true);}
+});
+
+test('live shortening interrupts an owned native turn and retains the actual timeout outcome',async()=>{
+ const {createLiveDeadline}=await import('../engine/live-deadline.mjs');
+ const liveDeadline=createLiveDeadline(null);liveDeadline.start();
+ const client=await AppServer.connect({command:process.execPath,args:[fileURLToPath(new URL('./fixtures/foundation-server.mjs',import.meta.url)),'turn-hang-after-command'],shutdownMs:1000});
+ const abort=new AbortController();let active;const ready=new Promise(resolve=>{active=resolve;});
+ const pending=(await runner())(client,{threadId:'thread',prompt:'Read then hold',settings,timeoutMs:null,liveDeadline,signal:abort.signal,onActive:active});
+ try{await Promise.race([ready,pending]);liveDeadline.apply({operation:'set',valueMs:30,expectedRevision:0});
+  await assert.rejects(pending,error=>{assert.equal(error.code,'TURN_TIMEOUT');assert.equal(error.interruption.terminalObserved,true);assert.equal(error.evidence.attempts.length,1);assert.notEqual(error.noInference,true);return true;});
+  assert.equal(await client.request('interrupt-count'),1);
+ }finally{abort.abort();await pending.catch(()=>{});liveDeadline.close();assert.equal((await client.close()).serverExited,true);}
+});
+
+
+test('a closed or not-yet-started shared deadline cannot dispatch another model turn',async()=>{
+ const {createLiveDeadline}=await import('../engine/live-deadline.mjs'),run=await runner();
+ for(const closed of [false,true]){const liveDeadline=createLiveDeadline(null);if(closed){liveDeadline.start();liveDeadline.close();}let calls=0;
+  await assert.rejects(run({}, {threadId:'thread',prompt:'Do not dispatch',settings,liveDeadline,turn:async()=>{calls++;return result('unexpected');}}),{code:'DEADLINE_INACTIVE',noInference:true});assert.equal(calls,0);liveDeadline.close();}
+});
+
+test('parent cancellation remains operational for an unbounded native worker',async()=>{
+ const client=await AppServer.connect({command:process.execPath,args:[fileURLToPath(new URL('./fixtures/foundation-server.mjs',import.meta.url)),'turn-hang'],shutdownMs:1000});
+ const abort=new AbortController();let active;const ready=new Promise(resolve=>{active=resolve;});const pending=(await runner())(client,{threadId:'thread',prompt:'Hold',settings,signal:abort.signal,onActive:active});
+ try{await Promise.race([ready,pending]);abort.abort();await assert.rejects(pending,{code:'TURN_CANCELLED'});assert.equal(await client.request('interrupt-count'),1);}finally{abort.abort();await pending.catch(()=>{});assert.equal((await client.close()).serverExited,true);}
+});

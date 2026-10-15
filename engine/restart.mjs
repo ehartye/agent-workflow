@@ -17,7 +17,7 @@ export function restartPlan(state,request,{requireReconciliation=true}={}){
     }
   }
   if(state.attempts>=state.maxAgents)throw fault('AGENT_LIMIT','No lifetime worker attempts remain for restart');
-  return{position:request.position,attempt:request.attempt,affected:affected.map(item=>({position:item.position,status:item.status,attempts:item.attempts??0})),...(requireReconciliation?{reconciliation:request.reconciliation.trim()}:{})};
+  return{position:request.position,attempt:request.attempt,affected:affected.map(item=>({position:item.position,status:item.status,attempts:item.attempts??0,...(item.origin?{origin:structuredClone(item.origin)}:{})})),...(requireReconciliation?{reconciliation:request.reconciliation.trim()}:{})};
 }
 
 export function restartPreview(state){
