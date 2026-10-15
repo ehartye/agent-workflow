@@ -59,6 +59,29 @@ test('parent execution reaches launch probe readiness thread and turn without di
  assert.equal(report.cleanup.serverExited,true);
 });
 
+test('parent MCP inventory honors configured startup time beyond the ordinary RPC deadline',async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,worker:{mcpStartupTimeoutSec:30,inventoryDelayMs:16000}});
+ assert.equal(report.ok,true,`Configured startup must not become a premature unknown worker: ${JSON.stringify(report.primary)}`);
+ assert.equal(report.value,'BACKEND_OK');
+ assert.equal(report.workerEvidence.nativeInventory.status,'passed');
+ assert.equal(report.workerEvidence.nativeInventory.timeoutMs,45000,'Configured startup plus the ordinary protocol allowance');
+ assert.ok(report.workerEvidence.nativeInventory.elapsedMs>=15000);
+ assert.equal(report.trace.filter(e=>e.stage==='worker'&&e.method==='mcpServerStatus/list').length,1,'Inventory is awaited once, never retried');
+ assert.equal(report.trace.filter(e=>e.method==='turn/start').length,1);
+ assert.equal(report.workerEvidence.cleanup.nativeTerminals.inventoryEmpty,true);
+ assert.equal(report.workerEvidence.cleanup.serverExited,true);
+ assert.equal(report.workerEvidence.cleanup.forced,false);
+ if(windows)assert.equal(report.workerEvidence.cleanup.jobEmpty,true);
+});
+
+for(const startup of [-1,2147484,'120'])test(`invalid MCP startup budget ${startup} refuses inventory and inference without corrupting cleanup`,async t=>{
+ const report=await construct(t,{parentAccess:true,execute:true,worker:{mcpStartupTimeoutSec:startup}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'MCP_STARTUP_TIMEOUT');assert.equal(report.noInference,true);
+ assert.equal(report.trace.some(e=>e.stage==='worker'&&['mcpServerStatus/list','turn/start'].includes(e.method)),false);
+ assert.equal(report.evidence.cleanup.nativeTerminals.inventoryEmpty,true);
+ assert.equal(report.evidence.cleanup.serverExited,true);
+});
+
 test('parent native catalog provisions original plugin roots and observes genuine native calls without manual manifests',async t=>{
  const report=await construct(t,{parentAccess:true,execute:true});
  assert.equal(report.ok,true);assert.equal(report.value,'BACKEND_OK');
@@ -270,11 +293,13 @@ test('executed worker source rejection is zero inference with positive cleanup, 
 });
 
 test('readiness and post-readiness admission cannot renew the task deadline',async t=>{
-  const report=await construct(t,{execute:true,nativeSkills:true,timeoutMs:1500,worker:{sourceDelayMs:500,inventoryDelayMs:1200}});
+  const report=await construct(t,{parentAccess:true,execute:true,nativeSkills:true,timeoutMs:1500,worker:{sourceDelayMs:500,inventoryDelayMs:1200,mcpStartupTimeoutSec:30}});
   assert.equal(report.ok,false);assert.equal(report.primary.code,'TURN_TIMEOUT');assert.equal(report.noInference,true);
   assert.equal(report.evidence.capabilities.sources.start,'observed');assert.equal(report.evidence.capabilities.sources.exitCode,0);
   assert.notEqual(report.noProcessStarted,true);assert.notEqual(report.notStarted,true);
   assert.equal(report.trace.some(event=>event.method==='turn/start'),false);assert.equal(report.closeCalls.worker,1);
+  assert.equal(report.evidence.nativeInventory.timeoutMs,45000);
+  assert.equal(report.evidence.nativeInventory.status,'failed','The worker deadline still ends the configured longer inventory wait');
   assert.equal(report.evidence.cleanup.nativeTerminals.inventoryEmpty,true,'worker budget expiry preserves the independent cleanup transport');
 });
 

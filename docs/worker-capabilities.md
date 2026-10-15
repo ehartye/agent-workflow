@@ -1,5 +1,7 @@
 # Worker skills and associated tools
 
+Detached admission includes retaining and verifying capability source packages. Its separate launcher budget defaults to 60 seconds; `run`/`resume`/`restart-worker --startup-timeout-ms 0` removes that per-invocation wall timer, or a timer-safe positive integer sets it. This does not relax source integrity, worker deadlines, protocol limits or cleanup. After any failed/lost launch, reconcile retained effects before new admission. See [the CLI contract](api.md) for validation and uncertain-commit behavior.
+
 ## Run-owned source lifetime
 
 New public runs retain complete, verified source packages under their own `source-packages-v1/` directory. Parent plugin roots and explicitly declared skill packages preserve their manifests, scripts, references and assets. The original bundle/catalog and source paths remain provenance; a separate small launch descriptor binds the retained inventory and execution mapping. Original bundle IDs and hashes remain the logical selection ceiling.
@@ -84,6 +86,8 @@ Current acceptance is scoped:
 
 Every file beneath an exposed skill directory needs a declared hash; the bounded discovery scan rejects undeclared metadata/resources, nested skills, plugin bundles and links. Preserve declared external documents at their original plugin-relative paths. After genuine activation, an exact verified ordinary document read may cover an out-of-package reference the native callback cannot serve; it cannot become manual skill activation.
 
-Readiness shares the task's worker deadline. Each stage and RPC is capped by remaining time, with no further command or task turn after expiry. Only passed required tools supply exact verified Node/launcher/environment/readiness metadata in the initial model prompt. Optional tools remain unverified. Neither metadata nor a passing version check establishes render transport or output acceptance.
+Readiness shares the task's worker deadline. Its live deadline/cancellation ends pending waits, and no further command or task turn starts after expiry. Submitted commands and RPCs retain their independent bounds; extending or clearing the worker wall does not renew them. Only passed required tools supply exact verified Node/launcher/environment/readiness metadata in the initial model prompt. Optional tools remain unverified. Neither metadata nor a passing version check establishes render transport or output acceptance.
+
+Post-readiness MCP inventory respects enabled configured startup budgets: the largest `startup_timeout_sec` in native configuration plus the ordinary 15-second protocol allowance, or 15 seconds when none is configured. An earlier live worker deadline/cancellation still ends the wait. This does not set a new worker wall limit, retry inventory or change the submitted RPC after a deadline extension. Bounded `nativeInventory` evidence records status and timeout/elapsed milliseconds; a timed-out transport still fails closed and missing terminal inventory remains unknown. Invalid or unrepresentable timer values reject before inventory or inference.
 
 A known, read-only compatibility error may be corrected narrowly after its effects and input contract are understood, retaining the original failure. Unknown or potentially mutating effects still require coordinator reconciliation before another attempt; no implicit fallback, install or permission change is allowed.

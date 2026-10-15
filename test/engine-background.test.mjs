@@ -16,6 +16,23 @@ import {readRun,requestControl,readControl} from '../engine/controller.mjs';
 
 const exec=promisify(execFile);
 
+test('detached admission honors an explicit unbounded or finite launcher budget',async t=>{
+ const {startBackground}=await import('../engine/background.mjs');
+ const base=await mkdtemp(join(tmpdir(),'workflow-startup-budget-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
+ for(const startupMs of [0,3000]){
+  const parent=join(base,String(startupMs)),cwd=join(parent,'slow'),runDir=join(parent,'run');await mkdir(cwd,{recursive:true});
+  const receipt=await startBackground({runDir,sessionId:'s',codex:process.execPath,cwd,script:'export const meta={name:"slow",description:"explicit startup policy"};return await agent("A");'},{runnerPath:fileURLToPath(new URL('./fixtures/engine-background.mjs',import.meta.url)),startupMs});
+  const run=await until(()=>readRun(runDir),r=>r.status==='completed');assert.equal(run.workers.length,1);assert.equal(run.attempts,1);assert.equal(run.result,'A');await until(()=>readFile(receipt.resultPath,'utf8'),()=>true);
+ }
+});
+
+test('unsafe launcher budgets reject before creating a run or forking',async t=>{
+ const {startBackground}=await import('../engine/background.mjs');const base=await mkdtemp(join(tmpdir(),'workflow-startup-invalid-'));t.after(()=>rm(base,{recursive:true,force:true}));
+ for(const [index,startupMs] of [-1,0.5,2147483648,NaN,Infinity,'0',null].entries()){
+  const runDir=join(base,String(index));await assert.rejects(startBackground({runDir,sessionId:'s',codex:process.execPath,cwd:base,script:'export const meta={name:"invalid",description:"no fork"};return 1;'},{startupMs}),{code:'BACKGROUND_INPUT'});await assert.rejects(stat(runDir),{code:'ENOENT'});
+ }
+});
+
 test('detached parent access binds the session, reaches the backend and cannot change on resume',async t=>{
  const {startBackground}=await import('../engine/background.mjs');
  const {resolveAccess}=await import('../engine/access-policy.mjs');
@@ -166,9 +183,9 @@ test('detached restart forwards reconciliation and preserves its original failed
   await assert.rejects(startBackground(input),{code:'REPLAY_GENERATION'});
 });
 async function until(read,predicate){
-  const deadline=Date.now()+6000;
-  while(Date.now()<deadline){const value=await read().catch(()=>null);if(value&&predicate(value))return value;await new Promise(resolve=>setTimeout(resolve,20));}
-  throw new Error('Background outcome not observed');
+  const deadline=Date.now()+6000;let lastState=null,lastReadError=null;
+  while(Date.now()<deadline){const value=await read().catch(error=>{lastReadError={code:String(error.code??'').slice(0,80),message:String(error.message??'').slice(0,300)};return null;});if(value&&typeof value==='object'&&typeof value.status==='string')lastState={status:value.status,generation:value.generation,error:value.error??null,coverage:value.coverage??null};if(value&&predicate(value))return value;await new Promise(resolve=>setTimeout(resolve,20));}
+  throw new Error('Background outcome not observed: '+JSON.stringify({lastState,lastReadError}));
 }
 
 test('detached controller survives launcher exit, pauses durably and resumes from saved script',async t=>{

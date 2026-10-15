@@ -15,7 +15,7 @@ import {freezeCapabilities} from './worker-capabilities.mjs';
 import {validateAccessPolicy} from './access-policy.mjs';
 
 export async function startBackground(input,{runnerPath=fileURLToPath(new URL('./background-child.mjs',import.meta.url)),startupMs=60000}={}){
-  if(!isAbsolute(input.runDir??'')||typeof input.sessionId!=='string'||!input.sessionId||!Number.isFinite(startupMs)||startupMs<=0)throw fault('BACKGROUND_INPUT','Provide an absolute run directory and originating session');
+  if(!isAbsolute(input.runDir??'')||typeof input.sessionId!=='string'||!input.sessionId||!Number.isSafeInteger(startupMs)||startupMs<0||startupMs>2147483647)throw fault('BACKGROUND_INPUT','Provide an absolute run directory, originating session and timer-safe startup budget (0 removes it)');
   const previous=input.resume?await readRun(input.runDir):null;
   if(previous&&previous.sessionId!==input.sessionId)throw fault('REPLAY_SESSION','Run belongs to another originating session');
   if(previous&&input.accessPolicy!==undefined)throw fault('ACCESS_OVERRIDE','Saved runs retain their original access policy; start a new run to change it');
@@ -72,7 +72,7 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
       if(child.connected)child.disconnect();child.unref();
       if(error)reject(error);else resolveStart(value);
     };
-    const timer=setTimeout(()=>finish(fault(committed?'START_UNCERTAIN':'START_TIMEOUT',committed?'Background start acknowledgement is uncertain; inspect the saved run before retrying':'Background admission exceeded its deadline; no start was authorized')),startupMs);
+    const timer=startupMs===0?null:setTimeout(()=>finish(fault(committed?'START_UNCERTAIN':'START_TIMEOUT',committed?'Background start acknowledgement is uncertain; inspect the saved run before retrying':`Background admission exceeded its ${startupMs} ms deadline; no start was authorized`)),startupMs);
     child.on('error',()=>finish(fault('BACKGROUND_START','Background process could not start')));
     child.on('exit',()=>finish(fault(committed?'START_UNCERTAIN':'BACKGROUND_EXIT','Background process exited before startup acknowledgement')));
     child.on('message',message=>{

@@ -98,18 +98,25 @@ test('512 MiB capture budgets retain and replay generated binary above 128 MiB w
   const worker=await createWorkspace({inputs,artifactsDir:join(artifacts,'worker')}),payload=join(worker.cwd,'generated.bin');
   await sparse(payload,129*mib);
   const handle=await open(payload,'r+'),chunk=randomFillSync(Buffer.alloc(mib));
-  try{for(let offset=0;offset<33*mib;offset+=chunk.length)await handle.write(chunk,0,chunk.length,offset);}finally{await handle.close();}
+  // Git binary encoding expands this payload; actual patch-size assertions own
+  // the >32 MiB boundary rather than excess entropy or a performance SLA.
+  const entropyBytes=26*mib;
+  try{for(let offset=0;offset<entropyBytes;offset+=chunk.length)await handle.write(chunk,0,chunk.length,offset);}finally{await handle.close();}
   const streamHash=async path=>{const hash=createHash('sha256');for await(const bytes of createReadStream(path))hash.update(bytes);return hash.digest('hex');};
   const expected=await streamHash(payload),result=await collectWorkspace(worker);
   assert.ok(result.bytes>128*mib);assert.ok(result.bytes<512*mib);
   const manifest=JSON.parse(await readFile(result.manifestPath,'utf8')),retained=manifest.files.find(file=>file.name==='generated.bin');
   assert.equal(retained.size,129*mib);assert.equal(retained.sha256,expected);assert.equal(await streamHash(retained.blobPath),expected);
-  assert.ok((await stat(result.patchPath)).size>32*mib);assert.ok((await stat(result.patchPath)).size<512*mib);
+  const patchBytes=(await stat(result.patchPath)).size,basePatchBytes=(await stat(result.basePatchPath)).size;
+  assert.ok(patchBytes>32*mib);assert.ok(patchBytes<512*mib);assert.ok(basePatchBytes>32*mib);
   assert.equal(await streamHash(result.patchPath),result.patchHash);assert.equal(await verifyWorkspace(result),true);
   const preview=await workspaces.readWorkspacePatch(result,{previewBytes:1024});assert.equal(preview.truncated,true);assert.ok(preview.bytes>32*mib);
   await assert.rejects(workspaces.readWorkspacePatch(result,{previewBytes:32*mib+1}),{code:'PATCH_INPUT'});
   const replay=join(root,'review');await git(source,'worktree','add','--detach',replay,inputs.base);
+  t.diagnostic(JSON.stringify({binaryBytes:retained.size,captureBytes:result.bytes,entropyBytes,patchBytes,basePatchBytes}));
+  const applyStarted=performance.now();
   await exec('git',['apply',result.basePatchPath],{cwd:replay,windowsHide:true,timeout:60000,maxBuffer:1024*1024});
+  t.diagnostic(JSON.stringify({applyMs:performance.now()-applyStarted}));
   assert.equal(await streamHash(join(replay,'generated.bin')),expected);
   const blob=await open(retained.blobPath,'r+');try{await blob.write(Buffer.from([chunk[0]^255]),0,1,0);}finally{await blob.close();}
   await assert.rejects(verifyWorkspace(result),{code:'WORKSPACE_ARTIFACT'});

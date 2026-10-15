@@ -27,6 +27,7 @@ function backgroundReceipt(id,receipt,p){
  return{id,...receipt,watch:{...receipt.watch,argv:[process.execPath,join(pluginRoot,'bin','launch.mjs'),'watch',id,'--session',p.sessionId,'--generation',String(receipt.generation),'--after','0','--jsonl','--data-dir',p.dataDir]}};
 }
 function integer(value,name,{min=0,max=Number.MAX_SAFE_INTEGER,required=false}={}){if(value===undefined&&!required)return undefined;if(typeof value!=='string'||!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)<min||Number(value)>max)throw Error(`--${name} requires an integer from ${min} to ${max}`);return Number(value);}
+const backgroundOptions=options=>options['startup-timeout-ms']===undefined?{}:{startupMs:Number(options['startup-timeout-ms'])};
 function deadlines(options){
  const run=integer(options['run-timeout-ms'],'run-timeout-ms',{max:MAX_RUN_TIMEOUT_MS});
  const worker=integer(options['worker-timeout-ms'],'worker-timeout-ms',{max:MAX_WORKER_TIMEOUT_MS});
@@ -108,7 +109,7 @@ export async function main(tokens=process.argv.slice(2)){
   const {preflightRunInput}=await import('../engine/controller.mjs');
   preflightRunInput({script,args,launch,...(capabilities?{workerCapabilitySources:capabilities.toolSources}:{})});
   const binding=await bindRun({dataDir:p.dataDir,runtime,sessionId:p.sessionId}),input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
-  try{if(!o.foreground){print(backgroundReceipt(binding.id,await startBackground(input),p));return 0;}
+  try{if(!o.foreground){print(backgroundReceipt(binding.id,await startBackground(input,backgroundOptions(o)),p));return 0;}
    const backend=await createManagedBackend({runDir:binding.runDir,retainSources:true,executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,session0Desktop,accessPolicy,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}
  }
@@ -145,7 +146,7 @@ export async function main(tokens=process.argv.slice(2)){
   print(await monitorData(runDir,{kind:p.command==='events'?'activity':p.command,generation,position,sourceGeneration,after:integer(o.after,'after')??0,limit:integer(o.limit,'limit',{min:1,max:100})??50,basis:o.basis??'inputs',stage:o.stage??'outputs',previewBytes:32*1024*1024}));return 0;
  }
  if(p.command==='resume'||p.command==='restart-worker'){
-  print(backgroundReceipt(p.id,await startBackground({runDir,sessionId:p.sessionId,resume:true,...deadlines(o),...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})}),p));return 0;
+  print(backgroundReceipt(p.id,await startBackground({runDir,sessionId:p.sessionId,resume:true,...deadlines(o),...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})},backgroundOptions(o)),p));return 0;
  }
  print(await requestControl(runDir,{sessionId:p.sessionId,generation,action:p.command,...(['steer','cancel-worker','worker-deadline'].includes(p.command)?{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),turnId:o.turn??null,...(o.text!==undefined?{text:o.text}:{}),...(p.command==='worker-deadline'?{deadline:parseDeadlineOptions(o)}:{})}:{})}));return 0;
 }
