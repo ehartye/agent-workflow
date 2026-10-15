@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 
@@ -59,6 +59,51 @@ test('diagnostic client denies server requests instead of granting tool approval
   assert.deepEqual(await client.request('approval', {}), { rejected: true });
 });
 
+test('default inbound frame ceiling accepts exactly 16 MiB and continues routing', async t => {
+  const client = await connect(t, { requestTimeoutMs: 15000 });
+  let delivered = 0, bytes, text;
+  client.onNotification(message => {
+    if (message.method !== 'frame-output') return;
+    delivered++;
+    bytes = Buffer.byteLength(JSON.stringify(message));
+    text = message.params.text;
+  });
+  assert.deepEqual(await client.request('frame', { bytes: 16 * 1024 * 1024, terminated: true }), { bytes: 16 * 1024 * 1024 });
+  assert.equal(delivered, 1); assert.equal(bytes, 16 * 1024 * 1024);
+  assert.equal(text, 'FRAME_SECRET_SENTINEL café 🧪');
+  assert.equal(await client.request('echo', { value: 'after boundary', delay: 0 }), 'after boundary');
+  assert.equal((await client.close()).serverExited, true);
+});
+
+for (const terminated of [true, false]) {
+  test(`default inbound limit refuses outstanding and future requests after over-bound ${terminated ? 'framed' : 'unterminated'} data`, async t => {
+    const directory = await mkdtemp(join(process.cwd(), '.output-frame-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const log = join(directory, 'deliveries.txt');
+    const client = await connect(t, { args: [fixture, 'frame-limit', log], requestTimeoutMs: 15000 });
+    let delivered = 0, failures = 0;
+    client.onNotification(() => delivered++);
+    client.onFailure(() => failures++);
+    const results = await Promise.allSettled([
+      client.request('hang'),
+      client.request('frame', { bytes: 16 * 1024 * 1024 + 1, terminated }),
+    ]);
+    for (const result of results) {
+      assert.equal(result.status, 'rejected');
+      assert.equal(result.reason.code, 'PROTOCOL_LIMIT');
+      assert.match(result.reason.message, /16777216 bytes/);
+      assert.match(result.reason.message, /bounded.*output/i);
+      assert.match(result.reason.message, /file.*artifact/i);
+      assert.doesNotMatch(result.reason.message, /FRAME_SECRET_SENTINEL|café/);
+    }
+    await assert.rejects(client.request('echo', { value: 'must not be sent' }), { code: 'PROTOCOL_LIMIT' });
+    assert.equal(delivered, 0); assert.equal(failures, 1);
+    const cleanup = await client.close();
+    assert.equal(cleanup.serverExited, true); assert.equal(cleanup.descendants, 'notVerified');
+    assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), ['server-start', 'initialize', 'initialized', 'hang', 'frame']);
+  });
+}
+
 test('experimental native methods require an explicit connection capability opt-in',async t=>{
   for(const experimentalApi of [false,true]){
     const client=await connect(t,{experimentalApi},'capabilities');
@@ -80,6 +125,7 @@ for (const [method, code, options] of [
     for (const result of results) {
       assert.equal(result.status, 'rejected');
       assert.equal(result.reason.code, code);
+      if (code === 'PROTOCOL_LIMIT') assert.match(result.reason.message, /1024 bytes/);
     }
     await assert.rejects(client.request('echo', { value: 'too late' }), { code });
     assert.equal((await client.close()).serverExited, true);

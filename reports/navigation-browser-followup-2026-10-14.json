@@ -1,0 +1,1673 @@
+{
+  "createdAt": "2026-10-15T01:46:01.614Z",
+  "presentationSource": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\workflow-135d96f8-716f-4602-9031-8bf95a9cd9f6",
+  "retainedExecutionRuntime": "0.3.5-6e0cf80aa55356a6-node24.18.0",
+  "fixture": "Frozen authenticated real run GET plus browser-only session-list GET fixtures. No execution/lifecycle mutations.",
+  "checks": [
+    {
+      "name": "Authenticated URL fragment removed",
+      "passed": true
+    },
+    {
+      "name": "Menu uses accessible icon button",
+      "passed": true
+    },
+    {
+      "name": "Run picker dialog opens",
+      "passed": true
+    },
+    {
+      "name": "Actual Created column is visible",
+      "passed": true
+    },
+    {
+      "name": "XSS title remains text",
+      "passed": true
+    },
+    {
+      "name": "Completed filter excludes failed and unknown while retaining current context",
+      "passed": true,
+      "detail": [
+        "77388b0f-bf24-4a4f-9b03-dd644e0e0cd6",
+        "complete",
+        "xss",
+        "older-0",
+        "older-1",
+        "older-2",
+        "older-3",
+        "older-4",
+        "older-5",
+        "older-6",
+        "older-7",
+        "older-8",
+        "older-9",
+        "older-10",
+        "older-11",
+        "older-12",
+        "older-13"
+      ]
+    },
+    {
+      "name": "Needs attention exposes failed and unknown",
+      "passed": true,
+      "detail": [
+        "77388b0f-bf24-4a4f-9b03-dd644e0e0cd6",
+        "failed",
+        "unknown"
+      ]
+    },
+    {
+      "name": "Loaded-page scope and More runs remain visible",
+      "passed": true
+    },
+    {
+      "name": "Arrow key moves between run rows",
+      "passed": true
+    },
+    {
+      "name": "Escape returns focus to run picker",
+      "passed": true
+    },
+    {
+      "name": "Automatic data poll preserves nodes, focus, scroll and open picker",
+      "passed": true,
+      "detail": {
+        "row": true,
+        "card": true,
+        "world": true,
+        "detail": true,
+        "focus": true,
+        "scroll": true,
+        "picker": true,
+        "reads": 1
+      }
+    },
+    {
+      "name": "Automatic polling never reloads the document",
+      "passed": true,
+      "detail": {
+        "documents": 1
+      }
+    },
+    {
+      "name": "Manual stops automatic run reads",
+      "passed": true,
+      "detail": {
+        "before": 2,
+        "after": 2
+      }
+    },
+    {
+      "name": "Refresh now still reads data in Manual",
+      "passed": true
+    },
+    {
+      "name": "Polling choice is saved",
+      "passed": true
+    },
+    {
+      "name": "desktop/light: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 1010,
+        "y": 44,
+        "width": 430,
+        "height": 825,
+        "right": 1440,
+        "bottom": 869,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "desktop/light: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 44,
+          "right": 1440,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(23, 71, 127)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 1130,
+          "height": 706,
+          "right": 1130,
+          "bottom": 816,
+          "color": "rgb(24, 49, 73)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(24, 49, 73)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "desktop/light: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ]
+    },
+    {
+      "name": "desktop: blue light header retained",
+      "passed": true
+    },
+    {
+      "name": "desktop/light: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "desktop/light: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 1073,
+          "width": 113.84375,
+          "right": 1186.84375
+        },
+        {
+          "x": 1196.84375,
+          "width": 99,
+          "right": 1295.84375
+        },
+        {
+          "x": 1305.84375,
+          "width": 84.15625,
+          "right": 1390
+        }
+      ]
+    },
+    {
+      "name": "desktop/dark: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 1010,
+        "y": 44,
+        "width": 430,
+        "height": 825,
+        "right": 1440,
+        "bottom": 869,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "desktop/dark: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 44,
+          "right": 1440,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(18, 51, 92)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 1130,
+          "height": 706,
+          "right": 1130,
+          "bottom": 816,
+          "color": "rgb(224, 234, 243)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(224, 234, 243)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "desktop/dark: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ]
+    },
+    {
+      "name": "desktop/dark: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "desktop/dark: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 1073,
+          "width": 113.84375,
+          "right": 1186.84375
+        },
+        {
+          "x": 1196.84375,
+          "width": 99,
+          "right": 1295.84375
+        },
+        {
+          "x": 1305.84375,
+          "width": 84.15625,
+          "right": 1390
+        }
+      ]
+    },
+    {
+      "name": "compact/light: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 594,
+        "y": 44,
+        "width": 430,
+        "height": 693,
+        "right": 1024,
+        "bottom": 737,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "compact/light: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 1024,
+          "height": 44,
+          "right": 1024,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(23, 71, 127)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 714,
+          "height": 574,
+          "right": 714,
+          "bottom": 684,
+          "color": "rgb(24, 49, 73)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(24, 49, 73)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "compact/light: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ]
+    },
+    {
+      "name": "compact: blue light header retained",
+      "passed": true
+    },
+    {
+      "name": "compact/light: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "compact/light: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 657,
+          "width": 113.84375,
+          "right": 770.84375
+        },
+        {
+          "x": 780.84375,
+          "width": 99,
+          "right": 879.84375
+        },
+        {
+          "x": 889.84375,
+          "width": 84.15625,
+          "right": 974
+        }
+      ]
+    },
+    {
+      "name": "compact/dark: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 594,
+        "y": 44,
+        "width": 430,
+        "height": 693,
+        "right": 1024,
+        "bottom": 737,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "compact/dark: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 1024,
+          "height": 44,
+          "right": 1024,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(18, 51, 92)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 714,
+          "height": 574,
+          "right": 714,
+          "bottom": 684,
+          "color": "rgb(224, 234, 243)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(224, 234, 243)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "compact/dark: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ]
+    },
+    {
+      "name": "compact/dark: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "compact/dark: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 657,
+          "width": 113.84375,
+          "right": 770.84375
+        },
+        {
+          "x": 780.84375,
+          "width": 99,
+          "right": 879.84375
+        },
+        {
+          "x": 889.84375,
+          "width": 84.15625,
+          "right": 974
+        }
+      ]
+    },
+    {
+      "name": "phone/light: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 0,
+        "y": 44,
+        "width": 390,
+        "height": 769,
+        "right": 390,
+        "bottom": 813,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "phone/light: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 44,
+          "right": 390,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(23, 71, 127)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 390,
+          "height": 654,
+          "right": 390,
+          "bottom": 764,
+          "color": "rgb(24, 49, 73)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(24, 49, 73)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "phone/light: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ]
+    },
+    {
+      "name": "phone: blue light header retained",
+      "passed": true
+    },
+    {
+      "name": "phone/light: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "phone/light: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 53,
+          "width": 102.34375,
+          "right": 155.34375
+        },
+        {
+          "x": 165.34375,
+          "width": 89,
+          "right": 254.34375
+        },
+        {
+          "x": 264.34375,
+          "width": 75.65625,
+          "right": 340
+        }
+      ]
+    },
+    {
+      "name": "phone/dark: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 0,
+        "y": 44,
+        "width": 390,
+        "height": 769,
+        "right": 390,
+        "bottom": 813,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "phone/dark: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 44,
+          "right": 390,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(18, 51, 92)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 390,
+          "height": 654,
+          "right": 390,
+          "bottom": 764,
+          "color": "rgb(224, 234, 243)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(224, 234, 243)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "phone/dark: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ]
+    },
+    {
+      "name": "phone/dark: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "phone/dark: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 53,
+          "width": 102.34375,
+          "right": 155.34375
+        },
+        {
+          "x": 165.34375,
+          "width": 89,
+          "right": 254.34375
+        },
+        {
+          "x": 264.34375,
+          "width": 75.65625,
+          "right": 340
+        }
+      ]
+    },
+    {
+      "name": "small-phone/light: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 0,
+        "y": 44,
+        "width": 320,
+        "height": 625,
+        "right": 320,
+        "bottom": 669,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "small-phone/light: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 320,
+          "height": 44,
+          "right": 320,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(23, 71, 127)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 320,
+          "height": 510,
+          "right": 320,
+          "bottom": 620,
+          "color": "rgb(24, 49, 73)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(24, 49, 73)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "small-phone/light: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ]
+    },
+    {
+      "name": "small-phone: blue light header retained",
+      "passed": true
+    },
+    {
+      "name": "small-phone/light: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "small-phone/light: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 53,
+          "width": 75.515625,
+          "right": 128.515625
+        },
+        {
+          "x": 138.515625,
+          "width": 65.65625,
+          "right": 204.171875
+        },
+        {
+          "x": 214.171875,
+          "width": 55.8125,
+          "right": 269.984375
+        }
+      ]
+    },
+    {
+      "name": "small-phone/dark: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 0,
+        "y": 44,
+        "width": 320,
+        "height": 625,
+        "right": 320,
+        "bottom": 669,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "small-phone/dark: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 320,
+          "height": 44,
+          "right": 320,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(18, 51, 92)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 320,
+          "height": 510,
+          "right": 320,
+          "bottom": 620,
+          "color": "rgb(224, 234, 243)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(224, 234, 243)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "small-phone/dark: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ]
+    },
+    {
+      "name": "small-phone/dark: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "small-phone/dark: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 53,
+          "width": 75.515625,
+          "right": 128.515625
+        },
+        {
+          "x": 138.515625,
+          "width": 65.65625,
+          "right": 204.171875
+        },
+        {
+          "x": 214.171875,
+          "width": 55.8125,
+          "right": 269.984375
+        }
+      ]
+    },
+    {
+      "name": "zoom-equivalent/light: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 290,
+        "y": 44,
+        "width": 430,
+        "height": 375,
+        "right": 720,
+        "bottom": 419,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "zoom-equivalent/light: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 720,
+          "height": 44,
+          "right": 720,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(23, 71, 127)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 410,
+          "height": 256,
+          "right": 410,
+          "bottom": 366,
+          "color": "rgb(24, 49, 73)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(24, 49, 73)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "zoom-equivalent/light: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ]
+    },
+    {
+      "name": "zoom-equivalent: blue light header retained",
+      "passed": true
+    },
+    {
+      "name": "zoom-equivalent/light: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "zoom-equivalent/light: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 353,
+          "width": 113.84375,
+          "right": 466.84375
+        },
+        {
+          "x": 476.84375,
+          "width": 99,
+          "right": 575.84375
+        },
+        {
+          "x": 585.84375,
+          "width": 84.15625,
+          "right": 670
+        }
+      ]
+    },
+    {
+      "name": "zoom-equivalent/dark: no page overflow and bounded menu",
+      "passed": true,
+      "detail": {
+        "x": 290,
+        "y": 44,
+        "width": 430,
+        "height": 375,
+        "right": 720,
+        "bottom": 419,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      }
+    },
+    {
+      "name": "zoom-equivalent/dark: compact header and usable map",
+      "passed": true,
+      "detail": {
+        "header": {
+          "x": 0,
+          "y": 0,
+          "width": 720,
+          "height": 44,
+          "right": 720,
+          "bottom": 44,
+          "color": "rgb(241, 246, 252)",
+          "background": "rgb(18, 51, 92)",
+          "border": "rgb(241, 246, 252)",
+          "fontSize": 14
+        },
+        "map": {
+          "x": 0,
+          "y": 110,
+          "width": 410,
+          "height": 256,
+          "right": 410,
+          "bottom": 366,
+          "color": "rgb(224, 234, 243)",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(224, 234, 243)",
+          "fontSize": 14
+        }
+      }
+    },
+    {
+      "name": "zoom-equivalent/dark: three distinct semantic group accents",
+      "passed": true,
+      "detail": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ]
+    },
+    {
+      "name": "zoom-equivalent/dark: reduced motion",
+      "passed": true
+    },
+    {
+      "name": "zoom-equivalent/dark: three readable non-overlapping columns",
+      "passed": true,
+      "detail": [
+        {
+          "x": 353,
+          "width": 113.84375,
+          "right": 466.84375
+        },
+        {
+          "x": 476.84375,
+          "width": 99,
+          "right": 575.84375
+        },
+        {
+          "x": 585.84375,
+          "width": 84.15625,
+          "right": 670
+        }
+      ]
+    },
+    {
+      "name": "No browser errors",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "No attempted execution/lifecycle writes",
+      "passed": true,
+      "detail": []
+    }
+  ],
+  "views": [
+    {
+      "name": "desktop",
+      "theme": "light",
+      "page": 1440,
+      "width": 1440,
+      "height": 900,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 44,
+        "right": 1440,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(23, 71, 127)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 1130,
+        "height": 706,
+        "right": 1130,
+        "bottom": 816,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(24, 49, 73)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 1010,
+        "y": 44,
+        "width": 430,
+        "height": 825,
+        "right": 1440,
+        "bottom": 869,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ],
+      "reduced": true
+    },
+    {
+      "name": "desktop",
+      "theme": "dark",
+      "page": 1440,
+      "width": 1440,
+      "height": 900,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 44,
+        "right": 1440,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(18, 51, 92)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 1130,
+        "height": 706,
+        "right": 1130,
+        "bottom": 816,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(224, 234, 243)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 1010,
+        "y": 44,
+        "width": 430,
+        "height": 825,
+        "right": 1440,
+        "bottom": 869,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ],
+      "reduced": true
+    },
+    {
+      "name": "compact",
+      "theme": "light",
+      "page": 1024,
+      "width": 1024,
+      "height": 768,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 44,
+        "right": 1024,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(23, 71, 127)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 714,
+        "height": 574,
+        "right": 714,
+        "bottom": 684,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(24, 49, 73)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 594,
+        "y": 44,
+        "width": 430,
+        "height": 693,
+        "right": 1024,
+        "bottom": 737,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ],
+      "reduced": true
+    },
+    {
+      "name": "compact",
+      "theme": "dark",
+      "page": 1024,
+      "width": 1024,
+      "height": 768,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 44,
+        "right": 1024,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(18, 51, 92)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 714,
+        "height": 574,
+        "right": 714,
+        "bottom": 684,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(224, 234, 243)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 594,
+        "y": 44,
+        "width": 430,
+        "height": 693,
+        "right": 1024,
+        "bottom": 737,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ],
+      "reduced": true
+    },
+    {
+      "name": "phone",
+      "theme": "light",
+      "page": 390,
+      "width": 390,
+      "height": 844,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 390,
+        "height": 44,
+        "right": 390,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(23, 71, 127)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 390,
+        "height": 654,
+        "right": 390,
+        "bottom": 764,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(24, 49, 73)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 0,
+        "y": 44,
+        "width": 390,
+        "height": 769,
+        "right": 390,
+        "bottom": 813,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ],
+      "reduced": true
+    },
+    {
+      "name": "phone",
+      "theme": "dark",
+      "page": 390,
+      "width": 390,
+      "height": 844,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 390,
+        "height": 44,
+        "right": 390,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(18, 51, 92)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 390,
+        "height": 654,
+        "right": 390,
+        "bottom": 764,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(224, 234, 243)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 0,
+        "y": 44,
+        "width": 390,
+        "height": 769,
+        "right": 390,
+        "bottom": 813,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ],
+      "reduced": true
+    },
+    {
+      "name": "small-phone",
+      "theme": "light",
+      "page": 320,
+      "width": 320,
+      "height": 700,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 44,
+        "right": 320,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(23, 71, 127)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 320,
+        "height": 510,
+        "right": 320,
+        "bottom": 620,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(24, 49, 73)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 0,
+        "y": 44,
+        "width": 320,
+        "height": 625,
+        "right": 320,
+        "bottom": 669,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ],
+      "reduced": true
+    },
+    {
+      "name": "small-phone",
+      "theme": "dark",
+      "page": 320,
+      "width": 320,
+      "height": 700,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 44,
+        "right": 320,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(18, 51, 92)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 320,
+        "height": 510,
+        "right": 320,
+        "bottom": 620,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(224, 234, 243)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 0,
+        "y": 44,
+        "width": 320,
+        "height": 625,
+        "right": 320,
+        "bottom": 669,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ],
+      "reduced": true
+    },
+    {
+      "name": "zoom-equivalent",
+      "theme": "light",
+      "page": 720,
+      "width": 720,
+      "height": 450,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 720,
+        "height": 44,
+        "right": 720,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(23, 71, 127)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 410,
+        "height": 256,
+        "right": 410,
+        "bottom": 366,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(24, 49, 73)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 290,
+        "y": 44,
+        "width": 430,
+        "height": 375,
+        "right": 720,
+        "bottom": 419,
+        "color": "rgb(24, 49, 73)",
+        "background": "rgb(255, 255, 255)",
+        "border": "rgb(204, 215, 226)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#17477f",
+          "heading": "rgb(23, 71, 127)"
+        },
+        {
+          "group": "controls",
+          "accent": "#87520d",
+          "heading": "rgb(135, 82, 13)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#086756",
+          "heading": "rgb(8, 103, 86)"
+        }
+      ],
+      "reduced": true
+    },
+    {
+      "name": "zoom-equivalent",
+      "theme": "dark",
+      "page": 720,
+      "width": 720,
+      "height": 450,
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 720,
+        "height": 44,
+        "right": 720,
+        "bottom": 44,
+        "color": "rgb(241, 246, 252)",
+        "background": "rgb(18, 51, 92)",
+        "border": "rgb(241, 246, 252)",
+        "fontSize": 14
+      },
+      "map": {
+        "x": 0,
+        "y": 110,
+        "width": 410,
+        "height": 256,
+        "right": 410,
+        "bottom": 366,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgba(0, 0, 0, 0)",
+        "border": "rgb(224, 234, 243)",
+        "fontSize": 14
+      },
+      "drawer": {
+        "x": 290,
+        "y": 44,
+        "width": 430,
+        "height": 375,
+        "right": 720,
+        "bottom": 419,
+        "color": "rgb(224, 234, 243)",
+        "background": "rgb(16, 30, 46)",
+        "border": "rgb(48, 70, 91)",
+        "fontSize": 14
+      },
+      "groups": [
+        {
+          "group": "browse",
+          "accent": "#8fc8ff",
+          "heading": "rgb(143, 200, 255)"
+        },
+        {
+          "group": "controls",
+          "accent": "#ffd18a",
+          "heading": "rgb(255, 209, 138)"
+        },
+        {
+          "group": "workspace",
+          "accent": "#8cddc6",
+          "heading": "rgb(140, 221, 198)"
+        }
+      ],
+      "reduced": true
+    }
+  ],
+  "errors": [],
+  "blocked": []
+}

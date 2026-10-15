@@ -8,6 +8,20 @@ import assert from 'node:assert/strict';
 
 const meta = 'export const meta = {name:"proof",description:"local workflow"};\n';
 
+test('evaluator preflight uses the exact combined UTF8 envelope without executing script',async()=>{
+ const {preflightEvaluatorInput,evaluate}=await import('../engine/evaluate.mjs');
+ assert.equal(typeof preflightEvaluatorInput,'function');
+ const script=meta+'return args;',prefix=preflightEvaluatorInput(script,'');
+ const remaining=2*1024*1024-Buffer.byteLength(prefix);
+ assert.equal(Buffer.byteLength(preflightEvaluatorInput(script,'x'.repeat(remaining))),2*1024*1024);
+ assert.throws(()=>preflightEvaluatorInput(script,'x'.repeat(remaining+1)),{code:'EVALUATOR_INPUT'});
+ assert.throws(()=>preflightEvaluatorInput(script,'雪'.repeat(Math.ceil(remaining/3))),{code:'EVALUATOR_INPUT'});
+ let calls=0;
+ await assert.rejects(evaluate(script,{args:'x'.repeat(remaining+1),call:async()=>{calls++;}}),{code:'EVALUATOR_INPUT'});
+ assert.equal(calls,0);
+ assert.throws(()=>preflightEvaluatorInput(meta+' '.repeat(1024*1024),null),{code:'SCRIPT_SIZE'});
+});
+
 test('manual-lifetime evaluator waits for broker work beyond its guest idle budget',async()=>{
   const evaluate=await evaluator();
   const result=await evaluate(meta+'return await agent("long implementation");',{timeoutMs:null,idleTimeoutMs:400,call:async()=>{

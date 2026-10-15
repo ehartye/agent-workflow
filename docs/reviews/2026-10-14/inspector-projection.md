@@ -1,0 +1,11 @@
+# Fresh inspector review correction
+
+Final native verifier0 in run23246dd9-9520-4e81-a584-2da3d1f89328 g1 completed after genuine selected-role activation and found two issues in the then-frozen source. Its report remains unchanged: P2 global experience/lifecycle/restart projections rebuilt an unchanged selected inspector, and P3 persisted-page restore polled despite Manual. Root reproduced both before changes; this is not an inferred success from the original static review.
+
+RED: `node --test --test-name-pattern='unrelated experience|saved data polling choices' test/engine-monitor-ui.test.mjs` failed both tests. The unchanged inspector identity assertion returned false, and Manual restore issued6 requests versus4 expected. Evidence is retained privately in projection-red.log.
+
+The fix keys inspector rendering to the displayed selected task/artifact fields, selected record visibility/restart and relevant prerequisite status/label/visibility. It preserves unchanged raw-evidence nodes on unrelated updates, while selected changes still render. Manual restore does not poll and marks retained data stale until explicit Refresh now. No control/lifecycle request semantics or authority changed.
+
+GREEN: both existing monitor test owners passed56/56, zero skips,2.034 seconds. The regression verifies connected focused raw evidence and nonzero inner/panel scroll; selected task/artifact changes and dependency visibility still update. It also verifies Manual restore does not read, controls remain disabled until fresh data, and explicit refresh works. New browser checks, repeated combined gates and independent fresh review are pending; original523/107 receipts predate these bytes and do not accept them.
+
+A second fresh verifier, runac25e9d4-6f2c-458a-9755-5ce3713bf7fa g1/w0, found a separate cache invalidation path: global updatedAt cleared already-loaded full worker evidence. Root reproduced the focused full-result identity failure before removing that timestamp-wide invalidation. Generation and exact selected-preview identity still expire stale full reads. The added regression loads genuinely fuller evidence, advances only a sibling/run timestamp and verifies the same focused raw node and scroll; it then changes the selected preview and requires fresh evidence. Revised affected checks and final combined acceptance remain coordinator-owned.

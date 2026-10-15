@@ -1,0 +1,245 @@
+{
+  "createdAt": "2026-10-15T01:42:49.755Z",
+  "checks": [
+    {
+      "name": "Frozen presentation matches integrated source except line endings",
+      "passed": true
+    },
+    {
+      "name": "inspector: actual pointer drag commits 64px",
+      "passed": true
+    },
+    {
+      "name": "inspector: keyboard increments 16px",
+      "passed": true
+    },
+    {
+      "name": "inspector: pointercancel rolls back",
+      "passed": true
+    },
+    {
+      "name": "inspector: Escape rolls back and keeps pane open",
+      "passed": true
+    },
+    {
+      "name": "inspector: Home uses accessible minimum",
+      "passed": true
+    },
+    {
+      "name": "inspector: End uses accessible maximum",
+      "passed": true
+    },
+    {
+      "name": "inspector: polling preserves nodes/focus/scroll",
+      "passed": true,
+      "detail": {
+        "focus": true,
+        "card": true,
+        "world": true,
+        "detail": true,
+        "scroll": true,
+        "scrollValue": 57
+      }
+    },
+    {
+      "name": "menu: actual pointer drag commits 64px",
+      "passed": true
+    },
+    {
+      "name": "menu: keyboard increments 16px",
+      "passed": true
+    },
+    {
+      "name": "menu: pointercancel rolls back",
+      "passed": true
+    },
+    {
+      "name": "menu: Escape rolls back and keeps pane open",
+      "passed": true
+    },
+    {
+      "name": "menu: Home uses accessible minimum",
+      "passed": true
+    },
+    {
+      "name": "menu: End uses accessible maximum",
+      "passed": true
+    },
+    {
+      "name": "menu: polling preserves nodes/focus/scroll",
+      "passed": true,
+      "detail": {
+        "focus": true,
+        "card": true,
+        "world": true,
+        "detail": true,
+        "scroll": true,
+        "scrollValue": 70
+      }
+    },
+    {
+      "name": "1024: inspector clamped with usable map",
+      "passed": true,
+      "detail": {
+        "mapWidth": 414,
+        "paneWidth": 600
+      }
+    },
+    {
+      "name": "1024: menu clamp leaves map area",
+      "passed": true,
+      "detail": {
+        "x": 304,
+        "y": 44,
+        "width": 720,
+        "height": 693
+      }
+    },
+    {
+      "name": "720: inspector clamped with usable map",
+      "passed": true,
+      "detail": {
+        "mapWidth": 320,
+        "paneWidth": 390
+      }
+    },
+    {
+      "name": "720: menu clamp leaves map area",
+      "passed": true,
+      "detail": {
+        "x": 280,
+        "y": 44,
+        "width": 440,
+        "height": 693
+      }
+    },
+    {
+      "name": "600: inspector clamped with usable map",
+      "passed": true,
+      "detail": {
+        "mapWidth": 320,
+        "paneWidth": 270
+      }
+    },
+    {
+      "name": "600: menu clamp leaves map area",
+      "passed": true,
+      "detail": {
+        "x": 280,
+        "y": 44,
+        "width": 320,
+        "height": 693
+      }
+    },
+    {
+      "name": "390: inspector full width and handle removed from focus",
+      "passed": true
+    },
+    {
+      "name": "390: menu full width and handle hidden",
+      "passed": true
+    },
+    {
+      "name": "390: no horizontal page overflow",
+      "passed": true
+    },
+    {
+      "name": "320: inspector full width and handle removed from focus",
+      "passed": true
+    },
+    {
+      "name": "320: menu full width and handle hidden",
+      "passed": true
+    },
+    {
+      "name": "320: no horizontal page overflow",
+      "passed": true
+    },
+    {
+      "name": "Host cookie overrides stale second-port localStorage",
+      "passed": true
+    },
+    {
+      "name": "Theme cookie persistent host-only preference",
+      "passed": true
+    },
+    {
+      "name": "Theme survives persistent browser profile close/relaunch",
+      "passed": true
+    },
+    {
+      "name": "Explicit light ignores dark media change",
+      "passed": true
+    },
+    {
+      "name": "System responds to dark media",
+      "passed": true
+    },
+    {
+      "name": "System responds to light media",
+      "passed": true
+    },
+    {
+      "name": "No browser errors",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "No attempted non-GET mutations",
+      "passed": true,
+      "detail": []
+    }
+  ],
+  "errors": [],
+  "blocked": [],
+  "sources": [
+    {
+      "path": "engine\\monitor\\app.mjs",
+      "localHash": "a220117b05798b24ffd7a2129947ba2ecd6573c53733650ada69b4d83e2189ac",
+      "presentationHash": "a220117b05798b24ffd7a2129947ba2ecd6573c53733650ada69b4d83e2189ac",
+      "normalizedMatch": true
+    },
+    {
+      "path": "engine\\monitor\\style.css",
+      "localHash": "4c8c85a6ccc2c44326f8a53b63163183a88ea7baa0e490a4783a1a5899cec036",
+      "presentationHash": "4c8c85a6ccc2c44326f8a53b63163183a88ea7baa0e490a4783a1a5899cec036",
+      "normalizedMatch": true
+    },
+    {
+      "path": "engine\\monitor\\index.html",
+      "localHash": "ddf8a886a1abc71cef017bd6e94a57ead2bc92d7603d9d475f82011311d65bfc",
+      "presentationHash": "ddf8a886a1abc71cef017bd6e94a57ead2bc92d7603d9d475f82011311d65bfc",
+      "normalizedMatch": true
+    }
+  ],
+  "limitations": [
+    "Frozen authenticated run GET; no changing execution state or lifecycle operations.",
+    "Pointer drag uses real browser mouse input; pointercancel is a dispatched DOM event during real pointer capture.",
+    "Media preference emulation is browser-level, not a host operating-system setting change.",
+    "Viewport assertions wait two animation frames for the native resize/media-query event handlers; the initial immediate 390px sample preceded that handler and is retained in report-initial.json."
+  ],
+  "ports": [
+    "58411",
+    "58410"
+  ],
+  "viewportTransitionObservations": [
+    {
+      "name": "390: viewport initial observation",
+      "passed": true,
+      "detail": {
+        "width": 270,
+        "tabIndex": 0,
+        "handleHidden": false
+      }
+    },
+    {
+      "name": "320: viewport initial observation",
+      "passed": true,
+      "detail": {
+        "width": 320,
+        "tabIndex": -1,
+        "handleHidden": true
+      }
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import {resolve} from 'node:path';
 import {defaultDataDir} from './managed-runtime.mjs';
 const lifecycleOptions=['session','generation','revision','target','worker-generation','position','attempt','reason'];
 const commands={mode:['cwd','scope','session'],help:[],setup:[],doctor:['cwd','backend','session0-desktop'],workflows:['cwd'],read:['cwd'],save:['cwd','script','command','overwrite'],validate:['script'],run:['cwd','session','script','args','concurrency','model','effort','max-attempts','writable','foreground','backend','run-timeout-ms','worker-timeout-ms','capture-policy','worker-capabilities','session0-desktop'],list:['show-hidden'],status:[],result:[],watch:['session','generation','after','jsonl','idle-ms','poll-ms'],worker:['position','generation','source-generation'],events:['position','generation','source-generation','after','limit'],patch:['position','generation','source-generation','basis'],exclusions:['position','generation','source-generation','stage','after','limit'],dashboard:['session','current-ui'],resume:['session','script','generation','run-timeout-ms','worker-timeout-ms'],pause:['session','generation'],stop:['session','generation'],steer:['session','generation','position','attempt','turn','text'],'cancel-worker':['session','generation','position','attempt','turn'],'restart-worker':['session','generation','position','attempt','reconcile'],control:['receipt'],lifecycle:[],'lifecycle-receipt':['receipt'],hide:[...lifecycleOptions,'request'],archive:[...lifecycleOptions,'request'],restore:[...lifecycleOptions,'request'],'prune-plan':lifecycleOptions,prune:['session','plan','approved-plan-hash']};
-commands.run.push('access','parent-access');
+commands.run.push('access','parent-access','args-file');
 commands.doctor.push('access','parent-access','session');
 const booleans=new Set(['help','command','overwrite','writable','foreground','show-hidden','current-ui','jsonl']);
 const runCommands=new Set(['status','result','watch','worker','events','patch','exclusions','dashboard','resume','pause','stop','steer','cancel-worker','restart-worker','control','lifecycle','lifecycle-receipt','hide','archive','restore','prune-plan','prune']);
@@ -12,6 +12,7 @@ export function parseCommand(tokens=process.argv.slice(2),env=process.env){
  const options=Object.fromEntries(['data-dir','help',...new Set(Object.values(commands).flat())].map(key=>[key,{type:booleans.has(key)?'boolean':'string'}]));
  const{values,positionals}=parseArgs({args:tokens,options,allowPositionals:true});const command=positionals.shift()??'help';if(!Object.hasOwn(commands,command))throw Error(`Unknown command: ${command}`);
  for(const key of Object.keys(values))if(!['data-dir','help',...commands[command]].includes(key))throw Error(`Option --${key} is not valid for ${command}`);
+ if(values.args!==undefined&&values['args-file']!==undefined)throw Error('--args and --args-file are mutually exclusive');
  if(['run','doctor'].includes(command)){
   values.access??=command==='run'?'parent':'restricted';
   if(!['parent','restricted'].includes(values.access))throw Error('--access requires parent or restricted');
@@ -31,7 +32,7 @@ export const help=`Agent Workflow — subscription-backed Codex workflows
 mode on|off|status [--scope session|project] [--session ID] [--cwd path]
 setup | doctor [--cwd path]
 workflows | read [scope:]name | save [scope:]name --script file [--command] [--overwrite]
-validate file | run [scope:]name [--script file] [--args JSON] [--writable]
+validate file | run [scope:]name [--script file] [--args JSON | --args-file path] [--writable]
 run ... --parent-access context.json [--access parent] | run ... --access restricted
 list [--show-hidden] | status ID | result ID | dashboard [ID]
 watch ID --session ID --generation N --jsonl [--after N] [--idle-ms N] [--poll-ms N]
@@ -71,6 +72,10 @@ Saved runs retain their exact access policy; resume/restart reject access overri
 Parent --writable assigns independent worktrees for review while retaining parent
 execution access. These worktrees do not enforce filesystem security isolation.
 Restricted --writable uses the existing Windows MXC workspace-write ceiling.
+
+New starts accept --args JSON or --args-file path (mutually exclusive).
+The file must be regular UTF-8 JSON and is read once into saved args.
+The 2 MiB combined evaluator envelope still applies; replay never rereads the file.
 
 New starts accept --capture-policy file with version 2 capture. The policy is persisted
 before writer admission and resume/restart reject overrides.
