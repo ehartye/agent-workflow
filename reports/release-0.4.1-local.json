@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-15T14:08:59.201Z",
+  "version": "0.4.1",
+  "scope": "Windows source-package local verification; publication and installed verification require separate receipts",
+  "published": false,
+  "ownerInstallationVerified": false,
+  "source": {
+    "baseCommit": "f1fd79d4fc68cbb083cae4fac98d1dc0eb217677",
+    "runtimeSourceDigest": "1c58382054fe026c68594f31920875a21f5b7c0b41f9b2cd6e84aa7fdf79c4e3",
+    "receiptOutsideRuntimeDigest": true
+  },
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "node": "v24.18.0"
+  },
+  "tests": {
+    "tests": 628,
+    "pass": 628,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "duration_ms": 634531.471
+  },
+  "gates": [
+    {
+      "stage": "test",
+      "command": "npm.cmd test",
+      "exitCode": 0,
+      "logBytes": 62342,
+      "logSha256": "c482fd4fd68ca25f03e2cde8e5bbcd08f61bc4675fa42d2ddf4f2f138ae322d1"
+    },
+    {
+      "stage": "check",
+      "command": "npm.cmd run check",
+      "exitCode": 0,
+      "logBytes": 177,
+      "logSha256": "b03e7718994ca5f8f4ed177dd349756985e5870dfe86982e0268534d25ff45b3"
+    },
+    {
+      "stage": "smoke",
+      "command": "npm.cmd run smoke",
+      "exitCode": 0,
+      "logBytes": 196,
+      "logSha256": "4dcc0b4356b2af515819b188d1a10b17826cf56ea4d79e2ea25231c25da4868e"
+    },
+    {
+      "stage": "clean-install",
+      "command": "node scripts/check-install.mjs",
+      "exitCode": 0,
+      "logBytes": 243,
+      "logSha256": "db3f97b364b73c95ab9526d574beffe3b39dfa1f74f473c795a2bad1b64f6299"
+    }
+  ],
+  "audit": {
+    "productionOnly": true,
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    }
+  },
+  "changes": [
+    "Message quick view groups loaded streaming fragments by exact thread/turn/item/attempt, and only an untruncated terminal text verifies completeness.",
+    "Input-capture stages and trusted inner causes persist on pre-dispatch worker errors; direct failure cards/popovers expose them without stack fields.",
+    "Capture integrity,512MiB file/diff limits and raw activity retention remain unchanged.",
+    "Authoring separates active coordinator state from captured source and explicitly narrows source-only reader roles.",
+    "Deadline tests reconcile startup-time budget expiry and both legal stale-revision rejection schedules without widening product budgets."
+  ],
+  "evidence": {
+    "dashboardTests": 64,
+    "deadlineTests": 9,
+    "inputDiagnosticTests": "Real contained junction refusal persisted sanitized inventory cause with zero worker dispatch; spoofed backend capture fields are excluded.",
+    "originalRun": {
+      "id": "acf2bfe3-6b45-4f3c-89a6-9230e8b6c314",
+      "generation": 1,
+      "status": "failed",
+      "preAttemptWorkerPosition": 3,
+      "error": "WORKSPACE_INPUT",
+      "originalInnerCause": "notRetained",
+      "workerDispatched": false,
+      "cleanup": "positive unforced owned Windows job",
+      "observerTerminalCursor": 5
+    },
+    "separateReproduction": {
+      "includedBytes": 8388608,
+      "includedFiles": 128,
+      "stableCapture": "passed",
+      "excludedLogAppendAfterFirstBlob": "WORKSPACE_INPUT/WORKSPACE_CHANGED",
+      "establishesMechanism": true,
+      "establishesOriginalCause": false
+    },
+    "quarantinedScoutArtifact": {
+      "bytes": 35943,
+      "sha256": "c36098143b2d2eb5b2519b1e4e0890d3775f01644f1dc15a777ebde2c096d3c8",
+      "accepted": false,
+      "sourceReconciled": true
+    },
+    "firstFullRun": {
+      "accepted": false,
+      "reason": "A250ms fixture run expired before readiness; the old harness waited forever. Its settled no-worker run was inspected before stopping only that harness. Original failure logs retained."
+    },
+    "secondFullRun": {
+      "accepted": false,
+      "tests": 628,
+      "pass": 627,
+      "fail": 1,
+      "reason": "Evaluator startup exceeded a400ms test-only idle allowance before the broker arrived. The test now uses the existing production5000ms allowance, waits beyond it for real broker work, and checks broker entry in the deadlock case. Production budgets unchanged; original failure retained."
+    }
+  },
+  "authoringComparison": {
+    "runId": "d7e87796-295e-4577-ae87-fcb3e1a84c05",
+    "generation": 1,
+    "recordedExecutionVersion": "0.4.0",
+    "candidateSkillVersion": "0.4.1",
+    "simultaneousConditions": true,
+    "attemptsEach": 1,
+    "target": "workflow-authoring",
+    "candidate": {
+      "sha256": "dd7852afce7259736e9450248c4768d56c67554118abebc890993aca1edb1978",
+      "bytes": 24507,
+      "selectedInitialMainObserved": true,
+      "required": [
+        "authoring-candidate"
+      ],
+      "observed": [
+        "authoring-candidate"
+      ],
+      "missing": [],
+      "sourcesBeforeAndAfter": "passed"
+    },
+    "baseline": {
+      "sha256": "318c12d568422481d81ac7ec4f0c05443c385094c060750798c5f27f2ce2752a",
+      "bytes": 24505,
+      "targetSkillNotSelected": true,
+      "otherNativeSkillsObserved": [
+        "agent-workflow",
+        "test-strategy"
+      ]
+    },
+    "scoring": {
+      "independent": true,
+      "criteria": 7,
+      "candidate": 7,
+      "baseline": 7,
+      "comparativeAdvantageDemonstrated": false,
+      "scoreReceiptSha256": "fe847898ddda175d28bd32b3fa8cea1a211fad3f0e301359c54529d2c1dce034",
+      "blinding": "Random labels with condition disclosures neutralized; residual baseline read-history disclosure remained."
+    },
+    "artifacts": "External owned Markdown files independently path/hash/byte checked after positive cleanup; not isolated workspace captures.",
+    "cleanup": "Both workers/run positive unforced server/job/native-inventory cleanup",
+    "observer": {
+      "terminalCursor": 3,
+      "exitCode": 0,
+      "initialMissingIntervalRetained": true
+    },
+    "bodyAdherence": "notVerified"
+  },
+  "policy": {
+    "actionsEnabled": false,
+    "hostedCIPassClaimed": false,
+    "releaseAuthorization": "Owner standing authorization to deploy, merge and release all Workflow versions and marketplace PRs; restore all branch protection after bounded local-verification merge."
+  },
+  "limitations": [
+    "Already discarded message fragments are not recoverable; completed-message storage remains a separate planned enhancement.",
+    "Historical missing input cause stays missing; matching reproduction does not rewrite its evidence.",
+    "No painted-browser matrix or new native0.4.1 model/writer acceptance claimed by this local receipt.",
+    "The paired authoring plans tied; no measured advantage or perfectly blind comparison is claimed."
+  ]
+}

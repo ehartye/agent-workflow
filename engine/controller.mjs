@@ -479,6 +479,9 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         if(retiredWrites)throw error;
         worker.status = error.evidence?.cleanup?.error||error.executionUnknown===true ? 'unknown' : !dispatched && controlAction&&!addition ? 'queued' : !dispatched || error.notStarted || error.noInference===true || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
         worker.error = diagnostic(error);
+        if(worker.error.code==='WORKSPACE_INPUT'&&['repository','inventory','files','consistency','tree','manifest'].includes(error.captureFailure?.stage)){
+          worker.error.capture={stage:error.captureFailure.stage,cause:diagnostic(error.cause)};
+        }
         worker.settledAt=new Date().toISOString();
         worker.notStarted=!dispatched||error.notStarted===true;
         worker.noProcessStarted=!dispatched||error.noProcessStarted===true;

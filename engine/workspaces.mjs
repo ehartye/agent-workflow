@@ -219,6 +219,7 @@ async function checkIndex(record){
   if(!info.isFile()||record.version===2&&(info.nlink!==1||await realpath(record.inputIndex)!==record.inputIndex)||digest(await boundedRead(record.inputIndex,maxMetadata))!==record.inputIndexHash)throw fault('WORKSPACE_ARTIFACT','Captured input index is missing or changed');
 }
 export async function captureInputs({source,artifactsDir,capturePolicy}){
+  let stage='repository';
   try{
     const frozen=capturePolicy===undefined?null:validateCapturePolicy(capturePolicy);
     source=await realpath(source);
@@ -232,21 +233,21 @@ export async function captureInputs({source,artifactsDir,capturePolicy}){
     await mkdir(parent,{recursive:true});
     if((await lstat(parent)).isSymbolicLink()||await realpath(dirname(parent))!==dirname(mainRoot))throw fault('WORKSPACE_PATH','Worktrees require a real sibling directory');
     artifactsDir=await directory(artifactsDir,source);
-    const enumeration=frozen?await explicitList(source,undefined,frozen.policy):null;
-    const entries=enumeration?.entries??await list(source,undefined,{sourceInputs:true});const captured=await captureFiles(source,entries,artifactsDir,{sourceInputs:true});
+    stage='inventory';const enumeration=frozen?await explicitList(source,undefined,frozen.policy):null;
+    const entries=enumeration?.entries??await list(source,undefined,{sourceInputs:true});stage='files';const captured=await captureFiles(source,entries,artifactsDir,{sourceInputs:true});
     // Detect edits or index changes during capture before blessing a coherent input set.
-    const again=frozen?await explicitList(source,undefined,frozen.policy):null;
+    stage='consistency';const again=frozen?await explicitList(source,undefined,frozen.policy):null;
     if(entryIdentity(entries)!==entryIdentity(again?.entries??await list(source,undefined,{sourceInputs:true}))
       ||frozen&&JSON.stringify(enumeration.inventory)!==JSON.stringify(again.inventory)||(await git(source,['rev-parse','HEAD'])).trim()!==base)throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
     const capturedNames=new Set(captured.files.map(item=>item.name));
     for(const name of entries.keys())if(!capturedNames.has(name)&&await file(source,name,{optional:true,allowHardlinks:true}))throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
     for(const item of captured.files)if(digest(await boundedRead((await file(source,item.name,{allowHardlinks:true})).path))!==item.sha256)throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
-    const built=await tree(source,captured,artifactsDir);
+    stage='tree';const built=await tree(source,captured,artifactsDir);
     const result={version:frozen?2:1,source,common,base,parent:await realpath(parent),artifactsDir,inputTree:built.tree,inputIndex:built.index,inputIndexHash:digest(await boundedRead(built.index,maxMetadata)),...captured,
       ...(frozen?{...frozen,excludedInventory:await saveInventory(artifactsDir,enumeration)}:{})};
-    const manifestPath=join(artifactsDir,'inputs.json'),manifest=JSON.stringify(result)+'\n';
+    stage='manifest';const manifestPath=join(artifactsDir,'inputs.json'),manifest=JSON.stringify(result)+'\n';
     await writeFile(manifestPath,manifest,{flag:'wx'});return{...result,manifestPath,manifestHash:digest(manifest)};
-  }catch(error){throw Object.assign(fault('WORKSPACE_INPUT','Could not capture isolated writer inputs'),{cause:error});}
+  }catch(error){throw Object.assign(fault('WORKSPACE_INPUT','Could not capture isolated writer inputs'),{cause:error,captureFailure:{stage,cause:diagnostic(error)}});}
 }
 export function describeInputs(inputs){
   return{...(inputs.version===2?{version:2}:{}),manifestPath:inputs.manifestPath,manifestHash:inputs.manifestHash,source:inputs.source,base:inputs.base,inputTree:inputs.inputTree,
