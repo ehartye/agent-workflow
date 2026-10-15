@@ -1,5 +1,7 @@
 # Worker skills and associated tools
 
+Detached admission includes retaining and verifying capability source packages. Its separate launcher budget defaults to 60 seconds; `run`/`resume`/`restart-worker --startup-timeout-ms 0` removes that per-invocation wall timer, or a timer-safe positive integer sets it. This does not relax source integrity, worker deadlines, protocol limits or cleanup. After any failed/lost launch, reconcile retained effects before new admission. See [the CLI contract](api.md) for validation and uncertain-commit behavior.
+
 ## Run-owned source lifetime
 
 New public runs retain complete, verified source packages under their own `source-packages-v1/` directory. Parent plugin roots and explicitly declared skill packages preserve their manifests, scripts, references and assets. The original bundle/catalog and source paths remain provenance; a separate small launch descriptor binds the retained inventory and execution mapping. Original bundle IDs and hashes remain the logical selection ceiling.

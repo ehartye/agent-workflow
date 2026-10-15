@@ -8,6 +8,7 @@ commands['append-receipt']=['generation','request-id'];
 commands['worker-deadline']=['session','generation','position','attempt','turn','deadline-revision','set-ms','extend-ms','clear'];
 commands.run.push('access','parent-access','args-file');
 commands.doctor.push('access','parent-access','session');
+for(const command of ['run','resume','restart-worker'])commands[command].push('startup-timeout-ms');
 const booleans=new Set(['help','command','overwrite','writable','foreground','show-hidden','current-ui','jsonl','clear']);
 const runCommands=new Set(['append','append-receipt','status','result','watch','worker','events','patch','exclusions','dashboard','resume','pause','stop','steer','cancel-worker','restart-worker','control','lifecycle','lifecycle-receipt','hide','archive','restore','prune-plan','prune']);
 const mutations=new Set(['append','dashboard','run','resume','pause','stop','steer','cancel-worker','restart-worker','hide','archive','restore','prune-plan','prune']);
@@ -23,6 +24,11 @@ export function parseCommand(tokens=process.argv.slice(2),env=process.env){
  const{values,positionals}=parseArgs({args:tokens,options,allowPositionals:true});const command=positionals.shift()??'help';if(!Object.hasOwn(commands,command))throw Error(`Unknown command: ${command}`);
  for(const key of Object.keys(values))if(!['data-dir','help',...commands[command]].includes(key))throw Error(`Option --${key} is not valid for ${command}`);
  if(values.args!==undefined&&values['args-file']!==undefined)throw Error('--args and --args-file are mutually exclusive');
+ if(values['startup-timeout-ms']!==undefined){
+  const raw=values['startup-timeout-ms'],value=Number(raw);
+  if(!/^\d+$/.test(raw)||!Number.isSafeInteger(value)||value<0||value>2147483647)throw Error('--startup-timeout-ms requires an integer from 0 to 2147483647');
+  if(values.foreground)throw Error('--startup-timeout-ms applies only to detached starts');
+ }
  if(['run','doctor'].includes(command)){
   values.access??=command==='run'?'parent':'restricted';
   if(!['parent','restricted'].includes(values.access))throw Error('--access requires parent or restricted');
@@ -52,6 +58,7 @@ patch ID --position N --generation N [--basis inputs|base]
 exclusions ID --position N --generation N [--stage inputs|outputs] [--after N] [--limit N]
 dashboard [ID] [--current-ui] --session ID
 resume ID [--script file] | pause ID --generation N | stop ID --generation N
+Detached run/resume/restart-worker: [--startup-timeout-ms N]
 steer ID --generation N --position N --attempt N --turn ID --text instruction
 cancel-worker ID --generation N --position N --attempt N [--turn ID]
 worker-deadline ID --session ID --generation N --position N --attempt N [--turn ID] --deadline-revision N (--set-ms N | --extend-ms N | --clear)
@@ -104,6 +111,12 @@ Set replaces remaining wall time, extend adds to a finite budget, clear removes 
 Inspect the control receipt after a lost response; never automatically resubmit.
 Startup, command, interruption and cleanup limits remain independent. Pause waits for
 accepted work; Stop cancels it. An explicit run wall deadline still applies during Pause.
+Detached startup has a separate per-invocation 60000 ms launcher budget. Set
+--startup-timeout-ms 0 to remove that wall timer, or 1..2147483647 to choose it.
+This budget includes backend admission and capability-source retention before ready;
+it is not saved worker/run authority and is not inherited by resume/restart.
+The flag is refused with --foreground. After timeout or a lost response inspect the
+saved admission/start outcome and cleanup; never automatically repeat the launch.
 
 Use --data-dir path for explicit managed state. Controls, lifecycle mutations and starts
 require the originating --session (defaults to CODEX_THREAD_ID). Workers use the installed

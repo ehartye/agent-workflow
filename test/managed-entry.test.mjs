@@ -138,8 +138,8 @@ test('worker capability manifests are a new-run-only public option',()=>{
 test('public detached start advertises exact observer arguments without claiming an attachment',async t=>{
  const temp=await mkdtemp(join(tmpdir(),'workflow-watch-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const script=join(temp,'script.js'),hook=join(temp,'hook.mjs'),dataDir=join(temp,'data');await writeFile(script,'export const meta={name:"fixture",description:"receipt"};return 1;');
- const runtime=`export * from ${JSON.stringify(new URL("../bin/managed-runtime.mjs?receipt-fixture",import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export function defaultDataDir(){throw Error('explicit data required');}export async function selectRuntime(){return{path:pluginRoot,codex:'fixture'};}export async function bindRun(){return{id:'saved-id',runDir:${JSON.stringify(join(temp,'run'))}};}export function resolveRun(){throw Error('unexpected read');}export function paths(){}export function noLinks(){}export function nativeCodex(){throw Error('inference forbidden');}`;
- const background=`export async function startBackground(input){return{status:'running',generation:3,accessPolicy:input.accessPolicy,defaults:input.defaults,workerTimeoutMs:input.workerTimeoutMs,watch:{required:true,attached:false,sessionId:input.sessionId,generation:3,after:0}};}`;
+ const runtime=`export * from ${JSON.stringify(new URL("../bin/managed-runtime.mjs?receipt-fixture",import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export function defaultDataDir(){throw Error('explicit data required');}export async function selectRuntime(){return{path:pluginRoot,codex:'fixture'};}export async function bindRun(){return{id:'saved-id',runDir:${JSON.stringify(join(temp,'run'))}};}export async function resolveRun(){return{runDir:${JSON.stringify(join(temp,'run'))},runtime:{path:pluginRoot}};}export function paths(){}export function noLinks(){}export function nativeCodex(){throw Error('inference forbidden');}`;
+ const background=`export async function startBackground(input,settings={}){return{status:'running',generation:3,startupMs:settings.startupMs??60000,accessPolicy:input.accessPolicy,defaults:input.defaults,workerTimeoutMs:input.workerTimeoutMs,watch:{required:true,attached:false,sessionId:input.sessionId,generation:3,after:0}};}`;
  await writeFile(hook,`import{registerHooks}from'node:module';const base=${JSON.stringify(new URL('../',import.meta.url).href)};registerHooks({load(url,context,next){const source=url===new URL('bin/managed-runtime.mjs',base).href?${JSON.stringify(runtime)}:url===new URL('engine/background.mjs',base).href?${JSON.stringify(background)}:undefined;return source===undefined?next(url,context):{format:'module',source,shortCircuit:true};}});`);
  const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
  const invoke=flags=>execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'run','--script',script,'--session','origin','--data-dir',dataDir,...flags],{cwd:temp,env,windowsHide:true,timeout:10000});
@@ -156,6 +156,14 @@ test('public detached start advertises exact observer arguments without claiming
  assert.equal(parent.defaults.workspace,'isolated');assert.equal(parent.defaults.permissions,undefined);
  assert.equal(JSON.parse((await invoke(['--access','restricted','--worker-timeout-ms','0'])).stdout).workerTimeoutMs,null);
  assert.equal(JSON.parse((await invoke(['--access','restricted','--worker-timeout-ms',String(2**32)])).stdout).workerTimeoutMs,2**32);
+ assert.equal(receipt.startupMs,60000);
+ for(const startupMs of [0,180000,2147483647])assert.equal(JSON.parse((await invoke(['--access','restricted','--startup-timeout-ms',String(startupMs)])).stdout).startupMs,startupMs);
+ for(const command of ['resume','restart-worker']){
+  const r=await execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),command,'saved-id','--session','origin','--data-dir',dataDir,'--startup-timeout-ms','0',...(command==='restart-worker'?['--generation','2','--position','0','--attempt','1','--reconcile','Reviewed settled effects']:[])],{cwd:temp,env,windowsHide:true,timeout:10000});assert.equal(JSON.parse(r.stdout).startupMs,0);
+ }
+ for(const value of ['-1','0.5','2147483648','NaN','Infinity'])assert.throws(()=>parseCommand(['run','demo','--session','origin','--startup-timeout-ms',value],{}),/startup-timeout-ms/);
+ assert.throws(()=>parseCommand(['run','demo','--session','origin','--foreground','--startup-timeout-ms','0'],{}),/detached/);
+ assert.throws(()=>parseCommand(['status','demo','--startup-timeout-ms','0'],{}),/not valid/);
 });
 
 test('public worker-deadline CLI creates exact durable controls and rejects ambiguous or foreign requests',async t=>{
