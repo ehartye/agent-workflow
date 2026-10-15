@@ -63,12 +63,14 @@ test('an unbounded Pause keeps accepted work alive until explicit Stop supplies 
  }finally{finish.resolve();await work;}
 });
 
-test('accepted same-revision controls CAS once and reject expired or settled handles without revival',async t=>{
+test('same-revision controls apply once and reject expired or settled handles without revival',async t=>{
  const runDir=await directory(t),ready=gate(),finish=gate();let handle;
  const work=runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',backend:{identity:'deadline-cas',close:async()=>({serverExited:true}),execute:async({onDeadline})=>{handle=createLiveDeadline(null);handle.start();onDeadline?.(handle);ready.resolve();await finish.promise;handle.close();return{value:'done',terminalObserved:true};}}});
- try{await ready.promise;const first=await requestControl(runDir,target()),second=await requestControl(runDir,target());
+ try{await ready.promise;const first=await requestControl(runDir,target());let second;
+  try{second=await requestControl(runDir,target());}catch(error){assert.equal(error.code,'DEADLINE_REVISION');}
   assert.equal((await until(()=>readControl(runDir,first.id),r=>!['pending','applying'].includes(r.status))).status,'applied');
-  const rejected=await until(()=>readControl(runDir,second.id),r=>!['pending','applying'].includes(r.status));assert.equal(rejected.status,'rejected');assert.equal(rejected.error.code,'DEADLINE_REVISION');
+  if(second){const rejected=await until(()=>readControl(runDir,second.id),r=>!['pending','applying'].includes(r.status));assert.equal(rejected.status,'rejected');assert.equal(rejected.error.code,'DEADLINE_REVISION');}
+  assert.equal(handle.snapshot().revision,1,'Only one same-revision mutation is applied');
   handle.apply({operation:'set',valueMs:1,expectedRevision:1});await new Promise(r=>setTimeout(r,5));await assert.rejects(requestControl(runDir,target(null,2)),{code:'DEADLINE_EXPIRED'});
  }finally{finish.resolve();await work;}
 });
@@ -121,10 +123,18 @@ test('a lost applied-receipt write preserves unknown intent and never repeats a 
  }finally{db?.exec('DROP TRIGGER IF EXISTS reject_applied_receipt');db?.close();finish.resolve();await work.catch(()=>{});}
 });
 
-test('explicit run wall budget still bounds accepted work while Pause has no worker timer',async t=>{
+test('explicit run wall budget bounds startup or accepted work while Pause has no worker timer',async t=>{
  const runDir=await directory(t),ready=gate(),finish=gate();
  const work=runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',timeoutMs:250,drainTimeoutMs:30,backend:{identity:'pause-run-wall',close:async()=>({serverExited:true}),execute:async()=>{ready.resolve();await finish.promise;return{value:'late',terminalObserved:true};}}});
- try{await ready.promise;await requestControl(runDir,{sessionId:'s',generation:1,action:'pause'});const result=await work;assert.equal(result.status,'blocked');assert.equal(result.error.code,'EVALUATOR_TIMEOUT');assert.equal(result.workers[0].error.code,'DRAIN_TIMEOUT');}
+ try{
+  // The run budget includes evaluator startup. On a busy host it may expire
+  // before execute() is admitted, which must not leave this test waiting forever.
+  const admitted=await Promise.race([ready.promise.then(()=>true),work.then(()=>false)]);
+  if(admitted)try{await requestControl(runDir,{sessionId:'s',generation:1,action:'pause'});}catch(error){if(error.code!=='CONTROL_TERMINAL')throw error;}
+  const result=await work;assert.equal(result.error.code,'EVALUATOR_TIMEOUT');
+  if(admitted){assert.equal(result.status,'blocked');assert.equal(result.workers[0].error.code,'DRAIN_TIMEOUT');}
+  else{assert.equal(result.status,'failed');assert.ok(result.workers.every(worker=>worker.notStarted&&worker.noInference));assert.equal(result.cleanup.serverExited,true);}
+ }
  finally{finish.resolve();await work;}
 });
 

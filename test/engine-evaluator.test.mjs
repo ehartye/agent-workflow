@@ -24,16 +24,20 @@ test('evaluator preflight uses the exact combined UTF8 envelope without executin
 
 test('manual-lifetime evaluator waits for broker work beyond its guest idle budget',async()=>{
   const evaluate=await evaluator();
-  const result=await evaluate(meta+'return await agent("long implementation");',{timeoutMs:null,idleTimeoutMs:400,call:async()=>{
-    await new Promise(resolve=>setTimeout(resolve,800));return 'completed';
+  const result=await evaluate(meta+'return await agent("long implementation");',{timeoutMs:null,idleTimeoutMs:5000,call:async()=>{
+    // Use the production idle allowance so host bootstrap is not assumed to
+    // finish in400ms. Pending broker work must survive beyond that allowance.
+    const started=performance.now();await new Promise(resolve=>setTimeout(resolve,5500));assert.ok(performance.now()-started>=5000);return 'completed';
   }});
   assert.equal(result,'completed');
 });
 
-test('manual-lifetime evaluator still terminates guest deadlock after broker work settles',async()=>{
+test('manual-lifetime evaluator terminates guest deadlock before and after a broker call',async()=>{
   const evaluate=await evaluator();
-  for(const body of ['await new Promise(()=>{});','await agent("A");await new Promise(()=>{});']){
-    await assert.rejects(evaluate(meta+body,{timeoutMs:null,idleTimeoutMs:400,call:async()=> 'ok'}),{code:'EVALUATOR_IDLE'});
+  for(const [body,expectedCalls] of [['await new Promise(()=>{});',0],['await agent("A");await new Promise(()=>{});',1]]){
+    let calls=0;
+    await assert.rejects(evaluate(meta+body,{timeoutMs:null,idleTimeoutMs:5000,call:async()=>{calls++;return 'ok';}}),{code:'EVALUATOR_IDLE'});
+    assert.equal(calls,expectedCalls,'A startup timeout cannot impersonate the broker-then-deadlock case');
   }
 });
 async function evaluator() {

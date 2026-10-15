@@ -372,6 +372,19 @@ test('controller freezes explicit exclusions before writer dispatch and replays 
   await assert.rejects(runWorkflow({...input,resume:true,backend:backend()}),{code:'CAPTURE_POLICY_IDENTITY'});assert.equal(calls,1);
 });
 
+test('input capture failures persist the precise sanitized stage and cause before any worker starts',async t=>{
+  const {root,source}=await fixture(t),runDir=join(root,'run'),outside=join(root,'outside');
+  await mkdir(outside);await writeFile(join(outside,'canary'),'private external body');
+  await symlink(outside,join(source,'generated'),'junction');let calls=0;
+  const result=await runWorkflow({runDir,sessionId:'s',launch:{cwd:source,capturePolicy},script:'export const meta={name:"input-cause",description:"proof"};return await agent("edit");',backend:writerBackend(async()=>{calls++;throw Error('must not dispatch');})});
+  const worker=result.workers[0];
+  assert.equal(calls,0);assert.equal(worker.status,'failed');assert.equal(worker.noProcessStarted,true);
+  assert.equal(worker.error.code,'WORKSPACE_INPUT');
+  assert.deepEqual(worker.error.capture,{stage:'inventory',cause:{code:'WORKSPACE_PATH',message:'Capture links, reparse points and special files are not supported'}});
+  assert.deepEqual((await readRun(runDir)).workers[0].error,worker.error);
+  assert.doesNotMatch(JSON.stringify(worker.error),/private external body|canary|outside/);
+});
+
 test('capture limits retain a precise durable diagnostic and leave completed worker artifacts unknown',async t=>{
   const {root,source}=await fixture(t),runDir=join(root,'run');
   const result=await runWorkflow({runDir,sessionId:'s',launch:{cwd:source},script:'export const meta={name:"capture-limit",description:"proof"};return await agent("edit");',backend:writerBackend(async({workspace})=>{

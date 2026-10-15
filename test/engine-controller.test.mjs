@@ -156,6 +156,16 @@ test('run wall deadline cancels outstanding work and preserves unknown outcomes'
   assert.equal(run.error.code,'EVALUATOR_TIMEOUT');assert.equal(aborted,true);assert.equal(run.workers[0].status,'unknown');assert.equal(run.cleanup.serverExited,true);
 });
 
+test('untrusted backend errors cannot inject capture diagnostics into persisted worker failures',async t=>{
+  const {runDir,runWorkflow,readRun}=await setup(t);
+  const run=await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',backend:backend(async()=>{
+    throw Object.assign(new Error('PRIVATE_ERROR'),{code:'WORKSPACE_INPUT',terminalObserved:true,captureFailure:{stage:'inventory',cause:{code:'PRIVATE',message:'PRIVATE_CAPTURE'}}});
+  })});
+  assert.equal(run.workers[0].error.code,'CHECK_FAILED');
+  assert.equal(run.workers[0].error.capture,undefined);
+  assert.doesNotMatch(JSON.stringify((await readRun(runDir)).workers[0].error),/PRIVATE/);
+});
+
 test('primary terminal failure retains its diagnostic but failed cleanup prohibits replay',async t=>{
   const {runDir,runWorkflow}=await setup(t);
   const {fault}=await import('../foundation/client.mjs');let calls=0;

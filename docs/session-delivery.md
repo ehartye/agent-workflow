@@ -16,6 +16,8 @@ The canonical policy and hash persist before writer dispatch, participate in rep
 
 Included files remain bounded at 20,000 files and 512 MiB total captured bytes, with a separate 512 MiB budget for each diff. Patch previews and capture metadata retain their 32 MiB limits. Large captures increase disk use, hashing/Git time and peak memory because file and diff verification currently buffers data; the capture budget is not a process-memory cap. Excluded entries have a separate complete metadata inventory bounded at 100,000 entries and 16 MiB; overflow fails instead of silently dropping records. The inventory records names, kinds, counts and omitted bytes. Its hash verifies metadata, **not excluded payload contents**. Missing assigned outputs remain explicit evidence, not delivery.
 
+Keep active observer logs, dashboard receipts and coordinator gate files outside the captured source, including excluded directories. Exclusion avoids opening payloads; its complete metadata inventory is still enumerated and compared during capture. Changes to an excluded log's size or directory entries can therefore refuse a capture. Freeze the launch checkout and use a separate absolute coordinator-control directory. Input failures retain their sanitized `capture.stage` and `capture.cause` on the worker error; a pre-dispatch refusal remains failed/not-started, with no worker inference. These diagnostics do not recover a cause discarded by an older recorded runtime.
+
 Inspect a finalized writer through the dashboard's Read excluded inputs/outputs buttons, or:
 
 ```text

@@ -124,6 +124,61 @@ test('failed and unknown workers surface actual primary errors without disclosin
   assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
 });
 
+test('input capture cause is visible directly on the failed card and in its evidence popover',async()=>{
+  const view=await monitor({run:{workers:[worker(0,'failed',{error:{code:'WORKSPACE_INPUT',message:'Could not capture isolated writer inputs',capture:{stage:'consistency',cause:{code:'WORKSPACE_CHANGED',message:'Source changed while inputs were captured',stack:'PRIVATE_CAUSE_STACK'}}}})]}});
+  assert.match(view.document.querySelector('.map-worker').textContent,/WORKSPACE_CHANGED.*Source changed while inputs were captured/s);
+  assert.match(view.get('detail').firstElementChild.textContent,/WORKSPACE_CHANGED/);
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="0"]'));
+  await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="failure"]'));
+  assert.match(view.get('worker-quick-body').textContent,/Capture stage.*consistency.*Capture cause.*WORKSPACE_CHANGED/s);
+  assert.doesNotMatch(view.get('worker-quick-body').textContent,/PRIVATE_CAUSE_STACK/);
+});
+
+test('message quick view assembles streamed fragments by exact item and attempt across loaded pages',async()=>{
+  const delta=(seq,output,extra={})=>({seq,type:'agentMessage',method:'item/agentMessage/delta',threadId:'thread',turnId:'turn',itemId:'message',status:'inProgress',attempt:1,output,...extra});
+  const pages=[
+    {records:[delta(1,'The'),delta(2,' capture'),delta(3,' probes')],observed:5,retained:5,dropped:0,nextCursor:3,hasMore:true},
+    {records:[delta(4,' reproduced'),delta(5,' both refusals.')],observed:5,retained:5,dropped:0,nextCursor:5,hasMore:false}
+  ];
+  const view=await monitor({response:path=>path.startsWith('/api/activity?')?{ok:true,json:async()=>pages.shift()}:undefined});
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="1"]'));
+  await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="messages"]'));
+  assert.equal(view.get('worker-quick-body').querySelectorAll('.quick-record').length,1);
+  assert.match(view.get('worker-quick-body').textContent,/The capture probes/);
+  await view.click(view.get('quick-load-activity'));
+  assert.equal(view.get('worker-quick-body').querySelectorAll('.quick-record').length,1);
+  assert.match(view.get('worker-quick-body').textContent,/The capture probes reproduced both refusals\./);
+  assert.match(view.get('worker-quick-body').textContent,/5 fragments/);
+});
+
+test('streamed messages remain unverified until a full completion even when a start was loaded',async()=>{
+  const record=(seq,method,output)=>({seq,type:'agentMessage',method,threadId:'thread',turnId:'turn',itemId:'message',status:'inProgress',attempt:1,output});
+  const pages=[{records:[record(1,'item/started',''),record(2,'item/agentMessage/delta','Prefix')],observed:2,retained:2,dropped:0,nextCursor:2,hasMore:true},{records:[record(400,'item/agentMessage/delta',' suffix')],observed:400,retained:256,dropped:144,nextCursor:400,hasMore:false}];
+  const view=await monitor({response:path=>path.startsWith('/api/activity?')?{ok:true,json:async()=>pages.shift()}:undefined});
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="1"]'));
+  await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="messages"]'));
+  await view.click(view.get('quick-load-activity'));
+  const card=view.get('worker-quick-body').querySelector('.quick-record');
+  assert.equal(card.querySelector('pre').textContent,'Prefix suffix');
+  assert.match(card.textContent,/completeness is unverified/);
+});
+
+test('message quick view respects attempt and turn boundaries and replaces deltas with completed text',async()=>{
+  const message=(seq,method,output,extra={})=>({seq,type:'agentMessage',method,threadId:'thread',turnId:'turn',itemId:'message',status:method==='item/completed'?'completed':'inProgress',attempt:1,output,...extra});
+  const records=[message(1,'item/agentMessage/delta','First'),message(2,'item/completed','First complete'),message(3,'item/agentMessage/delta','Second attempt',{attempt:2}),message(4,'item/agentMessage/delta','Another turn',{turnId:'other'})];
+  const view=await monitor({response:path=>path.startsWith('/api/activity?')?{ok:true,json:async()=>({records,observed:4,retained:4,dropped:0,nextCursor:4,hasMore:false})}:undefined});
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="1"]'));
+  await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="messages"]'));
+  const cards=[...view.get('worker-quick-body').querySelectorAll('.quick-record')];
+  assert.equal(cards.length,3);
+  assert.equal(cards[0].querySelector('pre').textContent,'First complete');
+  assert.match(cards[0].textContent,/completed/);
+  assert.doesNotMatch(cards[0].textContent,/completeness is unverified/);
+  assert.match(cards[1].textContent,/attempt 2.*Second attempt/s);
+  assert.match(cards[1].textContent,/completeness is unverified/);
+  assert.equal(cards[2].querySelector('pre').textContent,'Another turn');
+});
+
 test('quick views filter retained messages and tools with bounded pagination and no private reasoning',async()=>{
   const view=await monitor({response:path=>{
     if(!path.startsWith('/api/activity?'))return;

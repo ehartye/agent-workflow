@@ -79,7 +79,8 @@ function savedDiagnostic(value){
 function primaryFailure(worker){
   if(!worker)return '';
   const error=savedDiagnostic(worker.error);
-  return [error?.code,error?.message].filter(value=>typeof value==='string'&&value).join(' · ')||(['failed','unknown'].includes(worker.status)?'Primary error not retained; reason unverified.':'');
+  const capture=error?.capture??savedDiagnostic(worker.workspaceError)?.capture,cause=capture?.cause;
+  return [error?.code,error?.message,cause?.code,cause?.message].filter(value=>typeof value==='string'&&value).join(' · ')||(['failed','unknown'].includes(worker.status)?'Primary error not retained; reason unverified.':'');
 }
 function quickText(value,limit=4000){return typeof value==='string'?value.slice(0,limit)+(value.length>limit?'… [preview shortened]':''):value===undefined?'unverified':String(value);}
 function failureCallout(worker){
@@ -192,6 +193,8 @@ function renderQuick(){
     const workspaceError=savedDiagnostic(worker.workspaceError);
     fact('Workspace error',workspaceError?[workspaceError.code,workspaceError.message].filter(Boolean).join(' · '):'No workspace error retained; capture status unverified.');
     const error=savedDiagnostic(worker.error)??{};
+    const capture=error.capture??workspaceError?.capture;
+    if(capture){fact('Capture stage',capture.stage);fact('Capture cause',[capture.cause?.code,capture.cause?.message].filter(value=>typeof value==='string').join(' · '));}
     for(const field of ['stage','request','requestedAt','at','timeoutMs','attempt','noInference','notStarted','noProcessStarted'])fact(field,error[field]??worker[field]);
     fact('Started',worker.startedAt);fact('Completed',worker.completedAt);
     const cleanup=worker.evidence?.cleanup??worker.cleanup;
@@ -223,10 +226,13 @@ function renderQuick(){
       if(history.sourceGeneration!==undefined&&history.sourceGeneration!==context.generation)body.append(node('p',`Source generation ${history.sourceGeneration}; reused worker evidence.`,'muted'));
       if(history.previewKey!==JSON.stringify(base))body.append(node('p','Worker preview changed. Loaded pages remain retained; check for new activity deliberately.','muted'));
       const tools=['commandExecution','fileChange','mcpToolCall','nativeTool','webSearch','dynamicToolCall','toolCall'];
-      const records=history.records.filter(record=>context.tab==='messages'?['agentMessage','userMessage'].includes(record.type):tools.includes(record.type));
+      const filtered=history.records.filter(record=>context.tab==='messages'?['agentMessage','userMessage'].includes(record.type):tools.includes(record.type));
+      const records=context.tab==='messages'?coalescedMessageRecords(filtered):filtered;
       if(!records.length)body.append(node('p',context.tab==='messages'?'No matching retained messages in the loaded pages.':'No matching tool events in the loaded pages.'));
       for(const record of records){
-        const entry=node('article',undefined,'quick-record');entry.append(node('h3',`${activityType(record.type)} · ${activityStatus(record.status)}`),node('p',`Event ${record.seq} · attempt ${record.attempt??'unverified'} · ${dateText(record.at)}`,'muted'));
+        const eventRange=record.firstSeq===undefined?`Event ${record.seq}`:`Events ${record.firstSeq}–${record.seq} · ${record.fragments} fragments`;
+        const entry=node('article',undefined,'quick-record');entry.append(node('h3',`${activityType(record.type)} · ${activityStatus(record.status)}`),node('p',`${eventRange} · attempt ${record.attempt??'unverified'} · ${dateText(record.at)}`,'muted'));
+        if(record.partialMessage)entry.append(node('p','Assembled from loaded fragments; completeness is unverified until the full message is recorded.','truncation'));
         if(record.truncated?.length)entry.append(node('p',`Shortened: ${record.truncated.join(', ')}.`,'truncation'));
         if(context.tab==='tools'&&record.input!==undefined)entry.append(node('h3','Input'),node('pre',quickValue(record.input)));
         if(record.output!==undefined)entry.append(node('h3',context.tab==='messages'?'Message':'Output'),node('pre',quickValue(record.output)));
@@ -557,6 +563,29 @@ function renderRunPicker(){
 function valueText(value) { return typeof value === 'string' ? value : JSON.stringify(value, null, 2); }
 function activityType(value) { return ({commandExecution:'Command',agentMessage:'Response',userMessage:'Instruction',fileChange:'File change',mcpToolCall:'Tool call',nativeTool:'Native tool',webSearch:'Web search',usage:'Token usage',turn:'Worker turn',plan:'Plan'})[value]??value??'Event'; }
 function activityStatus(value) { return ({inProgress:'running',completed:'completed',failed:'failed',updated:'updated',reportedRejected:'rejection reported',reportedFailed:'failure reported',reportedSucceeded:'success reported'})[value]??value??'updated'; }
+function coalescedMessageRecords(records){
+  const result=[],groups=new Map();
+  for(const record of records){
+    if(record.type!=='agentMessage'||!['item/started','item/completed','item/agentMessage/delta'].includes(record.method)||![record.threadId,record.turnId,record.itemId].every(value=>typeof value==='string'&&value.length)||!Number.isInteger(record.attempt)){
+      result.push(record);continue;
+    }
+    const key=JSON.stringify([record.threadId,record.turnId,record.itemId,record.attempt]);
+    let group=groups.get(key);
+    if(!group){group={...record,output:'',firstSeq:record.seq,fragments:0,partialMessage:true,truncated:[]};groups.set(key,group);result.push(group);}
+    group.seq=record.seq;group.at=record.at;group.truncated=[...new Set([...group.truncated,...(record.truncated??[])])];
+    if(record.phase!==undefined)group.phase=record.phase;
+    if(record.method==='item/agentMessage/delta'){
+      group.fragments++;
+      if(group.status!=='completed')group.output+=typeof record.output==='string'?record.output:'';
+    }else if(record.method==='item/completed'){
+      const final=typeof record.output==='string'?record.output:'';
+      if(!(record.truncated??[]).includes('output')||!group.output.startsWith(final))group.output=final;
+      group.partialMessage=(record.truncated??[]).includes('output')&&group.partialMessage;
+    }
+    if(record.status!==undefined&&group.status!=='completed')group.status=record.status;
+  }
+  return result;
+}
 function dateText(value) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? 'Time unavailable' : date.toLocaleString(); }
 function badge(element, status) { element.textContent = status; element.dataset.status = status; }
 function renderMessages(){
