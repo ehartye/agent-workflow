@@ -4,9 +4,11 @@
  * @subject foundation/client.mjs
  * @subject foundation/tool-observation.mjs
  * @subject test/fixtures/tool-observation-server.mjs
+ * @subject test/fixtures/foundation-server.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {fileURLToPath} from 'node:url';
 import {mkdtemp,rm} from 'node:fs/promises';
@@ -14,6 +16,124 @@ import {join} from 'node:path';
 import {AppServer} from '../foundation/client.mjs';
 async function setup(t){const module=await import('../engine/activity.mjs').catch(()=>null);assert.ok(module?.recordActivity,'Activity store must exist');const db=new DatabaseSync(':memory:');t.after(()=>db.close());module.createActivityTable(db);return{...module,db};}
 const event=(method,params={})=>({method,params:{threadId:'thread',turnId:'turn',...params}});
+
+test('command facts survive delta pressure and database reopen without retaining command bodies',async t=>{
+  const directory=await mkdtemp(fileURLToPath(new URL('./.command-facts-',import.meta.url)));
+  let db; t.after(async()=>{if(db?.isOpen)db.close();await rm(directory,{recursive:true,force:true});});
+  const {createActivityTable,recordActivity,readActivity}=await import('../engine/activity.mjs');
+  const filename=join(directory,'activity.sqlite');db=new DatabaseSync(filename);createActivityTable(db);
+  const worker={position:3,attempts:7},command='pwsh -Command "SECRET_TOKEN=private; exit 7"';
+  db.exec('BEGIN IMMEDIATE');
+  for(const method of ['item/started','item/completed'])recordActivity(db,{generation:2,worker,message:event(method,{item:{id:'early',type:'commandExecution',command,status:method==='item/started'?'inProgress':'failed',exitCode:method==='item/completed'?7:undefined,aggregatedOutput:'SECRET_OUTPUT'}})});
+  for(let i=0;i<3000;i++)recordActivity(db,{generation:2,worker,message:event(i%2?'item/agentMessage/delta':'item/commandExecution/outputDelta',{itemId:'noise',delta:'pressure'})});
+  db.exec('COMMIT');
+  const page=readActivity(db,{generation:2,position:3});
+  assert.equal(page.retained,256);assert.equal(page.records.some(row=>row.itemId==='early'),false);
+  const facts=page.commandFacts;assert.ok(facts,'Command facts have independent retention');
+  assert.equal(facts.observed,2);assert.equal(facts.retained,2);assert.equal(facts.dropped,0);
+  assert.deepEqual(facts.records.map(row=>[row.generation,row.position,row.attempt,row.event,row.itemId,row.exitCode,row.outcome]),[[2,3,7,'started','early',null,'unknown'],[2,3,7,'completed','early',7,'failed']]);
+  assert.deepEqual(facts.records[0].command,{representation:'sha256',encoding:'utf8',bytes:Buffer.byteLength(command),sha256:createHash('sha256').update(command).digest('hex')});
+  assert.doesNotMatch(JSON.stringify(facts),/SECRET_|pwsh|private|pressure/);
+  assert.deepEqual(readActivity(db,{generation:2,position:3,after:page.nextCursor+4000,limit:1}).commandFacts,facts,'Fact envelope does not depend on activity paging');
+  db.close();db=new DatabaseSync(filename);createActivityTable(db);
+  assert.deepEqual(readActivity(db,{generation:2,position:3}).commandFacts,facts);
+  assert.equal(readActivity(db,{generation:1,position:3}).commandFacts.observed,0);
+  db.exec('BEGIN IMMEDIATE');
+  for(let i=0;i<140;i++)recordActivity(db,{generation:2,worker,message:event('item/started',{item:{id:`later-${i}`,type:'commandExecution'}})});
+  db.exec('COMMIT');
+  const evicted=readActivity(db,{generation:2,position:3}).commandFacts;
+  assert.equal(evicted.observed,142);assert.equal(evicted.retained,128);assert.deepEqual(evicted.evicted,{countLimit:14,byteLimit:0});
+  db.close();db=new DatabaseSync(filename);createActivityTable(db);
+  assert.deepEqual(readActivity(db,{generation:2,position:3}).commandFacts,evicted,'Nonzero eviction counters survive reopen');
+});
+
+test('command fact count and byte budgets disclose worker and generation evictions',async t=>{
+  const {db,recordActivity,readActivity}=await setup(t);
+  const append=(generation,position,n,wide=false)=>{
+    const worker={position,attempts:position+1};
+    for(let i=0;i<n;i++)recordActivity(db,{generation,worker,message:event('item/completed',{threadId:wide?'t'.repeat(200):'thread',turnId:wide?'u'.repeat(200):'turn',item:{id:wide?String(i).padEnd(200,'i'):String(i),type:'commandExecution',command:'fixture',status:'completed',exitCode:0}})});
+  };
+  append(1,0,140);
+  const counted=readActivity(db,{generation:1,position:0}).commandFacts;
+  assert.equal(counted.retained,128);assert.equal(counted.evicted.countLimit,12);assert.equal(counted.evicted.byteLimit,0);assert.equal(counted.records[0].itemId,'12');
+  append(2,0,100,true);
+  const bytes=readActivity(db,{generation:2,position:0}).commandFacts;
+  assert.ok(bytes.retained<100);assert.ok(bytes.retainedBytes<=65536);assert.equal(bytes.evicted.countLimit,0);assert.equal(bytes.evicted.byteLimit,100-bytes.retained);
+  for(let position=0;position<9;position++)append(3,position,120);
+  let retained=0,dropped=0;
+  for(let position=0;position<9;position++){
+    const facts=readActivity(db,{generation:3,position}).commandFacts;
+    retained+=facts.retained;dropped+=facts.dropped;
+    assert.equal(facts.observed,facts.retained+facts.evicted.countLimit+facts.evicted.byteLimit);
+    assert.ok(facts.records.every(row=>row.position===position&&row.attempt===position+1&&Buffer.byteLength(JSON.stringify(row))<=2048));
+  }
+  assert.equal(retained,1024);assert.equal(dropped,56);
+  for(let position=0;position<10;position++)append(4,position,60,true);
+  let totalBytes=0,byteEvicted=0;
+  for(let position=0;position<10;position++){
+    const facts=readActivity(db,{generation:4,position}).commandFacts;
+    totalBytes+=facts.retainedBytes;byteEvicted+=facts.evicted.byteLimit;
+  }
+  assert.ok(totalBytes<=524288);assert.ok(byteEvicted>0);
+});
+
+test('command facts distinguish omissions and explicit timeout from unknown outcomes',async t=>{
+  const {db,recordActivity,readActivity}=await setup(t),worker={position:0,attempts:2};
+  const cases=[{command:['node','--version'],exitCode:0},{command:'x'.repeat(65537),exitCode:7},{command:'partial',truncated:['command']},{command:{private:'SECRET_SHAPE'}},{status:'timedOut'},{status:'completed'},{status:'failed',exitCode:124},{timedOut:true,exitCode:124},{status:'failed',exitCode:0}];
+  for(const [i,extra] of cases.entries())recordActivity(db,{generation:1,worker,message:event('item/completed',{item:{id:String(i),type:'commandExecution',...extra}})});
+  const facts=readActivity(db,{generation:1,position:0}).commandFacts;
+  assert.deepEqual(facts.records.map(row=>row.outcome),['succeeded','failed','unknown','unknown','timedOut','unknown','failed','timedOut','failed']);
+  assert.deepEqual(facts.records.map(row=>row.command.reason),[undefined,'hashInputLimit','sourceTruncated','unsupportedShape','notProvided','notProvided','notProvided','notProvided','notProvided']);
+  assert.equal(facts.records[0].command.encoding,'argvJsonUtf8');assert.doesNotMatch(JSON.stringify(facts),/SECRET_SHAPE|--version|partial/);
+  worker.attempts=3;recordActivity(db,{generation:1,worker,message:event('item/completed',{item:{id:'0',type:'commandExecution',exitCode:9}})});
+  assert.deepEqual(readActivity(db,{generation:1,position:0}).commandFacts.records.filter(row=>row.itemId==='0').map(row=>[row.attempt,row.exitCode]),[[2,0],[3,9]]);
+});
+
+test('missing or invalid command coverage cannot claim an empty complete history',async t=>{
+  const {db,recordActivity,readActivity}=await setup(t),worker={position:0,attempts:1};
+  recordActivity(db,{generation:1,worker,message:event('item/agentMessage/delta',{itemId:'answer',delta:'text'})});
+  db.exec('DELETE FROM command_fact_counts');
+  assert.throws(()=>readActivity(db,{generation:1,position:0}),{code:'ACTIVITY_CORRUPT'});
+  db.exec('INSERT INTO command_fact_counts(generation,position,observed,evicted_count) VALUES(1,0,-1,-1)');
+  assert.throws(()=>readActivity(db,{generation:1,position:0}),{code:'ACTIVITY_CORRUPT'});
+  db.exec('UPDATE command_fact_counts SET observed=0,evicted_count=0');
+  recordActivity(db,{generation:1,worker,message:event('item/completed',{item:{id:'command',type:'commandExecution',command:'private',exitCode:0}})});
+  const row=db.prepare('SELECT seq,bytes,value FROM command_facts').get();
+  for(const mutate of [value=>{value.position=99;},value=>{value.extraPayload='SECRET';},value=>{value.command.sha256='invalid';},value=>{value.event='started';},value=>{value.at='invalid';},value=>{value.exitCode=7;value.outcome='succeeded';},value=>{value.status='declined';value.outcome='succeeded';},value=>{value.status='interrupted';value.outcome='succeeded';}]){
+    const value=JSON.parse(row.value);mutate(value);const body=JSON.stringify(value);db.prepare('UPDATE command_facts SET bytes=?,value=? WHERE seq=?').run(Buffer.byteLength(body),body,row.seq);
+    assert.throws(()=>readActivity(db,{generation:1,position:0}),{code:'ACTIVITY_CORRUPT'});
+  }
+  for(const bytes of [-1,row.bytes+1]){db.prepare('UPDATE command_facts SET bytes=?,value=? WHERE seq=?').run(bytes,row.value,row.seq);assert.throws(()=>readActivity(db,{generation:1,position:0}),{code:'ACTIVITY_CORRUPT'});}
+  db.prepare('UPDATE command_facts SET bytes=1,value=? WHERE seq=?').run(' '.repeat(4096),row.seq);assert.throws(()=>readActivity(db,{generation:1,position:0}),{code:'ACTIVITY_CORRUPT'});
+  db.prepare('UPDATE command_facts SET bytes=?,value=? WHERE seq=?').run(row.bytes,row.value,row.seq);assert.equal(readActivity(db,{generation:1,position:0}).commandFacts.retained,1);
+});
+
+test('initializing fact storage exposes prior activity as uncovered without backfilling previews',async t=>{
+  const {db,createActivityTable,recordActivity,readActivity}=await setup(t),worker={position:0,attempts:1};
+  recordActivity(db,{generation:1,worker,message:event('item/completed',{item:{id:'old',type:'commandExecution',command:'old preview',exitCode:1}})});
+  const before=db.prepare('SELECT value FROM activity').get().value;
+  db.exec('DROP TABLE command_facts; DROP TABLE command_fact_counts');createActivityTable(db);
+  const facts=readActivity(db,{generation:1,position:0}).commandFacts;
+  assert.equal(facts.priorActivityUncovered,1);assert.equal(facts.observed,0);assert.deepEqual(facts.records,[]);
+  worker.attempts=2;recordActivity(db,{generation:1,worker,message:event('item/completed',{item:{id:'new',type:'commandExecution',exitCode:0}})});
+  createActivityTable(db);
+  const later=readActivity(db,{generation:1,position:0}).commandFacts;
+  assert.equal(later.priorActivityUncovered,1);assert.equal(later.observed,1);assert.equal(later.records[0].command.reason,'notProvided');
+  assert.equal(db.prepare('SELECT value FROM activity WHERE seq=1').get().value,before);
+});
+
+test('native notification fixture retains command identities through answer pressure',async t=>{
+  const {db,recordActivity,readActivity}=await setup(t),worker={position:4,attempts:3};
+  const client=await AppServer.connect({command:process.execPath,args:[fileURLToPath(new URL('./fixtures/foundation-server.mjs',import.meta.url)),'turn-command-pressure'],shutdownMs:100});
+  t.after(()=>client.close());const {runTurn}=await import('../foundation/turn.mjs');
+  const result=await runTurn(client,{threadId:'thread',prompt:'fixture',timeoutMs:5000,onActive:identity=>{worker.activeTurn=identity;},onEvent:message=>recordActivity(db,{generation:5,worker,message})});
+  const page=readActivity(db,{generation:5,position:4});
+  assert.equal(result.text,'thread');assert.equal(result.status,'completed');assert.ok(page.dropped>2000);
+  assert.deepEqual(page.commandFacts.records.map(row=>[row.threadId,row.turnId,row.event,row.exitCode,row.outcome]),[['thread','turn-thread','started',null,'unknown'],['thread','turn-thread','completed',7,'failed']]);
+  assert.equal(page.commandFacts.records[1].command.reason,'notProvided','Completion without a body cannot claim an argv');
+  assert.doesNotMatch(JSON.stringify(page.commandFacts),/SECRET_|RAW_REASONING|WRONG/);
+  assert.equal(await client.request('interrupt-count'),0);
+});
 
 test('missing or inconsistent activity counters cannot claim complete history',async t=>{
   const {db,recordActivity,readActivity}=await setup(t),worker={position:0,attempts:1};
@@ -161,16 +281,19 @@ test('activity refuses unprojected raw fields and validates safe tool identity w
   assert.equal(readActivity(db,{generation:1,position:0,expectedObserved:2}).observed,2);
 });
 
-test('tool observation and coverage rollback leave accepted worker state unchanged',async t=>{
+test('activity facts and coverage rollback leave accepted worker state unchanged',async t=>{
   const {db,recordActivity,readActivity}=await setup(t),worker={position:0,attempts:1,activeTurn:{threadId:'thread',turnId:'turn'}};
   recordActivity(db,{generation:1,worker,message:projected()});const before=structuredClone(worker);
   // Same clone/transaction ownership as controller.saveWorker; no observer state
   // may live outside this rollback boundary in the activity store.
   db.exec("CREATE TRIGGER reject_tool BEFORE INSERT ON activity_counts BEGIN SELECT RAISE(ABORT,'fixture rollback'); END");
-  const next=structuredClone(worker);db.exec('BEGIN IMMEDIATE');
-  assert.throws(()=>recordActivity(db,{generation:1,worker:next,message:projected({callId:'replacement'})}),/fixture rollback/);
-  db.exec('ROLLBACK');assert.deepEqual(worker,before);assert.deepEqual(next,before);
-  assert.equal(readActivity(db,{generation:1,position:0,expectedObserved:before.activityCount}).observed,1);
+  const accepted=readActivity(db,{generation:1,position:0,expectedObserved:before.activityCount});
+  for(const message of [projected({callId:'replacement'}),event('item/started',{item:{id:'rolled-back',type:'commandExecution',command:'SECRET_ROLLBACK'}})]){
+    const next=structuredClone(worker);db.exec('BEGIN IMMEDIATE');
+    assert.throws(()=>recordActivity(db,{generation:1,worker:next,message}),/fixture rollback/);
+    db.exec('ROLLBACK');assert.deepEqual(worker,before);assert.deepEqual(next,before);
+    assert.deepEqual(readActivity(db,{generation:1,position:0,expectedObserved:before.activityCount}),accepted);
+  }
 });
 
 test('bounded native tool history discloses discards and async delivery remains observable',async t=>{

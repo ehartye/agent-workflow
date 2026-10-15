@@ -2,6 +2,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {lstat} from 'node:fs/promises';
 import {join,isAbsolute} from 'node:path';
 import {fault} from '../foundation/client.mjs';
+import {admission,projectAdmission,projectAdditionWorkers} from './append.mjs';
 
 const MAX_EVENTS=100000;
 const workerTerminal=new Set(['completed','failed','unknown']);
@@ -75,6 +76,9 @@ export async function readNotifications(runDir,{sessionId,generation,after=0,lim
   if(!object(header)||!integer(header.generation,1)||!runStatuses.has(header.status)||!integer(header.workerCount,0,1000))throw corrupt();
   if(header.sessionId!==sessionId)throw fault('NOTIFICATIONS_SESSION','Run belongs to a different originating session');
   if(header.generation!==generation)throw fault('NOTIFICATIONS_GENERATION','Run generation changed; refresh the exact target');
+  if(header.appendVersion!==undefined&&header.appendVersion!==1)throw corrupt();
+  if(header.appendVersion===1){if(!admission(db,generation))throw corrupt();projectAdmission(db,header);}
+  if(!integer(header.workerCount,0,1000))throw corrupt();
   if(after&&!db.prepare('SELECT seq FROM notifications WHERE generation=? AND seq=?').get(generation,after))throw fault('NOTIFICATIONS_CURSOR','Cursor does not belong to the selected generation');
   const rows=db.prepare('SELECT * FROM notifications WHERE generation=? ORDER BY seq LIMIT 1002').all(generation);
   if(rows.length>1001)throw corrupt();
@@ -84,10 +88,15 @@ export async function readNotifications(runDir,{sessionId,generation,after=0,lim
    return{seq:row.seq,generation,kind:row.kind,...(worker?{position:row.position,attempt:row.attempt}:{}),status:row.status,at:row.at,cleanup,...(row.error_code?{errorCode:row.error_code}:{})};
   });
   const workerRows=db.prepare('SELECT position,value FROM workers WHERE generation=? ORDER BY position LIMIT 1001').all(generation);
-  if(workerRows.length!==header.workerCount)throw corrupt();
-  const workers=workerRows.map((row,index)=>{
+  if(workerRows.length>1000)throw corrupt();
+  const projected=projectAdditionWorkers(db,header,workerRows.map(row=>{
    const worker=parse(row.value);
-   if(!object(worker)||row.position!==index||worker.position!==index||!workerStatuses.has(worker.status)||!integer(worker.attempts??0,0,1000))throw corrupt();
+   if(!object(worker)||row.position!==worker.position)throw corrupt();return worker;
+  }));
+  if(projected.length!==header.workerCount)throw corrupt();
+  const pendingDispatch=new Set(projected.filter(worker=>worker.dispatchUnconfirmed).map(worker=>worker.position));
+  const workers=projected.map((worker,index)=>{
+   if(worker.position!==index||!workerStatuses.has(worker.status)||!integer(worker.attempts??0,0,1000))throw corrupt();
    const fact={position:index,attempt:worker.attempts??0,status:worker.status};
    if(worker.startedAt!==undefined){if(!timestamp(worker.startedAt))throw corrupt();fact.startedAt=worker.startedAt;}
    const progress=db.prepare('SELECT seq,kind,at FROM notification_progress WHERE generation=? AND position=?').get(generation,index);
@@ -98,7 +107,7 @@ export async function readNotifications(runDir,{sessionId,generation,after=0,lim
    const worker=workers[event.position];if(!worker||worker.status!==event.status||worker.attempt!==event.attempt)throw corrupt();
   }
   for(const worker of workers){
-   const deferred=worker.status==='unknown'&&['pausing','stopping','finishing'].includes(header.status);
+   const deferred=worker.status==='unknown'&&(['pausing','stopping','finishing'].includes(header.status)||pendingDispatch.has(worker.position)&&!runTerminal.has(header.status));
    if(workerTerminal.has(worker.status)&&!deferred&&!events.some(event=>event.kind==='worker-terminal'&&event.position===worker.position))throw corrupt();
   }
   const terminalEvents=events.filter(event=>event.kind==='run-terminal');

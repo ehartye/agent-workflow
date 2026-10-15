@@ -15,6 +15,56 @@ import {fileURLToPath} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
 import {runWorkflow} from '../engine/controller.mjs';
 
+test('monitor preserves uncertain added dispatch across summary full-worker and saved-run reads',async t=>{
+ const {runDir}=await setup(t),{requestAppend}=await import('../engine/append.mjs'),{randomUUID}=await import('node:crypto');
+ const {monitorData}=await import('../engine/monitor-data.mjs'),{readRun}=await import('../engine/controller.mjs');
+ await runWorkflow({runDir,sessionId:'s',script:meta+'return null;',onReady:()=>requestAppend(runDir,{sessionId:'s',generation:1,requestId:randomUUID(),tasks:[{id:'late',prompt:'Read'}]}),backend:backend(async()=>({value:'done',terminalObserved:true}))});
+ const db=new DatabaseSync(join(runDir,'run.sqlite'));
+ try{
+  const header=JSON.parse(db.prepare('SELECT value FROM header WHERE id=1').get().value);header.status='running';delete header.cleanup;
+  db.prepare('UPDATE header SET value=? WHERE id=1').run(JSON.stringify(header));
+  const worker=JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value);
+  worker.status='queued';worker.attempts=0;for(const key of ['result','resultHash','startedAt','completedAt','evidence'])delete worker[key];
+  db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(JSON.stringify(worker));
+  db.exec('DELETE FROM notifications;DELETE FROM notification_progress');
+  const summary=await monitorData(runDir);
+  assert.equal(summary.workers[0].status,'unknown');assert.equal(summary.coverage.unknown,1);assert.equal(summary.additions.unknown,1);
+  assert.equal((await monitorData(runDir,{kind:'worker',generation:1,position:0})).status,'unknown');
+  assert.equal((await readRun(runDir)).workers[0].status,'unknown');
+  assert.equal(JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value).status,'queued','Projection does not rewrite persisted evidence');
+  worker.origin.taskId='conflicting-origin';db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(JSON.stringify(worker));
+  await assert.rejects(monitorData(runDir),{code:'APPEND_CORRUPT'});
+  await assert.rejects(monitorData(runDir,{kind:'worker',generation:1,position:0}),{code:'APPEND_CORRUPT'});
+  await assert.rejects(readRun(runDir),{code:'APPEND_CORRUPT'});
+ }finally{db.close();}
+});
+
+test('monitor follows retained source positions when cached workers move to new physical slots',async t=>{
+ const runDir=await mkdtemp(join(tmpdir(),'workflow-monitor-origin-'));t.after(()=>rm(runDir,{recursive:true,force:true,maxRetries:10}));
+ const {monitorData}=await import('../engine/monitor-data.mjs');
+ const backend={identity:'origin-fixture',async execute({prompt,onEvent}){
+  onEvent({method:'item/completed',params:{threadId:`thread-${prompt}`,turnId:`turn-${prompt}`,item:{id:`command-${prompt}`,type:'commandExecution',command:prompt,status:'completed',exitCode:0}}});
+  return{value:prompt,terminalObserved:true};
+ },async close(){return{serverExited:true};}};
+ const input={runDir,sessionId:'origin',script:'export const meta={name:"origins",description:"retained positions"};return await parallel([()=>agent("A"),()=>agent("B")]);',backend};
+ await runWorkflow(input);const cached=await runWorkflow({...input,resume:true});assert.ok(cached.workers.every(w=>w.cached));
+ // Persistence fixture for the supported replay mapping: physical slots change,
+ // but each cached worker retains its earlier execution's source coordinates.
+ const db=new DatabaseSync(join(runDir,'run.sqlite'));
+ try{db.exec('BEGIN IMMEDIATE;DELETE FROM workers WHERE generation=2');for(const [position,prior] of [...cached.workers].reverse().entries())db.prepare('INSERT INTO workers VALUES(2,?,?)').run(position,JSON.stringify({...prior,position,sourceGeneration:1,sourcePosition:prior.reusedFrom.position}));db.exec('COMMIT');}finally{db.close();}
+ const activity=await monitorData(runDir,{kind:'activity',generation:2,position:1});assert.equal(activity.records[0].input,'A');assert.equal(activity.sourceGeneration,1);assert.equal(activity.sourcePosition,0);
+ const earlier=await monitorData(runDir,{kind:'worker',generation:2,position:1,sourceGeneration:1});assert.equal(earlier.prompt,'A');assert.equal(earlier.historyPosition,0);
+ // Mirrored coordinates agreeing with each other are insufficient: a corrupt
+ // cache link must not attribute B's equally sized activity history to A.
+ const corrupt=new DatabaseSync(join(runDir,'run.sqlite'));
+ try{
+  const row=JSON.parse(corrupt.prepare('SELECT value FROM workers WHERE generation=2 AND position=1').get().value);
+  row.reusedFrom.position=1;row.sourcePosition=1;
+  corrupt.prepare('UPDATE workers SET value=? WHERE generation=2 AND position=1').run(JSON.stringify(row));
+ }finally{corrupt.close();}
+ await assert.rejects(monitorData(runDir,{kind:'activity',generation:2,position:1}),{code:'ACTIVITY_CORRUPT'});
+});
+
 const reportSchema={type:'object',additionalProperties:false,properties:{
   contract:{const:'agent-workflow.task.v1'},taskId:{type:'string',maxLength:100},outcome:{enum:['delivered','blocked','incomplete']},summary:{type:'string',maxLength:2000},
   blockers:{type:'array',maxItems:16,items:{type:'object',additionalProperties:false,properties:{code:{type:'string'},detail:{type:'string'},evidenceRefs:{type:'array',items:{type:'string'}}},required:['code','detail','evidenceRefs']}},
@@ -181,6 +231,16 @@ test('monitor previews are bounded and full evidence is generation-bound and del
   assert.equal((await (await get('/api/result?generation=1')).json()).result,evidence);
   assert.equal((await get('/api/worker/0?generation=2')).status,409);
   assert.equal((await get('/api/worker/0')).status,400);
+  // Reject an oversized saved worker set before parsing an out-of-budget row.
+  const db=new DatabaseSync(join(runDir,'run.sqlite'));
+  try{
+   const insert=db.prepare('INSERT INTO workers(generation,position,value) VALUES(1,?,?)');
+   db.exec('BEGIN IMMEDIATE');
+   for(let position=1;position<=1000;position++)insert.run(position,position===1000?'{invalid':JSON.stringify({position,status:'queued'}));
+   db.exec('COMMIT');
+  }finally{db.close();}
+  const excess=await get('/api/run');assert.equal(excess.status,500);
+  assert.equal((await excess.json()).error.code,'MONITOR_LIMIT');
 });
 
 test('activity HTTP reads require authentication and generation and disclose bounded history coverage',async t=>{

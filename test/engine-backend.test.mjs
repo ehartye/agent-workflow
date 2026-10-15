@@ -249,11 +249,11 @@ test('executed worker source rejection is zero inference with positive cleanup, 
 
 test('readiness and post-readiness admission cannot renew the task deadline',async t=>{
   const report=await construct(t,{execute:true,nativeSkills:true,timeoutMs:1500,worker:{sourceDelayMs:500,inventoryDelayMs:1200}});
-  assert.equal(report.ok,false);assert.equal(report.primary.code,'REQUEST_TIMEOUT');assert.equal(report.noInference,true);
+  assert.equal(report.ok,false);assert.equal(report.primary.code,'TURN_TIMEOUT');assert.equal(report.noInference,true);
   assert.equal(report.evidence.capabilities.sources.start,'observed');assert.equal(report.evidence.capabilities.sources.exitCode,0);
   assert.notEqual(report.noProcessStarted,true);assert.notEqual(report.notStarted,true);
   assert.equal(report.trace.some(event=>event.method==='turn/start'),false);assert.equal(report.closeCalls.worker,1);
-  assert.ok(report.evidence.cleanup.nativeTerminals.error,'timed-out transport cannot invent native inventory proof');
+  assert.equal(report.evidence.cleanup.nativeTerminals.inventoryEmpty,true,'worker budget expiry preserves the independent cleanup transport');
 });
 
 test('persisted readiness failure permits only a reconciled restart after native inventory and owned-job drain',{skip:!windows},async t=>{
@@ -266,7 +266,7 @@ test('persisted readiness failure permits only a reconciled restart after native
   assert.equal(report.state.cleanup.serverExited,true);assert.equal(report.state.cleanup.jobEmpty,true);
   assert.equal(worker.evidence.cleanup.nativeTerminals?.inventoryEmpty,true);
   assert.equal(worker.evidence.cleanup.jobEmpty,true);assert.equal(worker.evidence.cleanup.ownershipScope,'windows-job-members');
-  assert.equal(report.preview.eligible,true);assert.deepEqual(report.restart.plan.affected,[{position:0,status:'failed',attempts:1}]);
+  assert.equal(report.preview.eligible,true);assert.deepEqual(report.restart.plan.affected,[{position:0,status:'failed',attempts:1,origin:{kind:'guest',ordinal:0}}]);
   assert.equal(report.withoutReconciliation.code,'RESTART_RECONCILE');assert.equal(report.unchanged,true);
   const methods=report.trace.filter(event=>event.stage==='worker').map(event=>event.method);
   assert.ok(methods.indexOf('thread/start')<methods.indexOf('command/exec'));
@@ -385,4 +385,52 @@ test('failed native version subprocess retains only bounded construction facts b
  assert.deepEqual(report.doctor.construction,{stage:'version',command});assert.equal(report.doctor.stage,'version');
  assert.equal(report.doctor.cleanup.serverExited,null);assert.equal(report.doctor.inferenceRequests,0);
  assert.notEqual(report.noProcessStarted,true);assert.notEqual(report.notStarted,true);
+});
+
+
+test('backend registers one live budget before readiness and clearing keeps command caps independent',async t=>{
+ const report=await construct(t,{execute:true,nativeSkills:true,timeoutMs:30,liveChange:{operation:'clear'},worker:{sourceDelayMs:150}});
+ assert.equal(report.ok,true);assert.equal(report.value,'BACKEND_OK');
+ assert.equal(report.deadlineRegistered.status,'active');assert.equal(report.deadlineRegistered.configuredTimeoutMs,30);
+ assert.equal(report.deadlineFinal.status,'closed');assert.equal(report.deadlineFinal.revision,1);assert.equal(report.deadlineFinal.remainingMs,null);
+ assert.equal(report.trace.filter(event=>event.method==='thread/start').length,1);assert.equal(report.trace.filter(event=>event.method==='turn/start').length,1);
+ assert.equal(report.workerEvidence.cleanup.serverExited,true);assert.equal(report.workerEvidence.cleanup.nativeTerminals.inventoryEmpty,true);
+});
+
+test('default backend workers have no wall budget and retain positive cleanup',async t=>{
+ const report=await construct(t,{execute:true});assert.equal(report.ok,true);
+ assert.equal(report.deadlineRegistered.configuredTimeoutMs,null);assert.equal(report.deadlineRegistered.remainingMs,null);assert.equal(report.deadlineFinal.status,'closed');
+ assert.equal(report.workerEvidence.cleanup.serverExited,true);
+});
+
+
+test('live clear during readiness does not leave the submitted command bound to the old wall time',async t=>{
+ const report=await construct(t,{execute:true,nativeSkills:true,timeoutMs:250,liveChangeDelayMs:60,liveChange:{operation:'clear'},worker:{sourceDelayMs:300}});
+ assert.equal(report.ok,true);assert.equal(report.deadlineFinal.revision,1);
+ const checks=report.trace.filter(event=>event.stage==='worker'&&event.method==='command/exec');assert.ok(checks.length>=2);assert.ok(checks.every(event=>event.commandTimeoutMs===20000));
+ assert.equal(report.trace.filter(event=>event.method==='turn/start').length,1);assert.equal(report.workerEvidence.cleanup.nativeTerminals.inventoryEmpty,true);
+});
+
+test('live set on an unbounded active backend turn expires with one interrupt and positive cleanup',async t=>{
+ const report=await construct(t,{execute:true,activeChange:{operation:'set',valueMs:30},worker:{turnDelayMs:200}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'TURN_TIMEOUT');assert.notEqual(report.noInference,true);
+ assert.equal(report.evidence.attempts.length,1);assert.equal(report.evidence.attempts[0].error.code,'TURN_TIMEOUT');
+ assert.equal(report.trace.filter(event=>event.method==='turn/start').length,1);assert.equal(report.trace.filter(event=>event.method==='turn/interrupt').length,1);
+ assert.equal(report.evidence.cleanup.serverExited,true);assert.equal(report.evidence.cleanup.nativeTerminals.inventoryEmpty,true);assert.equal(report.evidence.deadline.status,'closed');
+});
+
+test('deadline expiry during completion source checks retains the completed model and uncertain command facts',async t=>{
+ const report=await construct(t,{execute:true,nativeSkills:true,activeChange:{operation:'set',valueMs:150},worker:{sourceDelayMs:350}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'TURN_TIMEOUT');assert.notEqual(report.noInference,true);
+ assert.equal(report.evidence.attempts.length,1);assert.equal(report.evidence.attempts[0].status,'completed');
+ assert.equal(report.evidence.capabilities.completionSources.start,'unknown');assert.equal(report.evidence.capabilities.completionSources.sourceStatus,'unverified');
+ assert.equal(report.evidence.cleanup.serverExited,true);assert.equal(report.evidence.cleanup.nativeTerminals.inventoryEmpty,true);
+ assert.equal(report.trace.filter(row=>row.method==='turn/start').length,1);
+});
+
+test('a later deadline during bounded interruption cannot replace the earlier active failure',async t=>{
+ const report=await construct(t,{execute:true,activeFailure:true,activeChange:{operation:'set',valueMs:100},worker:{turnDelayMs:500,interruptDelayMs:250}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'CONTROL_FIXTURE');
+ assert.equal(report.evidence.attempts[0].error.code,'CONTROL_FIXTURE');assert.equal(report.evidence.cleanup.serverExited,true);
+ assert.equal(report.trace.filter(row=>row.method==='turn/start').length,1);assert.equal(report.trace.filter(row=>row.method==='turn/interrupt').length,1);
 });

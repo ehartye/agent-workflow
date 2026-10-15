@@ -16,6 +16,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {installRuntime,bindRun} from '../bin/managed-runtime.mjs';
 import {parseCommand} from '../bin/arguments.mjs';
 import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
+import {DatabaseSync} from 'node:sqlite';
 const execute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 
 test('public args-file snapshots large UTF8 JSON and rejects invalid input before binding',async t=>{
@@ -138,7 +139,7 @@ test('public detached start advertises exact observer arguments without claiming
  const temp=await mkdtemp(join(tmpdir(),'workflow-watch-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const script=join(temp,'script.js'),hook=join(temp,'hook.mjs'),dataDir=join(temp,'data');await writeFile(script,'export const meta={name:"fixture",description:"receipt"};return 1;');
  const runtime=`export * from ${JSON.stringify(new URL("../bin/managed-runtime.mjs?receipt-fixture",import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export function defaultDataDir(){throw Error('explicit data required');}export async function selectRuntime(){return{path:pluginRoot,codex:'fixture'};}export async function bindRun(){return{id:'saved-id',runDir:${JSON.stringify(join(temp,'run'))}};}export function resolveRun(){throw Error('unexpected read');}export function paths(){}export function noLinks(){}export function nativeCodex(){throw Error('inference forbidden');}`;
- const background=`export async function startBackground(input){return{status:'running',generation:3,accessPolicy:input.accessPolicy,defaults:input.defaults,watch:{required:true,attached:false,sessionId:input.sessionId,generation:3,after:0}};}`;
+ const background=`export async function startBackground(input){return{status:'running',generation:3,accessPolicy:input.accessPolicy,defaults:input.defaults,workerTimeoutMs:input.workerTimeoutMs,watch:{required:true,attached:false,sessionId:input.sessionId,generation:3,after:0}};}`;
  await writeFile(hook,`import{registerHooks}from'node:module';const base=${JSON.stringify(new URL('../',import.meta.url).href)};registerHooks({load(url,context,next){const source=url===new URL('bin/managed-runtime.mjs',base).href?${JSON.stringify(runtime)}:url===new URL('engine/background.mjs',base).href?${JSON.stringify(background)}:undefined;return source===undefined?next(url,context):{format:'module',source,shortCircuit:true};}});`);
  const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
  const invoke=flags=>execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'run','--script',script,'--session','origin','--data-dir',dataDir,...flags],{cwd:temp,env,windowsHide:true,timeout:10000});
@@ -153,6 +154,31 @@ test('public detached start advertises exact observer arguments without claiming
  const parent=JSON.parse((await invoke(['--parent-access',authority,'--writable'])).stdout);
  assert.equal(parent.accessPolicy.policy.access,'parent');assert.equal(parent.accessPolicy.policy.sessionId,'origin');
  assert.equal(parent.defaults.workspace,'isolated');assert.equal(parent.defaults.permissions,undefined);
+ assert.equal(JSON.parse((await invoke(['--access','restricted','--worker-timeout-ms','0'])).stdout).workerTimeoutMs,null);
+ assert.equal(JSON.parse((await invoke(['--access','restricted','--worker-timeout-ms',String(2**32)])).stdout).workerTimeoutMs,2**32);
+});
+
+test('public worker-deadline CLI creates exact durable controls and rejects ambiguous or foreign requests',async t=>{
+ const temp=await mkdtemp(join(root,'.deadline-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const hook=join(temp,'hook.mjs'),db=new DatabaseSync(join(temp,'run.sqlite'));
+ db.exec('CREATE TABLE header(id INTEGER PRIMARY KEY,value TEXT);CREATE TABLE workers(generation INTEGER,position INTEGER,value TEXT);CREATE TABLE controls(id TEXT PRIMARY KEY,generation INTEGER,value TEXT);');
+ db.prepare('INSERT INTO header VALUES(1,?)').run(JSON.stringify({sessionId:'owner',generation:2,status:'running',acceptingControls:true}));
+ db.prepare('INSERT INTO workers VALUES(2,0,?)').run(JSON.stringify({position:0,status:'running',attempts:1,deadline:{status:'active',revision:4}}));db.close();
+ const runtime=`export * from ${JSON.stringify(new URL('../bin/managed-runtime.mjs?deadline-fixture',import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export async function resolveRun(){return{runDir:${JSON.stringify(temp)},runtime:{path:pluginRoot}};}export async function selectRuntime(){throw Error('Must use original runtime');}`;
+ await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({load(url,context,next){return url===${JSON.stringify(new URL('../bin/managed-runtime.mjs',import.meta.url).href)}?{format:'module',source:${JSON.stringify(runtime)},shortCircuit:true}:next(url,context);}});`);
+ const env={...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`};delete env.AGENT_WORKFLOW_WORKER;
+ const args=['worker-deadline','saved','--session','owner','--generation','2','--position','0','--attempt','1','--deadline-revision','4','--data-dir',temp];
+ const invoke=flags=>execute(process.execPath,[join(root,'bin/launch.mjs'),...args,...flags],{cwd:temp,env,windowsHide:true,timeout:10000});
+ for(const [flags,deadline] of [[['--set-ms',String(2**32)],{operation:'set',valueMs:2**32,expectedRevision:4}],[['--extend-ms','10'],{operation:'extend',valueMs:10,expectedRevision:4}],[['--clear'],{operation:'clear',expectedRevision:4}]]){
+  const receipt=JSON.parse((await invoke(flags)).stdout);assert.equal(receipt.status,'pending');assert.equal(receipt.turnId,null);assert.equal(receipt.generation,2);assert.equal(receipt.attempt,1);assert.deepEqual(receipt.deadline,deadline);
+ }
+ const internal=JSON.parse((await execute(process.execPath,[join(root,'engine/cli.mjs'),'--action','worker-deadline','--run',temp,'--session','owner','--generation','2','--position','0','--attempt','1','--deadline-revision','4','--clear'],{cwd:temp,env,windowsHide:true,timeout:10000})).stdout);
+ assert.deepEqual(internal.deadline,{operation:'clear',expectedRevision:4});assert.equal(internal.status,'pending');
+ for(const flags of [[],['--set-ms','1','--clear'],['--set-ms','0'],['--extend-ms','9007199254740992'],['--clear','--turn','stale']])await assert.rejects(invoke(flags));
+ const countDb=new DatabaseSync(join(temp,'run.sqlite'),{readOnly:true});try{assert.equal(countDb.prepare('SELECT count(*) AS n FROM controls').get().n,4);}finally{countDb.close();}
+ const parsed=parseCommand([...args,'--clear'],{});assert.equal(parsed.mutation,true);assert.equal(parsed.runCommand,true);
+ assert.throws(()=>parseCommand(['worker-deadline','saved','--clear'],{}),/session/);
+ assert.throws(()=>parseCommand([...args,'--clear'],{AGENT_WORKFLOW_WORKER:'1'}),/Worker processes/);
 });
 
 const doctorSecret='DOCTOR_SECRET_SENTINEL private@example.invalid C:/private/account';
@@ -188,7 +214,7 @@ async function invokeDoctor(t,scenario){
  export function resolveRun(){throw Error('Doctor inspected a run');}
  export function noLinks(){throw Error('Unexpected runtime operation');}`;
  const unused=`function unused(){throw Error('Doctor used an unrelated engine operation');}
- export {unused as readCapabilities,unused as readMode,unused as setMode,unused as parseScript,unused as listWorkflows,unused as resolveWorkflow,unused as saveWorkflow,unused as readRun,unused as runWorkflow,unused as requestControl,unused as readControl,unused as startBackground,unused as startMonitor,unused as monitorData,unused as readLifecycle,unused as readLifecycleReceipt,unused as requestLifecycle,unused as planPrune,unused as applyPrune,unused as createSessionServices};
+ export {unused as readCapabilities,unused as readMode,unused as setMode,unused as parseScript,unused as listWorkflows,unused as resolveWorkflow,unused as saveWorkflow,unused as readRun,unused as runWorkflow,unused as requestControl,unused as readControl,unused as requestAppend,unused as readAppendReceipt,unused as readAppendTasks,unused as startBackground,unused as startMonitor,unused as monitorData,unused as readLifecycle,unused as readLifecycleReceipt,unused as requestLifecycle,unused as planPrune,unused as applyPrune,unused as createSessionServices};
  export const MAX_RUN_TIMEOUT_MS=86400000,MAX_WORKER_TIMEOUT_MS=1800000;`;
  const context=`export async function readHostContext(){${scenario.contextFailure?`throw Error(${JSON.stringify(doctorSecret)});`:`return ${JSON.stringify(scenario.hostContext??hostContext)};`}}`;
  await writeFile(hook,`import {registerHooks} from 'node:module';

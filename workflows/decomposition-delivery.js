@@ -80,7 +80,7 @@ for (const task of plan.tasks) {
     requireValue(id(prerequisite.id) && !prerequisiteIds.includes(prerequisite.id) && text(prerequisite.command) && (prerequisite.executablePath === null || text(prerequisite.executablePath, 500)) && (prerequisite.cachePath === null || text(prerequisite.cachePath, 500)) && ['authoring', 'verification'].includes(prerequisite.requiredFor), 'Prerequisites require IDs, commands, explicit executable/cache paths or null, and their dependent stage');
     prerequisiteIds.push(prerequisite.id);
   }
-  requireValue(task.limits && Number.isInteger(task.limits.timeoutMs) && task.limits.timeoutMs >= 1 && task.limits.timeoutMs <= 1800000, 'Each task requires a bounded worker timeout');
+  requireValue(task.limits && (task.limits.timeoutMs === null || Number.isSafeInteger(task.limits.timeoutMs) && task.limits.timeoutMs >= 1), 'Choose no worker deadline with null or a positive safe millisecond budget');
   requireValue(JSON.stringify(task).length <= 14000, 'Task context exceeds 14,000 characters; split scope before dispatch');
   taskIds.push(task.id);
 }

@@ -40,6 +40,7 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
     restartPlan(previous,input.restart);
   }
   if(previous&&(!previous.launch||input.restart===undefined&&(previous.cleanup?.serverExited!==true||['running','pausing','stopping','finishing'].includes(previous.status)||previous.workers.some(worker=>['running','unknown'].includes(worker.status)))))throw fault('REPLAY_UNKNOWN','Run launch context or completed execution is not verified');
+  if(previous&&input.restart===undefined&&previous.workers.some(worker=>worker.origin?.kind==='append'&&worker.status!=='completed'))throw fault('APPEND_RECONCILE','Noncompleted additions require explicit effect reconciliation and physical-suffix restart');
   if(input.defaults!==undefined&&(!input.defaults||typeof input.defaults!=='object'||Array.isArray(input.defaults)))throw fault('BACKGROUND_INPUT','Worker defaults must be an object');
   if(previous&&input.session0Desktop!==undefined)throw fault('LAUNCH_INVALID','Saved runs retain their original desktop selection');
   const session0Desktop=previous?.launch?.session0Desktop??input.session0Desktop??'inherit';

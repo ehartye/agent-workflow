@@ -2,31 +2,40 @@ import {fault,diagnostic} from '../foundation/client.mjs';
 import {runTurn} from '../foundation/turn.mjs';
 import {compileSchema} from './schema.mjs';
 import {DEFAULT_WORKER_TIMEOUT_MS} from './deadlines.mjs';
+import {createLiveDeadline} from './live-deadline.mjs';
 
-export async function runWorkerSession(client,{threadId,prompt,schema,settings,execution,capabilities,timeoutMs=DEFAULT_WORKER_TIMEOUT_MS,deadline,signal,reserveRetry,turn=runTurn,onActive,onEvent}){
+export async function runWorkerSession(client,{threadId,prompt,schema,settings,execution,capabilities,timeoutMs=DEFAULT_WORKER_TIMEOUT_MS,deadline,liveDeadline,signal,reserveRetry,turn=runTurn,onActive,onEvent}){
   const compiled=schema===undefined?null:compileSchema(schema);
   const maxAttempts=compiled?settings.maxAttempts:1;
-  if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>5||!Number.isFinite(timeoutMs)||timeoutMs<=0||deadline!==undefined&&!Number.isFinite(deadline))throw Object.assign(fault('WORKER_SETTINGS','Invalid worker attempt limit or deadline'),{notStarted:true});
+  if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>5||timeoutMs!==null&&(!Number.isSafeInteger(timeoutMs)||timeoutMs<=0)||deadline!==undefined&&!Number.isFinite(deadline))throw Object.assign(fault('WORKER_SETTINGS','Invalid worker attempt limit or deadline'),{notStarted:true});
   const evidence={commands:[],commandCoverage:'retainedItemsOnly',attempts:[]};
   if(capabilities)evidence.capabilities=structuredClone(capabilities);
-  deadline??=performance.now()+timeoutMs;
+  const ownedDeadline=!liveDeadline;
   let terminalObserved=false;
   try{
+    if(!liveDeadline){
+      const remaining=deadline===undefined?timeoutMs:deadline-performance.now();
+      if(remaining!==null&&remaining<=0)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');
+      liveDeadline=createLiveDeadline(remaining===null?null:Math.ceil(remaining));liveDeadline.start();
+    }
+    if(['pending','closed'].includes(liveDeadline.snapshot().status))throw fault('DEADLINE_INACTIVE','Worker deadline must be active before dispatch');
     for(let number=1;number<=maxAttempts;number++){
-      if(signal?.aborted)throw fault('TURN_CANCELLED','Worker was cancelled');
+      if(signal?.aborted)throw liveDeadline.signal.aborted?fault('TURN_TIMEOUT','Worker exceeded its live wall deadline'):fault('TURN_CANCELLED','Worker was cancelled');
       if(number>1){
         if(typeof reserveRetry!=='function')throw fault('AGENT_LIMIT','Additional attempt requires a durable reservation');
         await reserveRetry();
       }
-      const remaining=deadline-performance.now();
+      const remaining=liveDeadline.remaining();
       if(remaining<=0)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');
       const attempt={number,status:'running'};evidence.attempts.push(attempt);
       terminalObserved=false;
-      const result=await turn(client,{threadId,prompt:number===1?[prompt,capabilities?.instructions].filter(Boolean).join('\n\n'):'Correct your previous answer to match the supplied output schema. Return only the JSON object. Do not run commands or use tools; revise the answer from existing evidence.',timeoutMs:remaining,signal,model:settings.model,effort:settings.effort,execution,...(compiled?{outputSchema:compiled.schema}:{}),onActive,onEvent});
+      const result=await turn(client,{threadId,prompt:number===1?[prompt,capabilities?.instructions].filter(Boolean).join('\n\n'):'Correct your previous answer to match the supplied output schema. Return only the JSON object. Do not run commands or use tools; revise the answer from existing evidence.',timeoutMs:remaining===Infinity?null:remaining,liveDeadline,signal,model:settings.model,effort:settings.effort,execution,...(compiled?{outputSchema:compiled.schema}:{}),onActive,onEvent});
       terminalObserved=true;
       attempt.turnId=result.turnId;
       if(result.output)attempt.output=result.output;
       evidence.commands.push(...result.items.filter(item=>item.type==='commandExecution').map(item=>({status:['completed','failed','declined','inProgress'].includes(item.status)?item.status:'unknown',exitCode:Number.isInteger(item.exitCode)?item.exitCode:null})));
+      // Refusing a late result must not erase its already observed terminal facts.
+      if(liveDeadline.remaining()<=0)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');
       let value=result.text;
       if(compiled){
         let validationError;
@@ -50,5 +59,5 @@ export async function runWorkerSession(client,{threadId,prompt,schema,settings,e
     if(evidence.attempts.length===0)error.noInference=true;
     if(terminalObserved)error.terminalObserved=true;
     throw error;
-  }
+  }finally{if(ownedDeadline)liveDeadline?.close();}
 }

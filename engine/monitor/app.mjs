@@ -818,6 +818,16 @@ function renderDetail() {
   meta.append(node('span', `Slot ${worker.position + 1}`), node('span', worker.cached ? 'Result reused from saved evidence' : worker.status === 'queued' ? 'Awaiting dispatch' : 'Result not reused'));
   if (worker.startedAt) meta.append(node('span', `Started ${dateText(worker.startedAt)}`));
   if (worker.completedAt) meta.append(node('span', `Finished ${dateText(worker.completedAt)}`));
+  if(worker.origin?.kind==='append'){
+    detail.append(node('p',`Added during run · task ${worker.origin.taskId}`,'worker-origin'));
+    meta.append(node('span',`Addition request ${worker.origin.requestId} · generation ${worker.origin.generation}`));
+  }
+  if(worker.reusedFrom)meta.append(node('span',`Source generation ${worker.reusedFrom.generation} · slot ${worker.reusedFrom.position+1}`));
+  if(worker.deadline){
+    const deadline=worker.deadline;
+    const label=deadline.status==='expired'?'Worker deadline expired':deadline.status==='closed'?'Worker deadline controls closed':deadline.status==='active'&&deadline.remainingMs===null&&deadline.expiresAt===null?'No worker deadline · orchestrator controls this session':deadline.status==='active'&&typeof deadline.expiresAt==='number'&&Number.isFinite(deadline.expiresAt)?`Worker deadline at ${dateText(deadline.expiresAt)}`:'Worker deadline evidence unavailable';
+    detail.append(node('p',label,'worker-deadline'));
+  }
   const taskPanel=node('section',undefined,'task-evidence');taskPanel.append(node('h3','Task outcome'),node('p',`Execution: ${worker.status}. Task outcome: ${task?.declaredOutcome??'unverified'}. Verification: ${task?.verification??'unverified'}.`));
   const taskEvidence=disclosure('acceptance','Verification & acceptance evidence');
   taskEvidence.append(node('p',task?.reason??'No validated task report. Execution completion does not establish delivery.','muted'));
@@ -1081,8 +1091,8 @@ function renderMap() {
     const label=worker.options?.label||`Worker ${worker.position+1}`,card=node('button',undefined,'map-worker');
     card.type='button';card.dataset.position=worker.position;card.dataset.status=worker.status;card.style.left=`${x}px`;card.style.top=`${y}px`;card.style.width=`${cardWidth}px`;
     card.setAttribute('aria-pressed',String(selected===worker.position));
-    card.setAttribute('aria-label',`${label}, ${worker.status}${worker.cached?', reused result':''}, phase ${phaseLabel(worker)||'unassigned'}. ${Array.isArray(worker.dependencies)?worker.dependencies.length?`Prerequisites: ${worker.dependencies.map(position=>`worker ${position+1}${positions.has(position)?'':' omitted from map'}`).join(', ')}`:'No prerequisites declared':'Dependency evidence unavailable'}`);
-    const top=node('span',undefined,'node-top');top.append(node('span',`WORKER ${worker.position+1}`,'node-role'),node('span',worker.status,'node-status'));
+    card.setAttribute('aria-label',`${label}, ${worker.status}${worker.cached?', reused result':''}${worker.origin?.kind==='append'?', added during run':''}, phase ${phaseLabel(worker)||'unassigned'}. ${Array.isArray(worker.dependencies)?worker.dependencies.length?`Prerequisites: ${worker.dependencies.map(position=>`worker ${position+1}${positions.has(position)?'':' omitted from map'}`).join(', ')}`:'No prerequisites declared':'Dependency evidence unavailable'}`);
+    const top=node('span',undefined,'node-top');top.append(node('span',`${worker.origin?.kind==='append'?'ADDED':'WORKER'} ${worker.position+1}`,'node-role'),node('span',worker.status,'node-status'));
     card.append(top,node('strong',label,'map-worker-title'),node('span',primaryFailure(worker)||worker.activity?.summary||phaseLabel(worker)||'No activity recorded',primaryFailure(worker)?'node-note node-failure':'node-note'));
     if(primaryFailure(worker))card.setAttribute('aria-label',`${card.getAttribute('aria-label')}. ${primaryFailure(worker)}`);
     card.title=primaryFailure(worker)?`${label}: ${primaryFailure(worker)}`:label;card.addEventListener('click',()=>chooseWorker(worker.position,card));

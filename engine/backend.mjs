@@ -11,6 +11,7 @@ import { createLaunch, assertChatgptLogin } from '../foundation/launch.mjs';
 import { assertManagedChatgpt, probe } from '../foundation/probe.mjs';
 import { runWorkerSession } from './worker-session.mjs';
 import {DEFAULT_WORKER_TIMEOUT_MS} from './deadlines.mjs';
+import {createLiveDeadline} from './live-deadline.mjs';
 import { createSettings } from './settings.mjs';
 import {steerTurn} from '../foundation/turn.mjs';
 import { restrictLaunch, assertRestricted, assertDisabledInventory, fingerprint,parentLaunch,assertNoDelegation,integrationFacts } from './policy.mjs';
@@ -46,10 +47,10 @@ async function checkCompletionSources(client,{command,cwd,sandboxPolicy,selectio
   const fact={scope:'selected-skills',skillCount:selection.skills.length,selectionFingerprint:selection.fingerprint,status:'failed',start:'unknown',exitCode:null,sourceStatus:'unverified',outputTruncated:false};
   try{
     if(signal?.aborted){fact.start='notStarted';throw fault('RUN_STOPPED','Completion source check was cancelled');}
-    const remaining=Math.floor(deadline-performance.now());
+    const remaining=deadline.remaining();
     if(remaining<=0){fact.start='notStarted';throw fault('TURN_TIMEOUT','Worker deadline elapsed before source completion check');}
-    const timeoutMs=Math.min(20000,remaining);
-    const response=await client.request('command/exec',{processId:`capability-completion-${randomUUID()}`,command,cwd,sandboxPolicy,streamStdoutStderr:false,timeoutMs,outputBytesCap:8192},{timeoutMs:Math.min(timeoutMs+1000,remaining)});
+    const timeoutMs=20000;
+    const response=await client.request('command/exec',{processId:`capability-completion-${randomUUID()}`,command,cwd,sandboxPolicy,streamStdoutStderr:false,timeoutMs,outputBytesCap:8192},{timeoutMs:timeoutMs+1000});
     if(Number.isSafeInteger(response?.exitCode)&&response.exitCode>=-2147483648&&response.exitCode<=4294967295){fact.start='observed';fact.exitCode=response.exitCode;}
     const valid=typeof response?.stdout==='string'&&typeof response?.stderr==='string';
     fact.outputTruncated=!valid||Buffer.byteLength(response.stdout+response.stderr)>=8192;
@@ -57,10 +58,23 @@ async function checkCompletionSources(client,{command,cwd,sandboxPolicy,selectio
       if(fact.exitCode===0&&response.stdout.trim()==='WORKER_SKILL_COMPLETION_OK')fact.sourceStatus='verified';
       else if(fact.exitCode===12&&response.stdout.trim()==='WORKER_SKILL_COMPLETION_CHANGED')fact.sourceStatus='changedOrUnavailable';
     }
-    if(performance.now()>=deadline)throw fault('TURN_TIMEOUT','Worker deadline elapsed during source completion check');
+    if(deadline.remaining()<=0)throw fault('TURN_TIMEOUT','Worker deadline elapsed during source completion check');
     if(fact.sourceStatus==='verified')fact.status='passed';
   }catch(error){fact.error={code:['RUN_STOPPED','TURN_TIMEOUT','REQUEST_TIMEOUT'].includes(error?.code)?error.code:'COMPLETION_CHECK_FAILED'};}
   return fact;
+}
+
+// Deadline cancellation abandons the command wait, not its ownership. The
+// execute finally block still inventories the owned thread and drains its job.
+// Native command/RPC caps are independent and cannot be extended retroactively.
+function boundedWorkerClient(client,signal,deadline){
+  return{request(method,params,options){
+    const failure=()=>deadline.signal.aborted?fault('TURN_TIMEOUT','Worker exceeded its live wall deadline'):fault('RUN_STOPPED','Worker was cancelled');
+    if(signal.aborted||deadline.remaining()<=0)return Promise.reject(failure());
+    let cancel;
+    const stopped=new Promise((_,reject)=>{cancel=()=>reject(failure());signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)cancel();});
+    return Promise.race([Promise.resolve().then(()=>{if(signal.aborted)throw failure();return client.request(method,params,options);}),stopped]).finally(()=>signal.removeEventListener('abort',cancel));
+  }};
 }
 
 export async function createManagedBackend({ executable, cwd, backend = 'configured', defaults={},workerCapabilities,workerCapabilitiesHash,session0Desktop='inherit',accessPolicy }) {
@@ -202,7 +216,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
         if(!identity||identity.turnId!==turnId)throw fault('CONTROL_TURN','Worker no longer owns that active turn');
         return steerTurn(identity.client,{threadId:identity.threadId,turnId:identity.turnId,text});
       },
-      async execute({ prompt, options = {}, signal, reserveRetry, position, onActive,onEvent,workspace }) {
+      async execute({ prompt, options = {}, signal, reserveRetry, position, onActive,onEvent,onDeadline,workspace }) {
         if (closing||signal?.aborted) throw Object.assign(fault('RUN_STOPPED', 'Workflow admission is closed'), { notStarted: true,noProcessStarted:true });
         const effective=settings.resolve(options),restrictedWriter=effective.permissions.sandbox==='workspace-write',writing=restrictedWriter||effective.workspace==='isolated';
         if(restrictedWriter&&(process.platform!=='win32'||backend!=='mxc'))throw Object.assign(fault('WORKSPACE_BACKEND','Restricted writers require the Windows MXC backend'),{notStarted:true,noProcessStarted:true});
@@ -236,7 +250,7 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
         }
         if(closing||signal?.aborted)throw Object.assign(fault('RUN_STOPPED','Worker admission is closed'),{notStarted:true,noProcessStarted:true});
         let started = false;
-        let ownedThread,result,primary,workerClient,capabilities,nativeSkills,observedIntegrations;
+        let ownedThread,result,primary,workerClient,capabilities,nativeSkills,observedIntegrations,liveDeadline;
         const parentNative=parentCapabilities?{catalog:'notObserved',read:'notObserved',exposure:directSkills?'effectiveDirectModelOnly':'notSelected'}:undefined;
         const finishNative=()=>{nativeSkills?.finish();if(capabilities&&parentNative)Object.assign(capabilities.native,parentNative);};
         const workerEnv=createLaunch({executable:launch.command,cwd:workerCwd,backend,env:launch.env,capabilityEnvironment:selection?.environment}).env;
@@ -262,12 +276,17 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
           ownedThread=thread.thread.id;
           // Readiness executes commands but no model turn. Own the thread first
           // so even rejected readiness retains native inventory cleanup proof.
-          const timeoutMs=options.timeoutMs??DEFAULT_WORKER_TIMEOUT_MS,deadline=performance.now()+timeoutMs;
-          const remaining=()=>{const ms=Math.floor(deadline-performance.now());if(ms<=0)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');return ms;};
-          capabilities=await admitWorkerCapabilities(workerClient,{cwd:workerCwd,selection,signal,deadline,...(parent?{sandboxPolicy:policy.turn.sandboxPolicy}:{})});
+          const timeoutMs=options.timeoutMs===undefined?DEFAULT_WORKER_TIMEOUT_MS:options.timeoutMs;
+          liveDeadline=createLiveDeadline(timeoutMs);liveDeadline.start();onDeadline?.(liveDeadline);
+          signal=AbortSignal.any([liveDeadline.signal,...(signal?[signal]:[])]);
+          const remaining=()=>{const ms=liveDeadline.remaining();if(ms<=0)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');return ms;};
+          const boundedClient=boundedWorkerClient(workerClient,signal,liveDeadline);
+          // No fixed snapshot of the wall deadline enters command admission.
+          // Its independent 20-second command caps remain live-change invariant.
+          capabilities=await admitWorkerCapabilities(boundedClient,{cwd:workerCwd,selection,signal,...(parent?{sandboxPolicy:policy.turn.sandboxPolicy}:{})});
           if(capabilities)capabilities.native.exposure=directSkills?'effectiveDirectModelOnly':'notSelected';
           if(parentNative||capabilities)nativeSkills=observeNativeSkills(workerClient,ownedThread,parentNative??capabilities.native,{skills:selection?.skills??[]});
-          const tools = await workerClient.request('mcpServerStatus/list', {threadId:thread.thread.id,detail:'toolsAndAuthOnly',limit:100},{timeoutMs:Math.min(15000,remaining())});
+          const tools = await boundedClient.request('mcpServerStatus/list', {threadId:thread.thread.id,detail:'toolsAndAuthOnly',limit:100},{timeoutMs:15000});
           if(parent){
             observedIntegrations=integrationFacts(workerConfig.config,tools);
             observedIntegrations.authentication=observedIntegrations.servers.map(server=>({name:server.name,status:['unknown','unsupported','notLoggedIn','bearerToken','oAuth'].includes(tools.data.find(item=>item.name===server.name)?.authStatus)?tools.data.find(item=>item.name===server.name).authStatus:'unknown'}));
@@ -278,14 +297,15 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
           if (signal?.aborted) throw fault('RUN_STOPPED', 'Workflow admission is closed');
           remaining();
           started = true;
-          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt:[prompt,parentGuidance].filter(Boolean).join('\n\n'), timeoutMs,deadline, signal, schema:options.schema,settings:effective,execution:policy?.turn,capabilities,reserveRetry,onEvent,onActive:identity=>{nativeSkills?.confirm(identity.turnId);activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
+          result = await runWorkerSession(workerClient, { threadId: thread.thread.id, prompt:[prompt,parentGuidance].filter(Boolean).join('\n\n'), timeoutMs,liveDeadline, signal, schema:options.schema,settings:effective,execution:policy?.turn,capabilities,reserveRetry,onEvent,onActive:identity=>{nativeSkills?.confirm(identity.turnId);activeWorkers.set(position,{...identity,client:workerClient});onActive?.(identity);} });
           finishNative();
           if(parentCapabilities)result.evidence.parentCapabilities={...structuredClone(parentCapabilities),selectedRoots:structuredClone(roots),native:{...parentNative}};
           if(capabilities){
             result.evidence.capabilities.native={...capabilities.native};
             if(selection.skills.length){
-              capabilities.completionSources=await checkCompletionSources(workerClient,{command:completionCommand,cwd:workerCwd,sandboxPolicy:policy.turn.sandboxPolicy,selection,deadline,signal});
+              capabilities.completionSources=await checkCompletionSources(boundedClient,{command:completionCommand,cwd:workerCwd,sandboxPolicy:policy.turn.sandboxPolicy,selection,deadline:liveDeadline,signal});
               result.evidence.capabilities.completionSources={...capabilities.completionSources};
+              remaining();
               if(capabilities.completionSources.status!=='passed'){
                 const changed=capabilities.completionSources.sourceStatus==='changedOrUnavailable';
                 throw Object.assign(fault(changed?'CAPABILITY_SOURCE_CHANGED':'CAPABILITY_SOURCE_UNVERIFIED',changed?'Assigned skill source changed or became unavailable before completion':'Assigned skill source could not be verified before completion'),{evidence:result.evidence,terminalObserved:result.terminalObserved,...(capabilities.completionSources.start==='unknown'?{executionUnknown:true}:{})});
@@ -306,6 +326,8 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
           if(observedIntegrations)result.evidence.nativeIntegrations=observedIntegrations;
           return result;
         } catch (error) {
+          if(result){error.evidence??=result.evidence;if(result.terminalObserved)error.terminalObserved=true;}
+          if(!started&&liveDeadline?.signal.aborted&&['CAPABILITY_READINESS','RUN_STOPPED'].includes(error.code))error=Object.assign(fault('TURN_TIMEOUT','Worker exceeded its live wall deadline'),{...(error.evidence?{evidence:error.evidence}:{}),...(error.capabilities?{capabilities:error.capabilities}:{}),...(error.executionUnknown?{executionUnknown:true}:{})});
           primary=error;if (!started) error.noInference = true;
           finishNative();error.evidence??={commands:[],attempts:[]};
           if(parentCapabilities)error.evidence.parentCapabilities={...structuredClone(parentCapabilities),selectedRoots:structuredClone(roots),native:{...parentNative}};
@@ -315,6 +337,8 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
           throw error;
         }
         finally{
+          liveDeadline?.close();
+          if(liveDeadline){const evidence=primary?(primary.evidence??={}):result?.evidence;if(evidence)evidence.deadline=liveDeadline.snapshot();}
           finishNative();
           activeWorkers.delete(position);
           let nativeTerminals;

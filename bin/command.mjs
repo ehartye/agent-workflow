@@ -2,7 +2,7 @@
 import {readFile,readdir,open} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {parseCommand,help} from './arguments.mjs';
+import {parseCommand,help,parseDeadlineOptions} from './arguments.mjs';
 import {pluginRoot,paths,selectRuntime,bindRun,resolveRun,noLinks,nativeCodex} from './managed-runtime.mjs';
 import {readMode,setMode} from '../engine/mode.mjs';
 import {parseScript} from '../engine/script.mjs';
@@ -21,6 +21,7 @@ import {readHostContext} from '../foundation/host-context.mjs';
 import {readCapabilities} from '../engine/worker-capabilities.mjs';
 import {resolveAccess} from '../engine/access-policy.mjs';
 import {fault} from '../foundation/client.mjs';
+import {requestAppend,readAppendReceipt,readAppendTasks} from '../engine/append.mjs';
 const print=value=>console.log(JSON.stringify(value,null,2));
 function backgroundReceipt(id,receipt,p){
  return{id,...receipt,watch:{...receipt.watch,argv:[process.execPath,join(pluginRoot,'bin','launch.mjs'),'watch',id,'--session',p.sessionId,'--generation',String(receipt.generation),'--after','0','--jsonl','--data-dir',p.dataDir]}};
@@ -28,8 +29,8 @@ function backgroundReceipt(id,receipt,p){
 function integer(value,name,{min=0,max=Number.MAX_SAFE_INTEGER,required=false}={}){if(value===undefined&&!required)return undefined;if(typeof value!=='string'||!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)<min||Number(value)>max)throw Error(`--${name} requires an integer from ${min} to ${max}`);return Number(value);}
 function deadlines(options){
  const run=integer(options['run-timeout-ms'],'run-timeout-ms',{max:MAX_RUN_TIMEOUT_MS});
- const worker=integer(options['worker-timeout-ms'],'worker-timeout-ms',{min:1,max:MAX_WORKER_TIMEOUT_MS});
- return{...(run===undefined?{}:{timeoutMs:run===0?null:run}),...(worker===undefined?{}:{workerTimeoutMs:worker})};
+ const worker=integer(options['worker-timeout-ms'],'worker-timeout-ms',{max:MAX_WORKER_TIMEOUT_MS});
+ return{...(run===undefined?{}:{timeoutMs:run===0?null:run}),...(worker===undefined?{}:{workerTimeoutMs:worker===0?null:worker})};
 }
 async function boundedJson(file,limit){
  const handle=await open(resolve(file),'r');
@@ -112,6 +113,13 @@ export async function main(tokens=process.argv.slice(2)){
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}
  }
  const runDir=owner.runDir;
+ if(p.command==='append'||p.command==='append-receipt'){
+  if(!o['request-id'])throw Error('--request-id is required; inspect this receipt after a lost response');
+  const request={generation:integer(o.generation,'generation',{min:1,required:true}),requestId:o['request-id']};
+  if(p.command==='append-receipt'){print(await readAppendReceipt(runDir,request));return 0;}
+  if(!o['tasks-file'])throw Error('--tasks-file is required');
+  print(await requestAppend(runDir,{...request,sessionId:p.sessionId,tasks:await readAppendTasks(resolve(o['tasks-file']))}));return 0;
+ }
  if(p.command==='watch'){
   if(!o.jsonl)throw Error('watch requires --jsonl');
   const {watchRun}=await import('../engine/watch.mjs');
@@ -139,6 +147,6 @@ export async function main(tokens=process.argv.slice(2)){
  if(p.command==='resume'||p.command==='restart-worker'){
   print(backgroundReceipt(p.id,await startBackground({runDir,sessionId:p.sessionId,resume:true,...deadlines(o),...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})}),p));return 0;
  }
- print(await requestControl(runDir,{sessionId:p.sessionId,generation,action:p.command,...(['steer','cancel-worker'].includes(p.command)?{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),turnId:o.turn??null,...(o.text!==undefined?{text:o.text}:{})}:{})}));return 0;
+ print(await requestControl(runDir,{sessionId:p.sessionId,generation,action:p.command,...(['steer','cancel-worker','worker-deadline'].includes(p.command)?{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),turnId:o.turn??null,...(o.text!==undefined?{text:o.text}:{}),...(p.command==='worker-deadline'?{deadline:parseDeadlineOptions(o)}:{})}:{})}));return 0;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)main().then(code=>{process.exitCode=code;},error=>{console.error(`Agent Workflow: ${error.message}`);process.exitCode=1;});

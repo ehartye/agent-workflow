@@ -117,30 +117,32 @@ test('run and worker deadlines are independent, persisted and reused on replay',
   const input={runDir,sessionId:'s',script:meta+'return await agent("A");'};
   const execute=async({options})=>{seen.push(options.timeoutMs);return{value:'done',terminalObserved:true};};
   const first=await runWorkflow({...input,backend:backend(execute)});
-  assert.equal(first.timeoutMs,null);assert.equal(first.workerTimeoutMs,600000);
-  assert.deepEqual(seen,[600000]);assert.equal(first.workers[0].options.timeoutMs,600000);
+  assert.equal(first.timeoutMs,null);assert.equal(first.workerTimeoutMs,null);
+  assert.deepEqual(seen,[null]);assert.equal(first.workers[0].options.timeoutMs,null);
   const changed=await runWorkflow({...input,resume:true,timeoutMs:7200000,workerTimeoutMs:1800000,backend:backend(execute)});
-  assert.equal(changed.coverage.cached,0);assert.deepEqual(seen,[600000,1800000]);
+  assert.equal(changed.coverage.cached,0);assert.deepEqual(seen,[null,1800000]);
   const replay=await runWorkflow({...input,resume:true,backend:backend(execute)});
   assert.equal(replay.coverage.cached,1);assert.equal(replay.timeoutMs,7200000);assert.equal(replay.workerTimeoutMs,1800000);
   assert.equal((await readRun(runDir)).workerTimeoutMs,1800000);
   const manual=await runWorkflow({...input,resume:true,timeoutMs:null,backend:backend(execute)});
   assert.equal(manual.timeoutMs,null);assert.equal(manual.coverage.cached,1);
+  const cleared=await runWorkflow({...input,resume:true,workerTimeoutMs:null,backend:backend(execute)});
+  assert.equal(cleared.workerTimeoutMs,null);assert.equal(cleared.coverage.cached,0);assert.deepEqual(seen,[null,1800000,null]);
 });
 
 test('worker deadlines accept bounded implementation work and reject overflow before dispatch',async t=>{
   const {runDir,runWorkflow}=await setup(t);let calls=0;
   const execute=async({options})=>{calls++;return{value:options.timeoutMs,terminalObserved:true};};
   const input={runDir,sessionId:'s',script:meta+'return await agent("A",{timeoutMs:args});'};
-  const first=await runWorkflow({...input,args:1800000,backend:backend(execute)});
-  assert.equal(first.status,'completed');assert.equal(first.result,1800000);
-  const invalid=await runWorkflow({...input,resume:true,args:1800001,backend:backend(execute)});
+  const first=await runWorkflow({...input,args:2**32,backend:backend(execute)});
+  assert.equal(first.status,'completed');assert.equal(first.result,2**32);
+  const invalid=await runWorkflow({...input,resume:true,args:Number.MAX_SAFE_INTEGER+1,backend:backend(execute)});
   assert.equal(invalid.error.code,'AGENT_INPUT');assert.equal(calls,1);
 });
 
 test('invalid run and worker limits fail before admission',async t=>{
   const {runDir,runWorkflow}=await setup(t);let calls=0;
-  for(const limits of [{timeoutMs:0},{timeoutMs:86400001},{timeoutMs:1.5},{workerTimeoutMs:0},{workerTimeoutMs:1800001}]){
+  for(const limits of [{timeoutMs:0},{timeoutMs:86400001},{timeoutMs:1.5},{workerTimeoutMs:0},{workerTimeoutMs:Number.MAX_SAFE_INTEGER+1},{workerTimeoutMs:1.5}]){
     await assert.rejects(runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',...limits,backend:backend(async()=>{calls++;})}),{code:'RUN_INPUT'});
   }
   assert.equal(calls,0);
@@ -363,7 +365,7 @@ test('ordered dispatch respects concurrency and persists results before complete
 test('replay matches effective execution options while allowing cosmetic label changes', async t => {
   const { runDir, runWorkflow } = await setup(t);
   let calls = 0;
-  const input = { runDir, sessionId: 's', script: meta + 'return await agent("A",args);' };
+  const input = { runDir, sessionId: 's', workerTimeoutMs:600000, script: meta + 'return await agent("A",args);' };
   const execute = async () => ({value: ++calls, terminalObserved: true});
   await runWorkflow({...input, args: {label:'first'}, backend:backend(execute)});
   const equivalent = await runWorkflow({...input, args:{label:'renamed',timeoutMs:600000},resume:true,backend:backend(execute)});

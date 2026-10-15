@@ -3,11 +3,21 @@ import {resolve} from 'node:path';
 import {defaultDataDir} from './managed-runtime.mjs';
 const lifecycleOptions=['session','generation','revision','target','worker-generation','position','attempt','reason'];
 const commands={mode:['cwd','scope','session'],help:[],setup:[],doctor:['cwd','backend','session0-desktop'],workflows:['cwd'],read:['cwd'],save:['cwd','script','command','overwrite'],validate:['script'],run:['cwd','session','script','args','concurrency','model','effort','max-attempts','writable','foreground','backend','run-timeout-ms','worker-timeout-ms','capture-policy','worker-capabilities','session0-desktop'],list:['show-hidden'],status:[],result:[],watch:['session','generation','after','jsonl','idle-ms','poll-ms'],worker:['position','generation','source-generation'],events:['position','generation','source-generation','after','limit'],patch:['position','generation','source-generation','basis'],exclusions:['position','generation','source-generation','stage','after','limit'],dashboard:['session','current-ui'],resume:['session','script','generation','run-timeout-ms','worker-timeout-ms'],pause:['session','generation'],stop:['session','generation'],steer:['session','generation','position','attempt','turn','text'],'cancel-worker':['session','generation','position','attempt','turn'],'restart-worker':['session','generation','position','attempt','reconcile'],control:['receipt'],lifecycle:[],'lifecycle-receipt':['receipt'],hide:[...lifecycleOptions,'request'],archive:[...lifecycleOptions,'request'],restore:[...lifecycleOptions,'request'],'prune-plan':lifecycleOptions,prune:['session','plan','approved-plan-hash']};
+commands.append=['session','generation','request-id','tasks-file'];
+commands['append-receipt']=['generation','request-id'];
+commands['worker-deadline']=['session','generation','position','attempt','turn','deadline-revision','set-ms','extend-ms','clear'];
 commands.run.push('access','parent-access','args-file');
 commands.doctor.push('access','parent-access','session');
-const booleans=new Set(['help','command','overwrite','writable','foreground','show-hidden','current-ui','jsonl']);
-const runCommands=new Set(['status','result','watch','worker','events','patch','exclusions','dashboard','resume','pause','stop','steer','cancel-worker','restart-worker','control','lifecycle','lifecycle-receipt','hide','archive','restore','prune-plan','prune']);
-const mutations=new Set(['dashboard','run','resume','pause','stop','steer','cancel-worker','restart-worker','hide','archive','restore','prune-plan','prune']);
+const booleans=new Set(['help','command','overwrite','writable','foreground','show-hidden','current-ui','jsonl','clear']);
+const runCommands=new Set(['append','append-receipt','status','result','watch','worker','events','patch','exclusions','dashboard','resume','pause','stop','steer','cancel-worker','restart-worker','control','lifecycle','lifecycle-receipt','hide','archive','restore','prune-plan','prune']);
+const mutations=new Set(['append','dashboard','run','resume','pause','stop','steer','cancel-worker','restart-worker','hide','archive','restore','prune-plan','prune']);
+runCommands.add('worker-deadline');mutations.add('worker-deadline');
+export function parseDeadlineOptions(values){
+ const selected=['set-ms','extend-ms','clear'].filter(key=>values[key]!==undefined);
+ if(selected.length!==1)throw Error('Choose exactly one of --set-ms, --extend-ms or --clear');
+ const number=(key,min)=>{const raw=values[key],value=Number(raw);if(typeof raw!=='string'||!/^\d+$/.test(raw)||!Number.isSafeInteger(value)||value<min)throw Error(`--${key} requires a safe integer of at least ${min}`);return value;};
+ return{operation:values.clear?'clear':selected[0]==='set-ms'?'set':'extend',expectedRevision:number('deadline-revision',0),...(values.clear?{}:{valueMs:number(selected[0],1)})};
+}
 export function parseCommand(tokens=process.argv.slice(2),env=process.env){
  const options=Object.fromEntries(['data-dir','help',...new Set(Object.values(commands).flat())].map(key=>[key,{type:booleans.has(key)?'boolean':'string'}]));
  const{values,positionals}=parseArgs({args:tokens,options,allowPositionals:true});const command=positionals.shift()??'help';if(!Object.hasOwn(commands,command))throw Error(`Unknown command: ${command}`);
@@ -24,7 +34,7 @@ export function parseCommand(tokens=process.argv.slice(2),env=process.env){
  const sessionId=values.session??env.CODEX_THREAD_ID;
  if(!values.help&&(mutations.has(command)||command==='watch'||command==='doctor'&&values.access==='parent')&&(!sessionId?.trim()||sessionId.length>256))throw Error('An originating Codex session is required: --session or CODEX_THREAD_ID');
  if(command==='mode'&&!['on','off','status'].includes(id))throw Error('mode requires on, off or status');
- if(env.AGENT_WORKFLOW_WORKER==='1'&&!['help','workflows','read','validate','list','status','result','worker','events','patch','exclusions','control','lifecycle','lifecycle-receipt'].includes(command)&&!(command==='mode'&&id==='status'))throw Error('Worker processes cannot launch recursive workflows or mutate workflow state');
+ if(env.AGENT_WORKFLOW_WORKER==='1'&&!['help','workflows','read','validate','list','status','result','worker','events','patch','exclusions','control','append-receipt','lifecycle','lifecycle-receipt'].includes(command)&&!(command==='mode'&&id==='status'))throw Error('Worker processes cannot launch recursive workflows or mutate workflow state');
  return{command,id,values,sessionId,dataDir:resolve(values['data-dir']??defaultDataDir(env)),cwd:resolve(values.cwd??process.cwd()),runCommand:runCommands.has(command),mutation:mutations.has(command)};
 }
 export const help=`Agent Workflow — subscription-backed Codex workflows
@@ -44,8 +54,11 @@ dashboard [ID] [--current-ui] --session ID
 resume ID [--script file] | pause ID --generation N | stop ID --generation N
 steer ID --generation N --position N --attempt N --turn ID --text instruction
 cancel-worker ID --generation N --position N --attempt N [--turn ID]
+worker-deadline ID --session ID --generation N --position N --attempt N [--turn ID] --deadline-revision N (--set-ms N | --extend-ms N | --clear)
 restart-worker ID --generation N --position N --attempt N --reconcile note
 control ID --receipt ID
+append ID --session ID --generation N --request-id UUID --tasks-file FILE
+append-receipt ID --generation N --request-id UUID
 lifecycle ID | lifecycle-receipt ID --receipt REQUEST_ID
 hide|archive|restore ID --generation N --revision N --request REQUEST_ID [--reason note]
 prune-plan ID --generation N --revision N --reason note
@@ -85,7 +98,12 @@ Parent mode provisions enabled original native plugin/skill roots automatically.
 Explicit bundles remain supported for role selection and required readiness.
 Native skills.list/read use genuine selected executor roots; host-only connections
 are not manufactured or assumed available.
-Run/resume deadlines: --worker-timeout-ms 1..1800000 (default 600000); --run-timeout-ms 0..86400000 (default 0, completion/manual Stop). Saved deadlines persist on resume.
+Run/resume deadlines: --worker-timeout-ms 0 or positive safe milliseconds (default 0, unbounded); --run-timeout-ms 0..86400000 (default 0, completion/manual Stop). Saved deadlines persist on resume; explicit 0 clears a saved budget.
+Live worker-deadline controls require the exact observed revision and nullable turn.
+Set replaces remaining wall time, extend adds to a finite budget, clear removes it.
+Inspect the control receipt after a lost response; never automatically resubmit.
+Startup, command, interruption and cleanup limits remain independent. Pause waits for
+accepted work; Stop cancels it. An explicit run wall deadline still applies during Pause.
 
 Use --data-dir path for explicit managed state. Controls, lifecycle mutations and starts
 require the originating --session (defaults to CODEX_THREAD_ID). Workers use the installed

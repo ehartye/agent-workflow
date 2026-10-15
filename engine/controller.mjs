@@ -19,6 +19,7 @@ import {assertLifecycleReplay} from './run-lifecycle.mjs';
 import { fault, diagnostic } from '../foundation/client.mjs';
 import {freezeCapabilities,selectCapabilities} from './worker-capabilities.mjs';
 import {validateAccessPolicy} from './access-policy.mjs';
+import {initializeAdmission,projectAdmission,projectAdditionWorkers,allocateSlot,consumeAttempt,releaseReservation,closeAdmission,pendingAdditions,transaction,abandonUnstartedAdmission} from './append.mjs';
 export {requestControl,readControl} from './controls.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -59,16 +60,17 @@ async function regular(path, optional = false) {
   catch (error) { if (!optional || error.code !== 'ENOENT') throw error; }
 }
 function identity() {
-  const files = ['controller.mjs','notifications.mjs','run-lifecycle.mjs','deadlines.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','access-policy.mjs','parent-capabilities.mjs','worker-session.mjs','worker-capabilities.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/tool-observation.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/native/job-host-policy.json','../foundation/native/win32-x64/manifest.json','../foundation/native/win32-x64/workflow-job-host.exe','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
-  return hash(process.version + files.map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
+  const files = ['controller.mjs','notifications.mjs','run-lifecycle.mjs','deadlines.mjs','live-deadline.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','access-policy.mjs','parent-capabilities.mjs','worker-session.mjs','worker-capabilities.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/tool-observation.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/native/job-host-policy.json','../foundation/native/win32-x64/manifest.json','../foundation/native/win32-x64/workflow-job-host.exe','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
+  return hash(process.version + [...files,'append.mjs'].map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
   const header = db.prepare("SELECT value FROM header WHERE id=1").get();
   if (!header) return null;
-  const state = JSON.parse(header.value);
-  const workers = db.prepare('SELECT value FROM workers WHERE generation=? ORDER BY position').all(state.generation).map(row => JSON.parse(row.value));
+  const state = projectAdmission(db,JSON.parse(header.value));
+  const workers = projectAdditionWorkers(db,state,db.prepare('SELECT value FROM workers WHERE generation=? ORDER BY position LIMIT 1001').all(state.generation).map(row => JSON.parse(row.value)));
   const completed = workers.filter(worker => worker.status === 'completed').length;
-  return { ...state, workers, coverage: { requested: workers.length, completed,
+  const added=workers.filter(worker=>worker.origin?.kind==='append');
+  return { ...state, workers,additions:{requested:added.length,completed:added.filter(worker=>worker.status==='completed').length,failed:added.filter(worker=>worker.status==='failed').length,unknown:added.filter(worker=>worker.status==='unknown').length}, coverage: { requested: workers.length, completed,
     cached: workers.filter(worker => worker.cached).length,
     failed: workers.filter(worker => worker.status === 'failed').length,
     unknown: workers.filter(worker => worker.status === 'unknown').length,
@@ -79,7 +81,7 @@ export async function readRun(runDir) {
   const path = join(runDir, 'run.sqlite');
   await regular(path);
   const db = new DatabaseSync(path, { readOnly: true });
-  try { return snapshot(db); } finally { db.close(); }
+  try { db.exec('BEGIN');const value=snapshot(db);db.exec('COMMIT');return value; } finally { db.close(); }
 }
 
 export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, restart, accessPolicy,capturePolicy,workerCapabilities,workerCapabilitiesHash, concurrency = 2, maxAgents = 1000, timeoutMs, workerTimeoutMs, drainTimeoutMs=20000, onReady, launch=null }) {
@@ -94,12 +96,19 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
   let currentPhase = '';
   let controlAction;
   let controlTimer;
+  let lifetimeTimer;
+  let evaluationStartedAt;
+  let pumpAdditions=()=>{};
+  let dispatchReady=false;
+  let additionFailure;
+  const replayAdditions=new Map();
   let drainTimer,expireDrain;
   let drainBy=Infinity;
   const armDrain=ms=>{drainBy=Math.min(drainBy,performance.now()+ms);clearTimeout(drainTimer);drainTimer=setTimeout(()=>expireDrain(false),Math.max(0,drainBy-performance.now()));};
   let retiredWrites=false;
   const currentWorkers=new Map();
   const workerAborts=new Map();
+  const workerDeadlines=new Map();
   const steering=new Set();
   let controlsRetired=false;
   const workerIds=new Map();
@@ -107,13 +116,14 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
   const waiters = [];
   const calls = new Set();
   const abort = new AbortController();
+  abort.signal.addEventListener('abort',()=>{if(expireDrain)armDrain(drainTimeoutMs);},{once:true});
   const evaluatorAbort = new AbortController();
   const token = randomUUID();
   const lock = typeof runDir === 'string' ? join(runDir, 'owner.lock') : '';
   let closed;
   const closeBackend = () => closed ??= Promise.resolve().then(() => backend.close());
   const own = () => { if (readFileSync(lock, 'utf8') !== token) throw fault('RUN_OWNERSHIP', 'Run ownership changed'); };
-  const saveHeader = () => { own(); db.prepare('INSERT OR REPLACE INTO header(id,value) VALUES(1,?)').run(json(state)); };
+  const saveHeader = () => { own(); projectAdmission(db,state);db.prepare('INSERT OR REPLACE INTO header(id,value) VALUES(1,?)').run(json(state)); };
   const saveWorker = (worker,message,terminalReady=false) => {
     own();
     const next=message?structuredClone(worker):worker;
@@ -122,6 +132,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     try {
       if(message)recordNotificationProgress(db,{generation:state.generation,worker:next,record:recordActivity(db,{generation:state.generation,worker:next,message})});
       db.prepare('INSERT OR REPLACE INTO workers(generation,position,value) VALUES(?,?,?)').run(state.generation, next.position, json(next));
+      projectAdmission(db,state);
       db.prepare('INSERT OR REPLACE INTO header(id,value) VALUES(1,?)').run(json(state));
       if(terminalReady)recordWorkerNotification(db,state,next);
       db.exec('COMMIT');
@@ -135,15 +146,16 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     try{return await Promise.race([promise,new Promise((_,reject)=>{cancel=()=>reject(cancelled());signal.addEventListener('abort',cancel,{once:true});})]);}
     finally{signal.removeEventListener('abort',cancel);}
   };
-  const acquire = async signal => {
-    if (stopped) throw fault('RUN_STOPPED', 'Workflow admission is closed');
+  const acquire = async (signal,addition=false) => {
+    const closed=()=>stopped&&!(addition&&controlAction==='pause');
+    if (closed()) throw fault('RUN_STOPPED', 'Workflow admission is closed');
     if(signal.aborted)throw cancelled();
     if(active<concurrency&&!waiters.length){active++;return;}
     await new Promise((resolve,reject)=>{
       const cancel=()=>{const index=waiters.indexOf(admit);if(index!==-1)waiters.splice(index,1);reject(cancelled());};
       const admit=()=>{
         signal.removeEventListener('abort',cancel);
-        if(stopped)return reject(fault('RUN_STOPPED','Workflow admission is closed'));
+        if(closed()){reject(fault('RUN_STOPPED','Workflow admission is closed'));waiters.shift()?.();return;}
         if(signal.aborted)return reject(cancelled());
         active++;resolve();
       };
@@ -223,20 +235,37 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if (previous && previous.runtimeIdentity !== runtimeIdentity) throw fault('REPLAY_RUNTIME', 'Saved results require their original runtime version');
     reuse = !previous || previous.backendIdentity === backend.identity;
     const oldWorkers = previous?.workers ?? [];
+    if(oldWorkers.some(worker=>worker.origin?.kind==='append')&&(previous.backendIdentity!==backend.identity||previous.maxAgents!==maxAgents||previous.concurrency!==concurrency))throw fault('APPEND_IDENTITY','Saved additions retain their original backend, lifetime budget and concurrency ceiling');
+    if(previous&&!restartAdmission&&oldWorkers.some(worker=>worker.origin?.kind==='append'&&worker.status!=='completed'))throw fault('APPEND_RECONCILE','Noncompleted additions require explicit effect reconciliation and physical-suffix restart');
+    const oldGuests=oldWorkers.filter(worker=>worker.origin?.kind!=='append');
+    const restartPrefix=restartAdmission?oldGuests.filter(worker=>worker.position<=restartAdmission.position):[];
+    let restartValidated=0,releaseRestartPrefix;
+    const restartPrefixReady=new Promise(resolve=>{releaseRestartPrefix=resolve;});
+    if(!restartPrefix.length)releaseRestartPrefix();
     if(previous?.workspaceInputs)await loadInputs(previous.workspaceInputs);
     if(reuse)for(const worker of oldWorkers){
-      if(worker.status!=='completed'||restartAdmission&&worker.position>=restartAdmission.position)break;
+      if(worker.status!=='completed'||restartAdmission&&worker.position>=restartAdmission.position)continue;
       if((worker.options?.permissions?.sandbox==='workspace-write'||worker.options?.workspace==='isolated')&&!worker.workspace)throw fault('WORKSPACE_ARTIFACT','Completed writer workspace is missing');
       if(worker.workspace)await verifyWorkspace(worker.workspace);
     }
     admitNotifications(db,{previous,maxAgents});
-    state = { version: 1, sessionId, generation: (previous?.generation ?? 0) + 1, runtimeIdentity, backendIdentity: backend.identity,
+    const lastAdmissionGeneration=db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='admission'").get()?db.prepare('SELECT COALESCE(MAX(generation),0) AS generation FROM admission').get().generation:0;
+    state = { version: 1, appendVersion:1, sessionId, generation: Math.max(previous?.generation??0,lastAdmissionGeneration) + 1, runtimeIdentity, backendIdentity: backend.identity,
       status: 'running', acceptingControls:true, meta, script, args, launch, concurrency, maxAgents, timeoutMs, workerTimeoutMs, workerCount: 0, attempts: previous?.attempts ?? 0, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString() };
     if(previous?.workspaceInputs)state.workspaceInputs=previous.workspaceInputs;
     if(normalizedAccess)state.accessPolicy=normalizedAccess;
     if(parentCapabilitiesHash)state.parentCapabilitiesHash=parentCapabilitiesHash;
     if(capabilities){state.workerCapabilities=capabilities.manifest;state.workerCapabilitiesHash=capabilities.fingerprint;state.workerCapabilitySources=capabilities.toolSources;}
     if(normalizedPolicy){state.capturePolicy=normalizedPolicy.policy;state.capturePolicyHash=normalizedPolicy.policyHash;}
+    initializeAdmission(db,state);
+    // Replay additions by stable request origin. Their new physical slots need
+    // not match their old slots; guest ordinals and dependency hashes are separate.
+    for(const prior of oldWorkers.filter(worker=>worker.origin?.kind==='append')){
+      const cached=reuse&&prior.status==='completed'&&(!restartAdmission||prior.position<restartAdmission.position);
+      const position=allocateSlot(db,state.generation,{reserve:!cached});
+      const task={position,origin:prior.origin,prompt:prior.prompt,options:prior.options,key:prior.key,delivery:'queued'};
+      db.prepare('INSERT INTO append_tasks VALUES(?,?,?)').run(state.generation,position,json(task));replayAdditions.set(position,prior);
+    }
     const workspaces=runWorkspaces({runDir,source:launch?.cwd,inputs:state.workspaceInputs,...(normalizedPolicy?{capturePolicy:normalizedPolicy.policy}:{}),onInputs:record=>{if(retiredWrites)throw fault('RUN_RETIRED','Run no longer owns workspace admission');if(normalizedPolicy&&(record.version!==2||record.policyHash!==normalizedPolicy.policyHash))throw fault('CAPTURE_POLICY_IDENTITY','Workspace inputs did not confirm the frozen policy');state.workspaceInputs=record;saveHeader();}});
     if(restartAdmission){
       state.restart={...restartAdmission,sourceGeneration:previous.generation,receiptId:randomUUID()};
@@ -260,14 +289,15 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         const rows=db.prepare("SELECT value FROM controls WHERE generation=? AND json_extract(value,'$.status')='pending' ORDER BY rowid").all(state.generation);
         for(const row of rows){
           const receipt=JSON.parse(row.value);
-          if(['steer','cancel-worker'].includes(receipt.action)){
+          if(['steer','cancel-worker','worker-deadline'].includes(receipt.action)){
             const worker=currentWorkers.get(receipt.position);
             try{
               if(closing||primary||controlAction==='stop')throw fault('CONTROL_TERMINAL','Run control admission has closed');
               assertWorkerTarget(worker,receipt);
               if(receipt.action==='steer'&&(steering.has(receipt.position)||workerActions.some(item=>item.receipt.position===receipt.position&&item.receipt.action==='steer')))throw fault('CONTROL_BUSY','A steering request is already in flight for this worker');
               if(receipt.action==='cancel-worker'&&workerActions.some(item=>item.receipt.position===receipt.position&&item.receipt.action==='cancel-worker'))throw fault('CONTROL_WORKER','Worker cancellation is already requested');
-              receipt.status=receipt.action==='steer'?'applying':'applied';receipt.appliedAt=new Date().toISOString();
+              if(receipt.action==='worker-deadline'&&!workerDeadlines.has(worker.position))throw fault('CONTROL_DEADLINE','Worker has no live deadline owner');
+              receipt.status=receipt.action==='cancel-worker'?'applied':'applying';receipt.appliedAt=new Date().toISOString();
               if(receipt.action==='cancel-worker')db.prepare('UPDATE workers SET value=? WHERE generation=? AND position=?').run(json({...worker,cancelRequested:true}),state.generation,worker.position);
               workerActions.push({receipt,worker});
             }catch(error){receipt.status='rejected';receipt.error=diagnostic(error);receipt.appliedAt=new Date().toISOString();}
@@ -277,12 +307,14 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
           const denied=Boolean(primary)||controlAction==='stop'&&receipt.action==='pause';
           receipt.status=denied?'rejected':'applied';receipt.appliedAt=new Date().toISOString();
           if(!denied){applied=true;controlAction=receipt.action;state.status=controlAction==='pause'?'pausing':'stopping';state.updatedAt=receipt.appliedAt;}
+          if(!denied)closeAdmission(db,state.generation);
           db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
         }
         if(closing){
           state.acceptingControls=false;
+          closeAdmission(db,state.generation);
           for(const row of db.prepare("SELECT value FROM controls WHERE generation=? AND json_extract(value,'$.status')='applying'").all(state.generation)){
-            const receipt=JSON.parse(row.value);receipt.status='unknown';receipt.error=diagnostic(fault('CONTROL_UNCONFIRMED','Runner closed before steering confirmation'));receipt.appliedAt=new Date().toISOString();db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
+            const receipt=JSON.parse(row.value);receipt.status='unknown';receipt.error=diagnostic(fault('CONTROL_UNCONFIRMED','Runner closed before live control confirmation'));receipt.appliedAt=new Date().toISOString();db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
           }
         }
         if(rows.length||closing)saveHeader();
@@ -291,6 +323,20 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       if(closing)controlsRetired=true;
       for(const {receipt,worker} of workerActions){
         if(receipt.action==='cancel-worker'){worker.cancelRequested=true;workerAborts.get(worker.position)?.abort();}
+        else if(receipt.action==='worker-deadline'){
+          let applied=false;
+          try{
+            if(controlsRetired||fatal||controlAction==='stop')throw fault('CONTROL_TERMINAL','Run no longer accepts deadline changes');
+            assertWorkerTarget(currentWorkers.get(worker.position),receipt);
+            const entry=workerDeadlines.get(worker.position);
+            if(!entry)throw fault('CONTROL_DEADLINE','Worker deadline owner closed');
+            receipt.deadlineResult=entry.handle.apply(receipt.deadline);applied=true;
+            if(entry.error)throw entry.error;
+            receipt.status='applied';
+          }catch(error){receipt.status=applied?'unknown':'rejected';receipt.error=diagnostic(error);}
+          receipt.appliedAt=new Date().toISOString();
+          db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
+        }
         else{
           steering.add(worker.position);
           let sent=false;
@@ -303,26 +349,33 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
           }).then(result=>{if(result?.turnId!==receipt.turnId)throw fault('CONTROL_TURN','Backend did not confirm the targeted turn');finishSteering(receipt);}).catch(error=>{try{finishSteering(receipt,error,sent);}catch(failure){fatal??=failure;stopped=true;evaluatorAbort.abort();abort.abort();}});
         }
       }
-      if(applied){stopped=true;evaluatorAbort.abort();if(controlAction==='stop'){abort.abort();if(expireDrain)armDrain(drainTimeoutMs);}for(const resolve of waiters.splice(0))resolve();}
+      if(applied){stopped=true;evaluatorAbort.abort();if(controlAction==='stop'){abort.abort();if(expireDrain)armDrain(drainTimeoutMs);for(const resolve of waiters.splice(0))resolve();}}
     };
-    controlTimer=setInterval(()=>{try{applyControls();}catch(error){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();for(const resolve of waiters.splice(0))resolve();}},25);
-    const dispatch = async ({ prompt, options = {} }) => {
+    controlTimer=setInterval(()=>{try{applyControls();pumpAdditions();}catch(error){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();if(expireDrain)armDrain(drainTimeoutMs);for(const resolve of waiters.splice(0))resolve();}},25);
+    const dispatch = async ({ prompt, options = {}, addition }) => {
       if (typeof prompt === 'string' && prompt.length > 65536) throw fault('AGENT_INPUT', 'Worker prompt exceeds 65536 UTF-16 code units; keep bulk data in project files and pass file paths, hashes and assigned ranges');
       if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['id','dependsOn','label','phase','timeoutMs','schema','model','effort','maxAttempts','permissions','workspace','skills','requireTools'].includes(key)) || options.workspace!==undefined&&options.workspace!=='isolated' || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > MAX_WORKER_TIMEOUT_MS)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
       const capabilitySelection=selectCapabilities(capabilities?.manifest,options);
-      options={...options,timeoutMs:options.timeoutMs??workerTimeoutMs};
+      options={...options,timeoutMs:options.timeoutMs===undefined?workerTimeoutMs:options.timeoutMs};
       const compiled=Object.hasOwn(options,'schema')?compileSchema(options.schema):null;
       if(backend.resolveOptions)options={...options,...backend.resolveOptions(options)};
+      if(addition)options={...options,maxAttempts:1};
       if(options.id!==undefined&&(typeof options.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(options.id)||workerIds.has(options.id)))throw fault('AGENT_INPUT','Worker ids must be unique bounded identifiers');
       if(options.dependsOn!==undefined&&(!Array.isArray(options.dependsOn)||options.dependsOn.length>256||options.dependsOn.some(id=>typeof id!=='string'||!workerIds.has(id))||new Set(options.dependsOn).size!==options.dependsOn.length))throw fault('AGENT_INPUT','Dependencies must name distinct earlier workers');
-      if (stopped) throw fault('RUN_STOPPED', 'Workflow admission is closed');
-      if (sequence >= maxAgents) throw fault('AGENT_LIMIT', 'Workflow agent limit reached');
-      const position = sequence++;
+      if (stopped&&!addition) throw fault('RUN_STOPPED', 'Workflow admission is closed');
+      if (!addition&&sequence >= maxAgents) throw fault('AGENT_LIMIT', 'Workflow agent limit reached');
+      const ordinal=addition?null:sequence++;
       const dependencies=(options.dependsOn??[]).map(id=>workerIds.get(id));
-      chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs, dependencies, schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null,...(options.workspace?{workspace:options.workspace}:{}),...(normalizedPolicy?{capturePolicyHash:normalizedPolicy.policyHash}:{}),...(capabilitySelection?{workerCapabilitiesHash:capabilities.fingerprint,capabilitySelectionHash:capabilitySelection.fingerprint}:{}) }));
-      const prior = oldWorkers[position];
-      if(restartAdmission&&position<=restartAdmission.position&&prior?.key!==chain)throw fault('RESTART_CHANGED','Saved worker invocation changed before the restart target');
-      const worker = { position, key: chain, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
+      if(!addition)chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs, dependencies:dependencies.map(position=>currentWorkers.get(position).origin), schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null,...(options.workspace?{workspace:options.workspace}:{}),...(normalizedPolicy?{capturePolicyHash:normalizedPolicy.policyHash}:{}),...(capabilitySelection?{workerCapabilitiesHash:capabilities.fingerprint,capabilitySelectionHash:capabilitySelection.fingerprint}:{}) }));
+      const key=addition?.key??chain,prior=addition?replayAdditions.get(addition.position):oldGuests[ordinal];
+      if(!addition&&restartAdmission&&prior?.position<=restartAdmission.position&&prior?.key!==key)throw fault('RESTART_CHANGED','Saved worker invocation changed before the restart target');
+      if(!addition&&restartAdmission&&restartValidated<restartPrefix.length){
+        if(prior!==restartPrefix[restartValidated])throw fault('RESTART_CHANGED','Saved guest prefix changed before the restart target');
+        restartValidated++;if(restartValidated===restartPrefix.length)releaseRestartPrefix();
+      }
+      const cached=(addition?previous?.backendIdentity===backend.identity:reuse)&&(!restartAdmission||prior?.position<restartAdmission.position)&&prior?.key===key&&prior.status==='completed';
+      const position=addition?.position??allocateSlot(db,state.generation,{reserve:!cached});
+      const worker = { position,origin:addition?.origin??{kind:'guest',ordinal}, key, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
       if(capabilitySelection)worker.capabilitySelection={fingerprint:capabilitySelection.fingerprint,skills:options.skills??[],requireTools:options.requireTools??[]};
       const workerAbort=new AbortController();workerAborts.set(position,workerAbort);
       const signal=AbortSignal.any([abort.signal,workerAbort.signal]);
@@ -330,22 +383,24 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       currentWorkers.set(position,worker);
       if(options.id!==undefined)workerIds.set(options.id,position);
       let settle;settlements.set(position,new Promise(resolve=>{settle=resolve;}));
-      if (reuse && (!restartAdmission||position<restartAdmission.position) && prior?.key === worker.key && prior.status === 'completed') {
+      if (cached) {
         if (!Object.hasOwn(prior, 'result') || hash(json(prior.result)) !== prior.resultHash) throw fault('REPLAY_CORRUPT', 'Saved worker result is missing or corrupt');
         if(compiled&&!compiled.validate(prior.result))throw fault('REPLAY_CORRUPT','Saved worker result violates its schema');
         Object.assign(worker, { status: 'completed', cached: true, result: prior.result, resultHash: prior.resultHash });
         worker.reusedFrom=prior.reusedFrom??{generation:previous.generation,position:prior.position};
-        for(const key of ['workspace','evidence','attempts','attemptOffset','priorExecutions','usageByThread','usage','activity','activityCount','startedAt','completedAt'])if(Object.hasOwn(prior,key))worker[key]=structuredClone(prior[key]);
+        worker.sourceGeneration=worker.reusedFrom.generation;worker.sourcePosition=worker.reusedFrom.position;
+        for(const key of ['workspace','evidence','deadline','attempts','attemptOffset','priorExecutions','usageByThread','usage','activity','activityCount','startedAt','completedAt'])if(Object.hasOwn(prior,key))worker[key]=structuredClone(prior[key]);
         saveWorker(worker,undefined,true);settle(); return worker.result;
       }
-      reuse = false;
+      if(!addition)reuse = false;
       if(prior){
-        worker.priorExecutions=[...(prior.priorExecutions??[]),prior.reusedFrom??{generation:previous.generation,position}];
+        worker.priorExecutions=[...(prior.priorExecutions??[]),prior.reusedFrom??{generation:previous.generation,position:prior.position}];
         worker.attemptOffset=prior.attempts??0;worker.attempts=worker.attemptOffset;
         for(const key of ['usageByThread','usage'])if(Object.hasOwn(prior,key))worker[key]=structuredClone(prior[key]);
       }
       saveWorker(worker);
       let acquired = false;
+      let reserved=true;
       let dispatched = false;
       let terminalObserved=false;
       let executionOpen=false;
@@ -360,34 +415,51 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         }catch(error){if(!retiredWrites)worker.workspaceError={...diagnostic(error),...(error.captureFailure?{capture:error.captureFailure}:{})};throw error;}
       };
       try {
+        // A replayed affected addition has no guest await to gate its effects.
+        // Validate the original guest prefix/target before it can acquire a slot.
+        if(addition&&restartAdmission&&prior?.position>=restartAdmission.position){
+          await waitFor(restartPrefixReady,signal);
+          if(restartValidated<restartPrefix.length)throw fault('RESTART_CHANGED','Saved guest prefix did not validate before affected addition admission');
+        }
         await waitFor(Promise.all(dependencies.map(position=>settlements.get(position))),signal);
         if(workerAbort.signal.aborted)throw Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
         if(dependencies.some(position=>currentWorkers.get(position).status!=='completed'))throw Object.assign(fault('DEPENDENCY_FAILED','A prerequisite did not complete successfully'),{notStarted:true});
-        await acquire(signal); acquired = true;
+        await acquire(signal,Boolean(addition)); acquired = true;
         if(workerAbort.signal.aborted)throw Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
-        if (state.attempts >= maxAgents) throw Object.assign(fault('AGENT_LIMIT', 'Lifetime agent attempt limit reached'), { notStarted: true });
         if(options.permissions?.sandbox==='workspace-write'||options.workspace==='isolated'){
           const workspace=await workspaces.prepare({generation:state.generation,position});
           if(retiredWrites)throw fault('RUN_RETIRED','Late workspace admission cannot change terminal evidence');
           if(normalizedPolicy&&(workspace.version!==2||workspace.policyHash!==normalizedPolicy.policyHash))throw fault('CAPTURE_POLICY_IDENTITY','Writer workspace did not confirm the frozen policy');
           worker.workspace=workspace;saveWorker(worker);
-          if(signal.aborted||stopped)throw Object.assign(fault('RUN_STOPPED','Worker admission closed while preparing its workspace'),{notStarted:true});
+          if(signal.aborted||stopped&&!(addition&&controlAction==='pause'))throw Object.assign(fault('RUN_STOPPED','Worker admission closed while preparing its workspace'),{notStarted:true});
         }
         if(workerAbort.signal.aborted)throw cancelled();
-        if(state.attempts>=maxAgents)throw Object.assign(fault('AGENT_LIMIT','Lifetime agent attempt limit reached'),{notStarted:true});
-        state.attempts++; worker.attempts=(worker.attemptOffset??0)+1; worker.status = 'running'; worker.startedAt = new Date().toISOString();
+        applyControls();
+        consumeAttempt(db,state.generation,{reserved:true,allowPaused:Boolean(addition),...(addition?{position}:{})});reserved=false;
+        worker.attempts=(worker.attemptOffset??0)+1; worker.status = 'running'; worker.startedAt = new Date().toISOString();
         saveHeader(); saveWorker(worker);
         dispatched = true;
         executionOpen=true;
         const reserveRetry=async()=>{
           if(retiredWrites||signal.aborted)throw fault('RUN_STOPPED','Worker admission is closed');
-          if(state.attempts>=maxAgents)throw fault('AGENT_LIMIT','Lifetime agent attempt limit reached');
-          state.attempts++;worker.attempts++;saveWorker(worker);
+          if(addition)throw fault('AGENT_LIMIT','Appended tasks have exactly one attempt');
+          consumeAttempt(db,state.generation,{allowPaused:true});worker.attempts++;saveWorker(worker);
         };
         const observationOpen=()=>{if(retiredWrites||!executionOpen)throw fault('RUN_RETIRED','Late worker activity cannot change terminal evidence');};
         const onActive=identity=>{observationOpen();worker.activeTurn=JSON.parse(json(identity));saveWorker(worker);};
         const onEvent=message=>{observationOpen();saveWorker(worker,message);};
-        const result = await backend.execute({ prompt, options, position, signal, reserveRetry, onActive,onEvent,workspace:worker.workspace });
+        const onDeadline=handle=>{
+          observationOpen();
+          if(workerDeadlines.has(position))throw fault('CONTROL_DEADLINE','Worker deadline owner is already registered');
+          const entry={handle};workerDeadlines.set(position,entry);
+          worker.deadline=handle.snapshot();saveWorker(worker);
+          entry.unsubscribe=handle.subscribe(value=>{
+            if(retiredWrites||!executionOpen)return;
+            try{worker.deadline=JSON.parse(json(value));saveWorker(worker);}
+            catch(error){entry.error=error;fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();if(expireDrain)armDrain(drainTimeoutMs);for(const resolve of waiters.splice(0))resolve();}
+          });
+        };
+        const result = await backend.execute({ prompt, options, position, signal, reserveRetry, onActive,onEvent,onDeadline,workspace:worker.workspace });
         executionOpen=false;delete worker.activeTurn;
         if(retiredWrites)throw fault('RUN_RETIRED','Late worker result cannot change terminal evidence');
         if (!result?.terminalObserved) throw fault('AGENT_UNKNOWN', 'Worker terminal state was not observed');
@@ -402,10 +474,12 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       } catch (error) {
         executionOpen=false;delete worker.activeTurn;
         if(retiredWrites)throw error;
+        if(error.code==='RUN_STOPPED')applyControls();
         try{await retainWorkspace(error.evidence,error.noProcessStarted===true);}catch{ /* Primary failure and separate workspace diagnostic both survive. */ }
         if(retiredWrites)throw error;
-        worker.status = error.evidence?.cleanup?.error||error.executionUnknown===true ? 'unknown' : !dispatched && controlAction ? 'queued' : !dispatched || error.notStarted || error.noInference===true || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
+        worker.status = error.evidence?.cleanup?.error||error.executionUnknown===true ? 'unknown' : !dispatched && controlAction&&!addition ? 'queued' : !dispatched || error.notStarted || error.noInference===true || terminalObserved || error.terminalObserved===true ? 'failed' : 'unknown';
         worker.error = diagnostic(error);
+        worker.settledAt=new Date().toISOString();
         worker.notStarted=!dispatched||error.notStarted===true;
         worker.noProcessStarted=!dispatched||error.noProcessStarted===true;
         worker.noInference=!dispatched||error.noInference===true;
@@ -414,7 +488,26 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         if(error.interruption)worker.interruption={terminalObserved:error.interruption.terminalObserved===true,terminalStatus:['completed','failed','interrupted'].includes(error.interruption.terminalStatus)?error.interruption.terminalStatus:null,descendants:'notVerified'};
         saveWorker(worker,undefined,true);
         throw error;
-      } finally {workerAborts.delete(position);if (acquired) release();settle(); }
+      } finally {workerDeadlines.get(position)?.unsubscribe?.();workerDeadlines.delete(position);if(reserved&&!retiredWrites)releaseReservation(db,state.generation);workerAborts.delete(position);if (acquired) release();settle(); }
+    };
+    pumpAdditions=()=>{
+      if(retiredWrites||!dispatchReady)return;
+      for(const task of pendingAdditions(db,state.generation)){
+        if(currentWorkers.has(task.position))continue;
+        if(task.delivery!=='queued')throw fault('APPEND_UNKNOWN','A dispatch intent without a worker requires effect reconciliation');
+        const work=dispatch({prompt:task.prompt,options:task.options,addition:task}).catch(error=>{
+          const controlled=controlAction==='stop'&&['RUN_STOPPED','WORKER_CANCELLED','TURN_CANCELLED'].includes(error.code);
+          if(!controlled)additionFailure??=error;
+          if(!retiredWrites&&(error.evidence?.cleanup?.error||currentWorkers.get(task.position)?.workspaceError)){
+            fatal??=error;state.error=diagnostic(fatal);stopped=true;evaluatorAbort.abort();abort.abort();
+          }
+          if(!retiredWrites&&!currentWorkers.has(task.position)){
+            const worker={...task,status:'failed',cached:false,error:diagnostic(error),notStarted:true,noProcessStarted:true,noInference:true};
+            currentWorkers.set(task.position,worker);releaseReservation(db,state.generation);saveWorker(worker,undefined,true);
+          }
+        });
+        calls.add(work);work.then(()=>calls.delete(work),()=>calls.delete(work));
+      }
     };
     const call = (method, params) => {
       if (method === 'agent') {
@@ -440,6 +533,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         db.exec('BEGIN IMMEDIATE');
         try{
           own();db.prepare('UPDATE header SET value=? WHERE id=1').run(previousHeader);
+          abandonUnstartedAdmission(db,state.generation,diagnostic(error));
           for(const row of db.prepare('SELECT value FROM controls WHERE generation=?').all(state.generation)){
             const receipt=JSON.parse(row.value);receipt.status='rejected';receipt.error=diagnostic(error);db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);
           }
@@ -450,16 +544,53 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     }
     try {
       if(!restartAdmission)await onReady?.({generation:state.generation,status:state.status});
+      dispatchReady=true;
+      applyControls();
+      pumpAdditions();
+      evaluationStartedAt=performance.now();
       state.result = await evaluate(script, { args, call, timeoutMs, signal: evaluatorAbort.signal });
       if (fatal) throw fatal;
-      state.status = 'finishing';
+      if(restartValidated<restartPrefix.length)throw fault('RESTART_CHANGED','Saved guest prefix was not fully replayed before the restart target');
+      state.guestFinishedAt=new Date().toISOString();saveHeader();
     } catch (error) { if(!controlAction||fatal){primary=fatal??error;state.status = 'finishing'; state.error = diagnostic(primary);} }
+    // A paused/failed guest cannot leave replay additions waiting forever for
+    // invocations it will never reach. They settle explicitly without dispatch.
+    releaseRestartPrefix();
+    if(!dispatchReady){stopped=true;abort.abort();dispatchReady=true;}
+    // Completion and append serialize on the same ledger. An accepted batch
+    // wins before closure and joins this drain, even after guest completion.
+    if(!primary&&!fatal&&!controlAction){
+      if(timeoutMs!==null)lifetimeTimer=setTimeout(()=>{
+        fatal??=fault('EVALUATOR_TIMEOUT','Workflow run exceeded its wall deadline while draining accepted work');state.error=diagnostic(fatal);
+        stopped=true;evaluatorAbort.abort();abort.abort();
+      },Math.max(0,timeoutMs-(performance.now()-evaluationStartedAt)));
+      for(;;){
+        pumpAdditions();
+        let wake;
+        const interrupted=new Promise(resolve=>{wake=()=>resolve(false);evaluatorAbort.signal.addEventListener('abort',wake,{once:true});if(evaluatorAbort.signal.aborted)wake();});
+        const settled=await Promise.race([Promise.allSettled([...calls]).then(()=>true),interrupted]);
+        evaluatorAbort.signal.removeEventListener('abort',wake);
+        if(!settled)break;
+        const closed=transaction(db,()=>{
+          const tasks=pendingAdditions(db,state.generation);
+          if(calls.size||tasks.some(task=>!currentWorkers.has(task.position)))return false;
+          closeAdmission(db,state.generation);saveHeader();return true;
+        });
+        if(closed)break;
+      }
+    }else pumpAdditions();
+    clearTimeout(lifetimeTimer);
+    transaction(db,()=>{closeAdmission(db,state.generation);saveHeader();});
+    pumpAdditions();
     stopped = true; if(controlAction!=='pause')abort.abort();
-    for (const resolve of waiters.splice(0)) resolve();
-    // Give workers their bounded native interruption/completion window before
-    // closing the retained connection that carries terminal evidence.
-    const pauseDrainMs=Math.max(0,...[...currentWorkers.values()].filter(worker=>worker.status==='running').map(worker=>worker.options.timeoutMs))+drainTimeoutMs;
-    const drained=await Promise.race([Promise.allSettled([...calls]).then(()=>true),new Promise(resolve=>{expireDrain=resolve;armDrain(controlAction==='pause'?pauseDrainMs:drainTimeoutMs);})]);
+    if(controlAction!=='pause')for (const resolve of waiters.splice(0)) resolve();
+    // Pause lets accepted work settle without a guessed lifetime. Stop or an
+    // explicit run deadline still supplies the independent bounded drain.
+    if(controlAction==='pause'&&timeoutMs!==null)lifetimeTimer=setTimeout(()=>{
+      fatal??=fault('EVALUATOR_TIMEOUT','Workflow run exceeded its wall deadline while paused');state.error=diagnostic(fatal);
+      abort.abort();for(const resolve of waiters.splice(0))resolve();if(expireDrain)armDrain(drainTimeoutMs);
+    },Math.max(0,timeoutMs-(performance.now()-evaluationStartedAt)));
+    const drained=await Promise.race([Promise.allSettled([...calls]).then(()=>true),new Promise(resolve=>{expireDrain=resolve;if(controlAction!=='pause'||primary||fatal||abort.signal.aborted)armDrain(drainTimeoutMs);})]);
     clearTimeout(drainTimer);
     expireDrain=undefined;
     if(!drained){
@@ -469,12 +600,14 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       }
     }
     clearInterval(controlTimer);
+    clearTimeout(lifetimeTimer);
     state.status=controlAction==='pause'?'pausing':controlAction==='stop'?'stopping':'finishing';
     applyControls(true);
     try { state.cleanup = await closeBackend(); }
     catch (error) { state.cleanup = { serverExited: false, error: diagnostic(error), descendants: 'notVerified' }; }
     if(drained)await Promise.allSettled([...calls]);
-    if(primary||fatal)state.status='failed';else state.status=controlAction==='pause'?'paused':controlAction==='stop'?'stopped':'completed';
+    if(primary||fatal||additionFailure)state.status='failed';else state.status=controlAction==='pause'?'paused':controlAction==='stop'?'stopped':'completed';
+    if(additionFailure)state.appendError=diagnostic(additionFailure);
     if (!state.cleanup.serverExited || snapshot(db).workers.some(worker => worker.status === 'unknown')) state.status = controlAction?'blocked':'failed';
     state.updatedAt = new Date().toISOString();
     db.exec('BEGIN IMMEDIATE');
@@ -488,6 +621,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
   } finally {
     controlsRetired=true;
     clearInterval(controlTimer);
+    clearTimeout(lifetimeTimer);
     clearTimeout(drainTimer);
     stopped = true; abort.abort();
     for (const resolve of waiters.splice(0)) resolve();
