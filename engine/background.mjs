@@ -27,7 +27,8 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   }
   if(previous&&input.workerCapabilities!==undefined)throw fault('CAPABILITY_OVERRIDE','Saved runs retain the original worker capability bundle');
   const capabilityValue=previous?.workerCapabilities??input.workerCapabilities;
-  const capabilities=capabilityValue===undefined?null:await freezeCapabilities(capabilityValue);
+  const capabilitySources=previous?.launch?.capabilitySources;
+  const capabilities=capabilityValue===undefined?null:await freezeCapabilities(capabilityValue,{runDir:input.runDir,capabilitySources});
   if(previous?.workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==previous.workerCapabilitiesHash||input.workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==input.workerCapabilitiesHash)throw fault('CAPABILITY_IDENTITY','Worker capability ceiling identity changed');
   if(previous&&capabilities&&JSON.stringify(previous.workerCapabilitySources)!==JSON.stringify(capabilities.toolSources))throw fault('CAPABILITY_IDENTITY','Worker tool source availability changed');
   if(previous&&input.capturePolicy!==undefined)throw fault('CAPTURE_POLICY_OVERRIDE','Saved runs retain their original capture policy; start a new run to change it');
@@ -46,6 +47,7 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   const session0Desktop=previous?.launch?.session0Desktop??input.session0Desktop??'inherit';
   const launch={...(session0Desktop==='shared'?{session0Desktop}:{}),codex:input.codex??previous?.launch.codex,cwd:input.cwd??previous?.launch.cwd,backend:input.backend??previous?.launch.backend??'configured',defaults:{...previous?.launch.defaults,...input.defaults}};
   if(accessPolicy)launch.accessPolicy=accessPolicy;
+  if(capabilitySources!==undefined)launch.capabilitySources=capabilitySources;
   if(capabilities)Object.assign(launch,{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint});
   if(frozenPolicy)Object.assign(launch,{capturePolicy:frozenPolicy.policy,capturePolicyHash:frozenPolicy.policyHash});
   const native=createLaunch({executable:launch.codex,cwd:launch.cwd,backend:launch.backend,session0Desktop});
@@ -103,7 +105,7 @@ export async function serveBackground(requestPath,createBackend){
     parseScript(request.script);
     if(request.launch?.accessPolicy!==undefined)request.launch.accessPolicy=validateAccessPolicy(request.launch.accessPolicy,{sessionId:request.sessionId});
     admitting=true;
-    const backend=await createBackend({executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,session0Desktop:request.launch.session0Desktop??'inherit',defaults:request.launch.defaults??{},...(request.launch.accessPolicy?{accessPolicy:request.launch.accessPolicy}:{}),...(request.launch.workerCapabilities?{workerCapabilities:request.launch.workerCapabilities,workerCapabilitiesHash:request.launch.workerCapabilitiesHash}:{})});
+    const backend=await createBackend({runDir:request.runDir,retainSources:request.resume!==true,executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,session0Desktop:request.launch.session0Desktop??'inherit',defaults:request.launch.defaults??{},...(request.launch.capabilitySources===undefined?{}:{capabilitySources:request.launch.capabilitySources}),...(request.launch.accessPolicy?{accessPolicy:request.launch.accessPolicy}:{}),...(request.launch.workerCapabilities?{workerCapabilities:request.launch.workerCapabilities,workerCapabilitiesHash:request.launch.workerCapabilitiesHash}:{})});
     admitting=false;
     const run=await runWorkflow({...request,backend,onReady:async({generation})=>{
       await send({kind:'ready',generation});await permission;

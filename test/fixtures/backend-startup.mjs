@@ -37,7 +37,7 @@ if(mode==='cli'){
   const stage=process.argv[3],all=JSON.parse(readFileSync('scenario.json','utf8')),scenario=all[stage]??{};
   const full=all.parentAccess&&!(stage==='worker'&&all.workerOptions?.permissions?.sandbox==='read-only');
   const sandboxPolicy=full?{type:'dangerFullAccess'}:{type:'readOnly',networkAccess:false};
-  const commands=new Map();let experimentalApi=false;
+  const commands=new Map();let experimentalApi=false,selectedRoots=[];
   const send=message=>process.stdout.write(JSON.stringify(message)+'\n');
   const reply=(id,result)=>send({id,result});
   const notify=(method,params)=>send({method,params});
@@ -48,7 +48,7 @@ if(mode==='cli'){
     appendFileSync('trace.jsonl',JSON.stringify({stage,method,...(method==='command/exec'?{commandTimeoutMs:params.timeoutMs}:{}),...(params.sandboxPolicy?{sandboxPolicy:params.sandboxPolicy}:{}),...(params.runtimeWorkspaceRoots?{cwd:params.cwd,runtimeWorkspaceRoots:params.runtimeWorkspaceRoots}:{}),...(method==='thread/start'?{sandbox:params.sandbox,experimentalRawEvents:params.experimentalRawEvents===true,experimentalApi,roots:params.selectedCapabilityRoots??[]}:{}) ,...(method==='turn/start'?{inputTypes:params.input.map(item=>item.type),nativeSkillGuidance:params.input.some(item=>item.type==='text'&&item.text.includes('skills.list')&&item.text.includes('skills.read'))}:{})})+'\n');
     if(scenario.requestFailure===method)return fail(id);
     if(method==='initialize'){experimentalApi=params.capabilities.experimentalApi;return reply(id,{userAgent:'fixture/0.162.1'});}
-    if(method==='config/read')return reply(id,{config:{...config,sandbox_mode:full?'danger-full-access':'read-only',...(all.parentAccess?{plugins:{'fixture-plugin':{enabled:true,token:secret}},mcp_servers:{'fixture-server':{enabled:true,token:secret}}}:{}),...(stage==='worker'&&(all.nativeSkills||all.parentAccess)?{features:{...config.features,code_mode:{direct_only_tool_namespaces:['skills']}}}:{}),...(scenario.badIntegration?{mcp_servers:{'bad\nidentifier':{enabled:true}}}:{})},layers:[{config:{}}]});
+    if(method==='config/read')return reply(id,{config:{...config,sandbox_mode:full?'danger-full-access':'read-only',...(all.parentAccess?{plugins:{'fixture-plugin':{enabled:true,token:secret}},mcp_servers:{'fixture-server':{enabled:true,token:secret}}}:{}),...(stage==='worker'&&(all.nativeSkills||all.parentAccess)?{features:{...config.features,code_mode:{direct_only_tool_namespaces:['skills']}}}:{}),...(scenario.integrationDrift?{apps:{'new-integration':{enabled:true}}}:{}),...(scenario.badIntegration?{mcp_servers:{'bad\nidentifier':{enabled:true}}}:{})},layers:[{config:{}}]});
     if(method==='account/read')return reply(id,{account:{type:'chatgpt',email:secret}});
     if(method==='windowsSandbox/readiness')return reply(id,{status:'ready'});
     if(method==='model/list')return reply(id,{data:scenario.badCatalog?null:[{model:'fixture-model',isDefault:true,defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}]}],nextCursor:null});
@@ -58,7 +58,7 @@ if(mode==='cli'){
     }
     if(method==='skills/list'){
       const pluginRoot=join(process.cwd(),'codex-home','plugins','cache','fixture-market','fixture-plugin','1.0.0');
-      return reply(id,{data:[{cwd:params.cwds[0],skills:[{name:'fixture:parent-skill',path:join(pluginRoot,'skills','parent','SKILL.md'),pluginId:'fixture-plugin@fixture-market',enabled:true,scope:'user'},...(all.nativeSkills?[{name:'fixture:skill',path:join(process.cwd(),'selected-skill','SKILL.md'),pluginId:null,enabled:true,scope:'user'}]:[])],errors:scenario.partialCatalog?[{message:secret}]:[]}]});
+      return reply(id,{data:[{cwd:params.cwds[0],skills:[{name:'fixture:parent-skill',path:join(pluginRoot,'skills','parent','SKILL.md'),pluginId:'fixture-plugin@fixture-market',enabled:true,scope:'user'},...(all.nativeSkills?[{name:'fixture:skill',path:join(process.cwd(),...(all.retainSources?['capability-plugin']:[]),'selected-skill','SKILL.md'),pluginId:null,enabled:true,scope:'user'}]:[])],errors:scenario.partialCatalog?[{message:secret}]:[]}]});
     }
     if(method==='command/exec'){
       if(JSON.stringify(params.sandboxPolicy)!==JSON.stringify(sandboxPolicy))throw Error('Command did not preserve admitted permissions');
@@ -75,6 +75,7 @@ if(mode==='cli'){
     if(method==='command/exec/terminate'){reply(id,{});return reply(commands.get(params.processId),{exitCode:1,stdout:'',stderr:''});}
     if(method==='thread/start'){
       if(!experimentalApi||params.experimentalRawEvents!==true)return fail(id);
+      selectedRoots=params.selectedCapabilityRoots??[];
       return reply(id,{thread:{id:'fixture-thread'},cwd:params.cwd,runtimeWorkspaceRoots:scenario.wrongWorkspace?[]:params.runtimeWorkspaceRoots,modelProvider:'openai',approvalPolicy:'never',sandbox:scenario.wrongPolicy?{type:'readOnly',networkAccess:false}:sandboxPolicy,model:params.model,reasoningEffort:params.config.model_reasoning_effort});
     }
     if(method==='mcpServerStatus/list'&&scenario.inventoryDelayMs)return setTimeout(()=>reply(id,{data:[],nextCursor:null}),scenario.inventoryDelayMs);
@@ -84,14 +85,15 @@ if(mode==='cli'){
       reply(id,{turn:{id:'fixture-turn'}});
       // The model has started after source admission. Change only this
       // subprocess fixture's declared original source, never an installed skill.
-      if(scenario.completionSource==='missing')unlinkSync(join(process.cwd(),'selected-skill','SKILL.md'));
-      if(scenario.completionSource==='changed')writeFileSync(join(process.cwd(),'selected-skill','SKILL.md'),'Changed after native admission');
+      const originalSelected=join(process.cwd(),...(all.retainSources?['capability-plugin']:[]),'selected-skill');
+      if(scenario.completionSource==='missing')unlinkSync(join(originalSelected,'SKILL.md'));
+      if(scenario.completionSource==='changed')writeFileSync(join(originalSelected,'SKILL.md'),'Changed after native admission');
       if(all.nativeSkills||all.parentAccess){
         const calls=scenario.nativeCalls??'paired';
         if(calls==='paired'||calls==='unpaired'){
           notify('rawResponseItem/completed',{threadId:params.threadId,turnId:'fixture-turn',item:{type:'function_call',call_id:'native-list',namespace:'skills',name:'list',arguments:'{}'}});
           notify('rawResponseItem/completed',{threadId:params.threadId,turnId:'fixture-turn',item:{type:'function_call_output',call_id:'native-list',output:'PRIVATE_NATIVE_SKILL_CATALOG'}});
-          const selected=[['native-fixture',all.nativeSkills?join(process.cwd(),'selected-skill'):join(process.cwd(),'codex-home','plugins','cache','fixture-market','fixture-plugin','1.0.0','skills','parent')]];
+          const selected=[['native-fixture',all.nativeSkills?(selectedRoots.find(root=>root.id==='native-fixture')?.location.path??originalSelected):join(process.cwd(),'codex-home','plugins','cache','fixture-market','fixture-plugin','1.0.0','skills','parent')]];
           if(all.twoSkills&&scenario.nativeRead!=='partial')selected.push(['native-second',join(process.cwd(),'selected-second')]);
           for(const [skillId,path] of selected){
             const root=path.replaceAll('\\','/'),packageUri=`skill://${skillId}/${root}`,callId=`native-read-${skillId}`;
@@ -154,9 +156,10 @@ if(mode==='cli'){
     await writeFile(join(plugin,'skills','parent','SKILL.md'),'PARENT_SKILL_BODY_NOT_COPIED');
   }
   if(scenario.nativeSkills){
-    selectedRoot=join(process.cwd(),'selected-skill');await mkdir(selectedRoot);
+    const packageRoot=scenario.retainSources?join(process.cwd(),'capability-plugin'):process.cwd();
+    selectedRoot=join(packageRoot,'selected-skill');await mkdir(selectedRoot,{recursive:true});
     const path=join(selectedRoot,'SKILL.md'),body='Opaque native fixture skill';await writeFile(path,body);
-    workerCapabilities={version:1,skills:[{id:'native-fixture',name:'fixture:skill',root:process.cwd(),path,sha256:createHash('sha256').update(body).digest('hex'),references:[]}],tools:[]};
+    workerCapabilities={version:1,skills:[{id:'native-fixture',name:'fixture:skill',root:packageRoot,path,sha256:createHash('sha256').update(body).digest('hex'),references:[]}],tools:[]};
     if(scenario.twoSkills){
       const second=join(process.cwd(),'selected-second');await mkdir(second);const path=join(second,'SKILL.md');await writeFile(path,body);
       workerCapabilities.skills.push({id:'native-second',name:'fixture:second',root:process.cwd(),path,sha256:createHash('sha256').update(body).digest('hex'),references:[]});
@@ -219,9 +222,10 @@ if(mode==='cli'){
   }else{
     let backend;
     try{
+      if(scenario.retainSources)await mkdir(join(process.cwd(),'retained-run'));
       let accessPolicy;
       if(scenario.parentAccess){const {resolveAccess}=await import('../../engine/access-policy.mjs');accessPolicy=structuredClone(resolveAccess({sessionId:'fixture',parentAccess:{version:1,sessionId:'fixture',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}}));if(scenario.tamper==='native')accessPolicy.native.command.sandboxPolicy={type:'readOnly',networkAccess:false};if(scenario.tamper==='fingerprint')accessPolicy.fingerprint='0'.repeat(64);}
-      backend=await createManagedBackend({executable:process.execPath,cwd:process.cwd(),workerCapabilities,accessPolicy});
+      backend=await createManagedBackend({executable:process.execPath,cwd:process.cwd(),workerCapabilities,accessPolicy,...(scenario.retainSources?{runDir:join(process.cwd(),'retained-run'),retainSources:true}:{})});
       if(scenario.operation==='readiness-restart'){
         const {runWorkflow,readRun}=await import('../../engine/controller.mjs');
         const {restartPlan,restartPreview}=await import('../../engine/restart.mjs');
@@ -238,7 +242,7 @@ if(mode==='cli'){
       const onDeadline=handle=>{deadlineHandle=handle;deadlineRegistered=handle.snapshot();if(scenario.liveChange){const apply=()=>handle.apply({...scenario.liveChange,expectedRevision:handle.snapshot().revision});if(scenario.liveChangeDelayMs)setTimeout(apply,scenario.liveChangeDelayMs);else apply();}};
       const result=scenario.execute?await backend.execute({onDeadline,onActive:()=>{if(scenario.activeChange)deadlineHandle.apply({...scenario.activeChange,expectedRevision:deadlineHandle.snapshot().revision});if(scenario.activeFailure)throw fault('CONTROL_FIXTURE','Controlled active registration failure');},prompt:'Controlled fixture answer',position:0,workspace,options:{...(scenario.nativeSkills?{skills:scenario.twoSkills?['native-fixture','native-second']:['native-fixture']}:{}),...(scenario.timeoutMs?{timeoutMs:scenario.timeoutMs}:{}),...scenario.workerOptions}}):undefined;
       const closing=backend.close(),again=backend.close();
-      report={ok:true,effective:backend.resolveOptions(),parentCapabilities:backend.parentCapabilities,admission:backend.admission,value:result?.value,workerEvidence:result?.evidence,deadlineRegistered,deadlineFinal:deadlineHandle?.snapshot(),cleanup:await closing,sameClose:closing===again};
+      report={ok:true,effective:backend.resolveOptions(),parentCapabilities:backend.parentCapabilities,capabilitySources:backend.capabilitySources,admission:backend.admission,value:result?.value,workerEvidence:result?.evidence,deadlineRegistered,deadlineFinal:deadlineHandle?.snapshot(),cleanup:await closing,sameClose:closing===again};
       }
     }catch(error){
       const {doctorFailure}=await import('../../bin/doctor-diagnostics.mjs');

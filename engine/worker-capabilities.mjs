@@ -5,6 +5,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {isAbsolute,resolve,relative,parse,join,basename,dirname} from 'node:path';
 import {fault} from '../foundation/client.mjs';
 import {projectToolEvent,createToolObserver,EARLY_TOOL_LIMIT,skillRootIdentity} from '../foundation/tool-observation.mjs';
+import {loadCapabilitySources} from './capability-sources.mjs';
 
 const MAX_FILES=128,MAX_BYTES=64*1024*1024;
 const sha=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
@@ -219,13 +220,19 @@ export async function verifyToolSources(tool,{checkEnvironment=false}={}){
   return{files:budget.files,bytes:budget.bytes,receiptAuthenticity:'notVerified'};
 }
 
-export async function freezeCapabilities(input){
-  const manifest=validateCapabilities(input),sources=await verifySkillSources(manifest.skills),toolSources=[];
-  for(const tool of manifest.tools){
+export async function freezeCapabilities(input,{runDir,capabilitySources}={}){
+  const manifest=validateCapabilities(input);let executionManifest=manifest;
+  if(capabilitySources!==undefined){
+    const retained=await loadCapabilitySources({runDir,descriptor:capabilitySources});
+    if(canonical(retained.manifest)!==canonical(manifest))throw fault('CAPABILITY_IDENTITY','Retained capability provenance differs from the original bundle');
+    executionManifest=validateCapabilities(retained.executionManifest);
+  }
+  const sources=await verifySkillSources(executionManifest.skills),toolSources=[];
+  for(const tool of executionManifest.tools){
     try{toolSources.push({id:tool.id,status:'verified',...await verifyToolSources(tool)});}
     catch(error){if(error.code!=='CAPABILITY_UNAVAILABLE')throw error;toolSources.push({id:tool.id,status:'unavailable'});}
   }
-  return freeze({manifest,fingerprint:digest({manifest,directSkills:DIRECT_SKILLS}),sources:sources.sourceChecks,toolSources});
+  return freeze({manifest,fingerprint:digest({manifest,directSkills:DIRECT_SKILLS}),sources:sources.sourceChecks,toolSources,...(capabilitySources===undefined?{}:{executionManifest})});
 }
 
 export async function readCapabilities(path){
@@ -304,7 +311,7 @@ export async function admitWorkerCapabilities(client,{cwd,selection,signal,deadl
   const externalDocuments=selection.skills.flatMap(skill=>skill.references
     .filter(reference=>reference.path.toLowerCase().endsWith('.md')&&basename(reference.path).toLowerCase()!=='skill.md'&&!inside(dirname(skill.path),resolve(skill.root,reference.path)))
     .map(reference=>({skill:skill.id,path:resolve(skill.root,reference.path),sha256:reference.sha256})));
-  if(externalDocuments.length)evidence.instructions+=`\nVerified reference documents outside a selected native skill package: ${JSON.stringify(externalDocuments)}. Native skills.read only binds resources inside that exact package. Do not invent out-of-package resource URIs, widen roots or imitate another skill activation. After genuine native activation, these original hash-checked documents may be inspected through bounded read-only file tools within the task's authorized read scope. Preserve failed native reference reads as failed. No SKILL.md body may be loaded this way.`;
+  if(externalDocuments.length)evidence.instructions+=`\nVerified reference documents outside a selected native skill package: ${JSON.stringify(externalDocuments)}. Native skills.read only binds resources inside that exact package. Do not invent out-of-package resource URIs, widen roots or imitate another skill activation. After genuine native activation, these admitted hash-checked documents may be inspected through bounded read-only file tools within the task's authorized read scope. Preserve failed native reference reads as failed. No SKILL.md body may be loaded this way.`;
   for(const tool of selection.tools){
     const fact={id:tool.id,fingerprint:digest(tool),node:tool.node.path,launcher:tool.launcher.path,runtimeRoot:tool.runtime.root,dependencyRoot:tool.dependencies.root,environment:tool.environment,status:'notChecked',missing:['source','readiness'],stages:[],receiptAuthenticity:'notVerified'};evidence.tools.push(fact);
     if(!selection.requireTools.includes(tool.id))continue;

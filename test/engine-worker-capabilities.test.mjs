@@ -1,11 +1,13 @@
 // @lane merge
 // @subject engine/worker-capabilities.mjs
+// @subject test/fixtures/capability-source-swap.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {tmpdir} from 'node:os';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -33,6 +35,105 @@ test('source identity drift and escaping references fail closed',async t=>{
     await assert.rejects(verifySkillSources([{...skill,...change}]),error=>/^SKILL_/.test(error.code));
   }
   await writeFile(path,'Changed source');await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE'});
+});
+
+async function retainedFixture(t){
+  const directory=await mkdtemp(join(tmpdir(),'workflow-retained-sources-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const source=join(directory,'cache','plugin','1.0.0'),runDir=join(directory,'run');
+  const path=join(source,'skills','compose','SKILL.md'),reference=join(source,'scripts','usage.md');
+  await mkdir(dirname(path),{recursive:true});await mkdir(dirname(reference),{recursive:true});await mkdir(runDir);
+  await writeFile(path,'---\nname: fixture:compose\n---\nPRIVATE_RETAINED_SKILL_BODY');await writeFile(reference,'PRIVATE_RETAINED_REFERENCE');
+  await writeFile(join(source,'scripts','run.mjs'),'process.stdout.write("RETAINED_TOOL_OK");');
+  await mkdir(join(source,'.codex-plugin'));await writeFile(join(source,'.codex-plugin','plugin.json'),'{"name":"fixture"}');
+  const manifest={version:1,skills:[{id:'compose',name:'fixture:compose',root:source,path,sha256:digest(await readFile(path)),references:[{path:'scripts/usage.md',sha256:digest(await readFile(reference))}]}],tools:[]};
+  return {directory,source,runDir,path,reference,manifest};
+}
+
+test('retained packages preserve complete plugin layout and real tool execution after original cache deletion',async t=>{
+  const {captureCapabilitySources,loadCapabilitySources}=await import('../engine/capability-sources.mjs'),f=await retainedFixture(t);
+  const descriptor=await captureCapabilitySources({runDir:f.runDir,manifest:f.manifest});
+  await rm(f.source,{recursive:true});
+  const loaded=await loadCapabilitySources({runDir:f.runDir,descriptor});
+  assert.deepEqual(loaded.manifest,f.manifest,'original provenance is unchanged');
+  const skill=loaded.executionManifest.skills[0];assert.notEqual(skill.root,f.source);assert.equal(skill.sha256,f.manifest.skills[0].sha256);
+  assert.equal(await readFile(join(skill.root,'.codex-plugin','plugin.json'),'utf8'),'{"name":"fixture"}');
+  assert.equal(await readFile(join(skill.root,'scripts','usage.md'),'utf8'),'PRIVATE_RETAINED_REFERENCE');
+  const result=await promisify(execFile)(process.execPath,[join(skill.root,'scripts','run.mjs')],{windowsHide:true});
+  assert.equal(result.stdout,'RETAINED_TOOL_OK');assert.equal(result.stderr,'');
+  const {freezeCapabilities,selectCapabilities}=await resolver();
+  const bundle=await freezeCapabilities(f.manifest,{runDir:f.runDir,capabilitySources:descriptor});
+  assert.deepEqual(bundle.manifest,f.manifest);assert.deepEqual(bundle.executionManifest,loaded.executionManifest);
+  assert.equal(selectCapabilities(bundle.executionManifest,{skills:['compose']}).roots[0].location.path,dirname(skill.path));
+  assert.doesNotMatch(JSON.stringify(descriptor),/PRIVATE_RETAINED/);
+});
+
+test('retention coalesces a parent plugin and selected skill while mapping associated launcher and exact readiness paths',async t=>{
+  const {captureCapabilitySources,loadCapabilitySources}=await import('../engine/capability-sources.mjs'),f=await retainedFixture(t);
+  const state=join(f.directory,'managed');await mkdir(state);await writeFile(join(state,'receipt.json'),'{}');
+  const launcher=join(f.source,'scripts','run.mjs');
+  await writeFile(launcher,'import {readFileSync} from "node:fs";if(readFileSync(process.argv[2],"utf8")!=="PRIVATE_RETAINED_REFERENCE")throw Error("wrong reference");process.stdout.write("RETAINED_TOOL_OK");');
+  const receipt={path:'receipt.json',sha256:digest('{}')};
+  f.manifest.tools.push({id:'compose-tool',skills:['compose'],node:{path:process.execPath,version:process.version,sha256:digest(await readFile(process.execPath))},launcher:{root:f.source,path:launcher,sha256:digest(await readFile(launcher))},runtime:{root:state,files:[receipt],receipt},dependencies:{root:state,files:[receipt],receipt},environment:{AGENT_BEEPS_HOME:state},readiness:[{id:'reference',args:[f.reference],marker:'RETAINED_TOOL_OK',timeoutMs:2000}],guidance:'Native plugin launcher; opaque text is not rewritten.'});
+  const roots=[{id:'parent-plugin',location:{type:'environment',environmentId:'local',path:f.source}},{id:'parent-skill',location:{type:'environment',environmentId:'local',path:dirname(f.path)}}];
+  const parentCapabilities={roots,inventory:{plugins:[],skills:[{path:f.path}]},coverage:{complete:true},fingerprint:'a'.repeat(64)};
+  const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),original=await freezeCapabilities(f.manifest);
+  const descriptor=await captureCapabilitySources({runDir:f.runDir,manifest:f.manifest,parentCapabilities});
+  await rm(f.source,{recursive:true});
+  const loaded=await loadCapabilitySources({runDir:f.runDir,descriptor}),bundle=await freezeCapabilities(f.manifest,{runDir:f.runDir,capabilitySources:descriptor});
+  assert.equal(bundle.fingerprint,original.fingerprint);assert.notEqual(bundle.executionManifest.tools[0].launcher.path,launcher);
+  assert.equal(loaded.parentCapabilities.roots[1].location.path,dirname(bundle.executionManifest.skills[0].path));
+  assert.equal(loaded.parentCapabilities.roots[0].location.path,bundle.executionManifest.skills[0].root);
+  assert.equal(loaded.parentCapabilities.sourceRetention.originFingerprint,parentCapabilities.fingerprint);
+  const seen=[],selection=selectCapabilities(bundle.executionManifest,{skills:['compose'],requireTools:['compose-tool']});
+  const evidence=await admitWorkerCapabilities(commandClient(seen,{...process.env,AGENT_BEEPS_HOME:state}),{cwd:f.directory,selection});
+  assert.equal(evidence.tools[0].status,'passed');assert.equal(evidence.tools[0].environment.AGENT_BEEPS_HOME,state);
+  assert.equal(seen.at(-1).command[2],join(bundle.executionManifest.skills[0].root,'scripts','usage.md'));
+});
+
+test('retained packages reject changed, added, missing and linked files rather than consulting the old cache',async t=>{
+  const {captureCapabilitySources,loadCapabilitySources}=await import('../engine/capability-sources.mjs');
+  for(const change of ['changed','added','missing','link'])await t.test(change,async child=>{
+    const f=await retainedFixture(child),descriptor=await captureCapabilitySources({runDir:f.runDir,manifest:f.manifest});
+    const loaded=await loadCapabilitySources({runDir:f.runDir,descriptor}),source=loaded.executionManifest.skills[0].root;
+    if(change==='changed')await writeFile(join(source,'scripts','usage.md'),'tampered');
+    if(change==='added')await writeFile(join(source,'extra.md'),'undeclared');
+    if(change==='missing')await rm(join(source,'scripts','usage.md'));
+    if(change==='link')await symlink(f.source,join(source,'linked'),process.platform==='win32'?'junction':'dir');
+    await assert.rejects(loadCapabilitySources({runDir:f.runDir,descriptor}),{code:'CAPABILITY_SOURCES'});
+  });
+});
+
+test('source retention refuses linked sources, a store inside its source, republishing and corrupt descriptors',async t=>{
+  const {captureCapabilitySources,loadCapabilitySources}=await import('../engine/capability-sources.mjs'),f=await retainedFixture(t);
+  await assert.rejects(captureCapabilitySources({runDir:f.source,manifest:f.manifest}),{code:'CAPABILITY_SOURCES'});
+  const descriptor=await captureCapabilitySources({runDir:f.runDir,manifest:f.manifest});
+  await assert.rejects(captureCapabilitySources({runDir:f.runDir,manifest:f.manifest}),{code:'CAPABILITY_SOURCES'});
+  for(const bad of [{...descriptor,sha256:'0'.repeat(64)},{...descriptor,path:f.source},{...descriptor,bytes:descriptor.bytes+1}]){
+    await assert.rejects(loadCapabilitySources({runDir:f.runDir,descriptor:bad}),{code:'CAPABILITY_SOURCES'});
+  }
+  const second=await retainedFixture(t);await symlink(f.source,join(second.source,'linked'),process.platform==='win32'?'junction':'dir');
+  await assert.rejects(captureCapabilitySources({runDir:second.runDir,manifest:second.manifest}),{code:'CAPABILITY_SOURCES'});
+});
+
+test('an empty retained capability bundle still rejects a linked package container',async t=>{
+  const {captureCapabilitySources,loadCapabilitySources}=await import('../engine/capability-sources.mjs'),f=await retainedFixture(t);
+  const descriptor=await captureCapabilitySources({runDir:f.runDir,manifest:{version:1,skills:[],tools:[]}});
+  const container=join(f.runDir,'source-packages-v1','packages'),outside=join(f.directory,'empty');await mkdir(outside);await rm(container,{recursive:true});
+  await symlink(outside,container,process.platform==='win32'?'junction':'dir');
+  await assert.rejects(loadCapabilitySources({runDir:f.runDir,descriptor}),{code:'CAPABILITY_SOURCES'});
+});
+
+test('retention rejects a plugin manifest changed after native catalog discovery',async t=>{
+  const {captureCapabilitySources}=await import('../engine/capability-sources.mjs'),f=await retainedFixture(t);
+  const parentCapabilities={roots:[{id:'plugin',location:{type:'environment',environmentId:'local',path:f.source}}],inventory:{plugins:[{id:'fixture@owned',rootId:'plugin',manifestSha256:digest('{"name":"fixture"}')}],skills:[]},coverage:{complete:true},fingerprint:'a'.repeat(64)};
+  await writeFile(join(f.source,'.codex-plugin','plugin.json'),'{"name":"fixture","version":"changed"}');
+  await assert.rejects(captureCapabilitySources({runDir:f.runDir,manifest:f.manifest,parentCapabilities}),{code:'CAPABILITY_SOURCES'});
+});
+
+test('an intermediate destination junction is rejected before any file is created outside its retained package',async()=>{
+  const result=await promisify(execFile)(process.execPath,[fileURLToPath(new URL('./fixtures/capability-source-swap.mjs',import.meta.url))],{windowsHide:true,timeout:10000,maxBuffer:8192});
+  const observed=JSON.parse(result.stdout);assert.equal(observed.swapped,true);assert.equal(observed.error,'CAPABILITY_SOURCES');
+  assert.equal(observed.outsideCreated,false,'rejection after writing through the junction is too late');
 });
 test('duplicate IDs names paths and unbounded references are rejected',async t=>{
   const {verifySkillSources}=await resolver(),{skill}=await fixture(t);

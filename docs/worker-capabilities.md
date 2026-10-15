@@ -1,5 +1,17 @@
 # Worker skills and associated tools
 
+## Run-owned source lifetime
+
+New public runs retain complete, verified source packages under their own `source-packages-v1/` directory. Parent plugin roots and explicitly declared skill packages preserve their manifests, scripts, references and assets. The original bundle/catalog and source paths remain provenance; a separate small launch descriptor binds the retained inventory and execution mapping. Original bundle IDs and hashes remain the logical selection ceiling.
+
+Genuine native `selectedCapabilityRoots`, executor list/read, activation observation and worker-local checks use the exact retained directories shown in admission evidence. Verify the returned `skill_root` against that admitted execution root. Copying a package does not invoke it or prove its full body was consumed. Required associated tools still need their own executable/runtime/dependency/environment/readiness checks. Structural paths and exact absolute readiness arguments inside a retained package map to the preserved layout; opaque strings and separately configured native MCP/app launch paths are not rewritten.
+
+Retained inventories are checked before worker admission and after model work. Changes, added files, missing resources and links reject; no newer cache package is substituted. Resume loads the saved descriptor and catalog before checking sources, so eviction of the original cache need not break a new retained-source run. Missing/corrupt retained storage rejects instead of falling back to the cache. New native integration configuration or a changed replay backend identity refuses admission without repeating completed work. External managed homes, pointers, dependencies, services and host connections retain their existing lifetime limits; mutable managed homes cannot live inside a copied source package.
+
+Capacity guards are128 coalesced roots,100,000 entries,depth32,512MiB payload and8MiB index, separate from worker time budgets. Store/index publication is exclusive and atomic; failed partial capture starts no model and is not implicitly reused. No dependency installation or automatic deletion occurs. Private source packages retire only with the containing run's separately reviewed lifecycle operation.
+
+Earlier descriptorless runs/runtimes retain their original source checks and failures. Resume cannot retrofit retention or replace a saved bundle. Reconcile original failures/effects before a fresh admitted continuation. The remaining historical sections describe original-root admission; for retained-source runs their native root checks refer to the admitted retained execution roots, with original identities preserved separately.
+
 ## Live grants remain unsupported
 
 Skill roots are selected when a native thread starts. The pinned public App Server has no setter for a missing root on an existing worker, including an active turn. Steering, host extra-root discovery and global enabled toggles do not provide a live executor grant. Adding another predeclared ID still needs the missing native setter; pre-exposing all skills and authorizing them in prose is not a substitute. See the [exact native boundary and required acceptance](../reports/live-skill-grants-native-boundary.md). No live-grant ability is claimed by 0.3.1.

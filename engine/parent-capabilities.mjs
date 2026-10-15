@@ -4,7 +4,7 @@ import {resolve,join,dirname,basename,relative,isAbsolute,parse} from 'node:path
 import {createHash} from 'node:crypto';
 
 const MAX_ITEMS=2048,MAX_ROOTS=128,MAX_RESPONSE=4*1024*1024;
-const manifests=['.codex-plugin/plugin.json','.claude-plugin/plugin.json','.cursor-plugin/plugin.json'];
+export const PLUGIN_MANIFESTS=Object.freeze(['.codex-plugin/plugin.json','.claude-plugin/plugin.json','.cursor-plugin/plugin.json']);
 const available=plugin=>plugin.enabled&&plugin.installed&&plugin.availability==='AVAILABLE'&&plugin.disabledReason===null;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const canonical=value=>Array.isArray(value)?`[${value.map(canonical).join(',')}]`:value&&typeof value==='object'?`{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`:JSON.stringify(value);
@@ -78,7 +78,7 @@ async function pluginRoot(home,id,budget){
   for await(const entry of directory){if(++count>MAX_ITEMS)throw new Error('version limit');if(entry.isDirectory()&&/^[A-Za-z0-9_.+-]+$/.test(entry.name)&&!['.','..'].includes(entry.name))candidates.push(entry.name);}
   candidates.sort(versions);const version=candidates.includes('local')?'local':candidates.at(-1);if(!version)throw new Error('missing version');
   const root=join(base,version);await original(root,true);let manifest;
-  for(const suffix of manifests){const path=join(root,suffix);try{await lstat(path);}catch(error){if(error.code==='ENOENT')continue;throw error;}manifest=path;break;}
+  for(const suffix of PLUGIN_MANIFESTS){const path=join(root,suffix);try{await lstat(path);}catch(error){if(error.code==='ENOENT')continue;throw error;}manifest=path;break;}
   if(!manifest)throw new Error('missing manifest');
   await original(manifest,false);const file=await open(manifest,'r');let bytes;
   try{const before=await file.stat();if(before.size>1024*1024)throw new Error('manifest limit');bytes=Buffer.alloc(before.size+1);const {bytesRead}=await file.read(bytes,0,bytes.length,0);bytes=bytes.subarray(0,bytesRead);const after=await file.stat();if(bytesRead!==before.size||after.size!==before.size||after.mtimeMs!==before.mtimeMs)throw new Error('source changed');}finally{await file.close();}

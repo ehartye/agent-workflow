@@ -112,6 +112,20 @@ test('capability ceiling persists and rejects resume overrides source drift and 
   assert.equal(invalid.error.code,'CAPABILITY_SELECTION');assert.equal(calls,1);
 });
 
+test('resume cannot retrofit retained sources onto a descriptorless run or repeat its completed work',async t=>{
+ const {runDir:root,runWorkflow,readRun}=await setup(t),{mkdir}=await import('node:fs/promises'),{createHash}=await import('node:crypto');
+ const runDir=join(root,'run'),source=join(root,'cache'),selected=join(source,'skill');await mkdir(selected,{recursive:true});
+ const path=join(selected,'SKILL.md'),body='old admitted source';await writeFile(path,body);
+ const manifest={version:1,skills:[{id:'selected',name:'selected',root:source,path,sha256:createHash('sha256').update(body).digest('hex'),references:[]}],tools:[]};
+ let calls=0;const execute=async()=>({value:++calls,terminalObserved:true});
+ const first=await runWorkflow({runDir,sessionId:'s',workerCapabilities:manifest,script:meta+'return await agent("Work",{skills:["selected"]});',backend:backend(execute)});
+ assert.equal(first.status,'completed');assert.equal(calls,1);
+ const {captureCapabilitySources}=await import('../engine/capability-sources.mjs');
+ const capabilitySources=await captureCapabilitySources({runDir,manifest});
+ await assert.rejects(runWorkflow({runDir,sessionId:'s',script:first.script,args:first.args,launch:first.launch,resume:true,backend:{...backend(execute),identity:'new-retaining-backend',capabilitySources}}),{code:'CAPABILITY_IDENTITY'});
+ assert.equal(calls,1);assert.deepEqual(await readRun(runDir),first);
+});
+
 test('run and worker deadlines are independent, persisted and reused on replay',async t=>{
   const {runDir,runWorkflow,readRun}=await setup(t);const seen=[];
   const input={runDir,sessionId:'s',script:meta+'return await agent("A");'};
