@@ -1,5 +1,7 @@
 import { parse } from 'acorn';
 import { fault } from '../foundation/client.mjs';
+import {validateWorkflowDeclarations} from './composition-contracts.mjs';
+import {validateStepCatalog} from './steps.mjs';
 
 function literal(node, depth = 0) {
   if (!node || depth > 20) throw fault('SCRIPT_META', 'Metadata must be bounded JSON literals');
@@ -30,6 +32,8 @@ export function parseScript(script) {
   }
   const meta = literal(declaration.declarations[0].init);
   if (!meta || typeof meta.name !== 'string' || !meta.name.trim() || meta.name.length > 200 || typeof meta.description !== 'string' || !meta.description.trim()) throw fault('SCRIPT_META', 'Metadata requires a name and description');
+  if(Object.hasOwn(meta,'workflows'))validateWorkflowDeclarations(meta.workflows);
+  if(Object.hasOwn(meta,'steps'))validateStepCatalog({steps:meta.steps});
   const pending = [...ast.body.slice(1)];
   while (pending.length) {
     const node = pending.pop();

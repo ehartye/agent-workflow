@@ -13,16 +13,17 @@ export function preflightEvaluatorInput(script, args = null, cpuMs = 1000) {
   return input;
 }
 
-export async function evaluate(script, { args = null, call, timeoutMs = null, idleTimeoutMs = 5000, cpuMs = 1000, signal } = {}) {
+export async function evaluate(script, { args = null, call, timeoutMs = null, idleTimeoutMs = 5000, cpuMs = 1000, signal, onProcess } = {}) {
   if (typeof call !== 'function' || timeoutMs!==null&&(!Number.isFinite(timeoutMs)||timeoutMs<=0) || !Number.isFinite(idleTimeoutMs)||idleTimeoutMs<=0 || !Number.isFinite(cpuMs) || cpuMs <= 0) throw fault('EVALUATOR_INPUT', 'A broker and positive execution limits are required');
   if (signal?.aborted) throw fault('EVALUATOR_ABORTED', 'Workflow evaluation was cancelled');
   const input = preflightEvaluatorInput(script, args, cpuMs);
   const child = fork(fileURLToPath(new URL('./evaluator-child.mjs', import.meta.url)), [], {
     windowsHide: true, silent: true, execArgv: [],
     // The child needs only Node and installed WASM; never inherit credentials/preloads.
-    env: Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(SystemRoot|WINDIR|TEMP|TMP|PATH)$/i.test(key))),
+    env: Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(SystemRoot|WINDIR|TEMP|TMP|PATH|AGENT_WORKFLOW_WORKER)$/i.test(key))),
   });
   child.stdout.resume(); child.stderr.resume();
+  child.once('spawn',()=>onProcess?.({event:'spawn',pid:child.pid}));
   return await new Promise((resolve, reject) => {
     let outcome;
     let exited = false;
@@ -53,6 +54,7 @@ export async function evaluate(script, { args = null, call, timeoutMs = null, id
     const observeExit = () => {
       if (exited) return;
       exited = true; clearTimeout(timer); clearTimeout(idleTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', abort);
+      onProcess?.({event:'exit',pid:child.pid??null});
       child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
       if (!outcome) outcome = { error: fault('EVALUATOR_EXIT', 'Evaluator exited without a result') };
       if (outcome.error) reject(outcome.error); else resolve(outcome.value);
@@ -66,7 +68,7 @@ export async function evaluate(script, { args = null, call, timeoutMs = null, id
       if (!message || Buffer.byteLength(JSON.stringify(message)) > 1024 * 1024) return finish({ error: fault('EVALUATOR_LIMIT', 'Evaluator message exceeded its limit') });
       if (message.kind === 'result') return finish(pending ? { error: fault('EVALUATOR_PENDING', 'Workflow returned with unawaited broker calls') } : { value: message.value });
       if (message.kind === 'error') return finish({ error: fault('SCRIPT_FAILED', 'Workflow script failed inside the isolated evaluator') });
-      if (message.kind !== 'call' || !Number.isInteger(message.id) || !['agent', 'phase', 'log'].includes(message.method) || ++total > 10000 || ++pending > 4096) return finish({ error: fault('EVALUATOR_PROTOCOL', 'Invalid or excessive evaluator broker messages') });
+      if (message.kind !== 'call' || !Number.isInteger(message.id) || message.id!==total+1 || !['agent', 'phase', 'log','workflow','refineArtifact'].includes(message.method) || ++total > 10000 || ++pending > 4096) return finish({ error: fault('EVALUATOR_PROTOCOL', 'Invalid or excessive evaluator broker messages') });
       clearTimeout(idleTimer);
       Promise.resolve().then(() => call(message.method, message.params)).then(value => {
         const json = JSON.stringify(value ?? null);

@@ -1,0 +1,62 @@
+{
+  "status": "passed",
+  "backend": "mxc",
+  "dispatches": 2,
+  "steering": "applied",
+  "cancellation": "applied",
+  "siblingStillRunning": true,
+  "workers": [
+    {
+      "status": "unknown",
+      "error": {
+        "code": "TURN_CANCELLED",
+        "message": "Codex turn was cancelled"
+      },
+      "interruption": {
+        "terminalObserved": true,
+        "terminalStatus": "interrupted",
+        "descendants": "notVerified"
+      },
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified",
+        "jobEmpty": true,
+        "ownershipScope": "windows-job-members",
+        "nativeTerminals": {
+          "observed": 1,
+          "acknowledged": 1,
+          "inventoryEmpty": true,
+          "descendants": "notVerified"
+        }
+      },
+      "attempts": 1
+    },
+    {
+      "status": "completed",
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified",
+        "jobEmpty": true,
+        "ownershipScope": "windows-job-members",
+        "nativeTerminals": {
+          "observed": 0,
+          "acknowledged": 0,
+          "inventoryEmpty": true,
+          "descendants": "notVerified"
+        }
+      },
+      "attempts": 1
+    }
+  ],
+  "siblingMarkerMatched": true,
+  "cleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members"
+  },
+  "checkedAt": "2026-10-13T17:41:45.806Z"
+}

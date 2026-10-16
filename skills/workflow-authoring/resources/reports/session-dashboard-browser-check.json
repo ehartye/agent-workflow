@@ -1,0 +1,245 @@
+{
+  "at": "2026-10-13T22:22:52.450Z",
+  "origin": "http://127.0.0.1:53110",
+  "originalTitle": "Tidepool case study — Workflow delivery",
+  "observations": [
+    {
+      "label": "desktop",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "scrollWidth": 1440,
+      "brand": {
+        "x": 24,
+        "y": 14,
+        "width": 32,
+        "height": 32,
+        "top": 14,
+        "right": 56,
+        "bottom": 46,
+        "left": 24
+      },
+      "header": "rgb(23, 71, 127)",
+      "close": {
+        "x": 1358.84375,
+        "y": 12,
+        "width": 57.15625,
+        "height": 36,
+        "top": 12,
+        "right": 1416,
+        "bottom": 48,
+        "left": 1358.84375
+      },
+      "workers": 6
+    },
+    {
+      "label": "desktop",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "scrollWidth": 1440,
+      "brand": {
+        "x": 24,
+        "y": 14,
+        "width": 32,
+        "height": 32,
+        "top": 14,
+        "right": 56,
+        "bottom": 46,
+        "left": 24
+      },
+      "header": "rgb(18, 51, 92)",
+      "close": {
+        "x": 1358.84375,
+        "y": 12,
+        "width": 57.15625,
+        "height": 36,
+        "top": 12,
+        "right": 1416,
+        "bottom": 48,
+        "left": 1358.84375
+      },
+      "workers": 6
+    },
+    {
+      "label": "compact",
+      "theme": "light",
+      "width": 1024,
+      "height": 768,
+      "scrollWidth": 1024,
+      "brand": {
+        "x": 16,
+        "y": 14,
+        "width": 32,
+        "height": 32,
+        "top": 14,
+        "right": 48,
+        "bottom": 46,
+        "left": 16
+      },
+      "header": "rgb(23, 71, 127)",
+      "close": {
+        "x": 950.84375,
+        "y": 12,
+        "width": 57.15625,
+        "height": 36,
+        "top": 12,
+        "right": 1008,
+        "bottom": 48,
+        "left": 950.84375
+      },
+      "workers": 6
+    },
+    {
+      "label": "compact",
+      "theme": "dark",
+      "width": 1024,
+      "height": 768,
+      "scrollWidth": 1024,
+      "brand": {
+        "x": 16,
+        "y": 14,
+        "width": 32,
+        "height": 32,
+        "top": 14,
+        "right": 48,
+        "bottom": 46,
+        "left": 16
+      },
+      "header": "rgb(18, 51, 92)",
+      "close": {
+        "x": 950.84375,
+        "y": 12,
+        "width": 57.15625,
+        "height": 36,
+        "top": 12,
+        "right": 1008,
+        "bottom": 48,
+        "left": 950.84375
+      },
+      "workers": 6
+    },
+    {
+      "label": "phone",
+      "theme": "light",
+      "width": 390,
+      "height": 844,
+      "scrollWidth": 390,
+      "brand": {
+        "x": 14,
+        "y": 10,
+        "width": 32,
+        "height": 32,
+        "top": 10,
+        "right": 46,
+        "bottom": 42,
+        "left": 14
+      },
+      "header": "rgb(23, 71, 127)",
+      "close": {
+        "x": 14,
+        "y": 98,
+        "width": 57.15625,
+        "height": 36,
+        "top": 98,
+        "right": 71.15625,
+        "bottom": 134,
+        "left": 14
+      },
+      "workers": 6
+    },
+    {
+      "label": "phone",
+      "theme": "dark",
+      "width": 390,
+      "height": 844,
+      "scrollWidth": 390,
+      "brand": {
+        "x": 14,
+        "y": 10,
+        "width": 32,
+        "height": 32,
+        "top": 10,
+        "right": 46,
+        "bottom": 42,
+        "left": 14
+      },
+      "header": "rgb(18, 51, 92)",
+      "close": {
+        "x": 14,
+        "y": 98,
+        "width": 57.15625,
+        "height": 36,
+        "top": 98,
+        "right": 71.15625,
+        "bottom": 134,
+        "left": 14
+      },
+      "workers": 6
+    },
+    {
+      "label": "200-percent-equivalent",
+      "theme": "light",
+      "width": 720,
+      "height": 450,
+      "scrollWidth": 720,
+      "brand": {
+        "x": 14,
+        "y": 14,
+        "width": 32,
+        "height": 32,
+        "top": 14,
+        "right": 46,
+        "bottom": 46,
+        "left": 14
+      },
+      "header": "rgb(23, 71, 127)",
+      "close": {
+        "x": 648.84375,
+        "y": 12,
+        "width": 57.15625,
+        "height": 36,
+        "top": 12,
+        "right": 706,
+        "bottom": 48,
+        "left": 648.84375
+      },
+      "workers": 6
+    },
+    {
+      "label": "200-percent-equivalent",
+      "theme": "dark",
+      "width": 720,
+      "height": 450,
+      "scrollWidth": 720,
+      "brand": {
+        "x": 14,
+        "y": 14,
+        "width": 32,
+        "height": 32,
+        "top": 14,
+        "right": 46,
+        "bottom": 46,
+        "left": 14
+      },
+      "header": "rgb(18, 51, 92)",
+      "close": {
+        "x": 648.84375,
+        "y": 12,
+        "width": 57.15625,
+        "height": 36,
+        "top": 12,
+        "right": 706,
+        "bottom": 48,
+        "left": 648.84375
+      },
+      "workers": 6
+    }
+  ],
+  "connections": 6,
+  "sessionChoices": 7,
+  "pageErrors": [],
+  "controlsMutated": false,
+  "pruned": false,
+  "zoomEvidence": "720×450 CSS viewport models 200% browser zoom from 1440×900; not an OS/browser zoom control claim"
+}

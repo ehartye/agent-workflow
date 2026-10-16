@@ -2,10 +2,15 @@
  * @subject engine/monitor/app.mjs
  * @subject engine/monitor/index.html
  * @subject engine/monitor/style.css
+ * @subject engine/steps.mjs
+ * @subject engine/controller.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import vm from 'node:vm';
 import { parseHTML } from 'linkedom';
 
@@ -102,6 +107,42 @@ const stepPage=(items,extra={})=>({schemaVersion:1,run:stepRun,generation:4,avai
 const stepSnapshot=(extra={})=>({workers:[],coverage:{requested:0,completed:0},monitor:{run:stepRun,pinnedRunId:stepRun.runId,capabilities:{scopedControls:true}},...extra});
 const isSteps=path=>/^\/api\/(?:runs\/[^/]+\/)?steps\?/.test(path);
 
+test('persisted provider displays declarations before admission and replaces only the assigned step',async t=>{
+  const {runWorkflow,readRun}=await import('../engine/controller.mjs');
+  const {readStepsAt}=await import('../engine/steps.mjs');
+  const {contextRunRef}=await import('../engine/composition-store.mjs');
+  const temp=await mkdtemp(join(tmpdir(),'steps-dom-')),runId=randomUUID(),runDir=join(temp,'runs-v2',runId);
+  await mkdir(runDir,{recursive:true});
+  // A scoped identity fixture; no managed installation or native worker is claimed.
+  await writeFile(join(runDir,'runtime.json'),JSON.stringify({schema:2,id:runId,sessionId:'steps-dom',runtime:{id:'identity-fixture'}}));
+  let ready,release;
+  const retained=new Promise(resolve=>{ready=resolve;}),gate=new Promise(resolve=>{release=resolve;});
+  const work=runWorkflow({runDir,sessionId:'steps-dom',script:'export const meta={name:"Persisted plan",description:"real provider and DOM",steps:[{id:"build",label:"Build",dependsOn:[],worker:{id:"builder"}},{id:"verify",label:"Verify",dependsOn:["build"]}]};return await agent("Synthetic",{id:"builder",maxAttempts:1});',onReady:async()=>{ready();await gate;},backend:{identity:'steps-dom-fixture',execute:async()=>({value:'done',terminalObserved:true}),close:async()=>({serverExited:true,descendants:'notVerified'})}});
+  t.after(async()=>{release();await work.catch(()=>{});await rm(temp,{recursive:true,force:true});});
+  await Promise.race([retained,work.then(()=>{throw Error('Catalog was not observed before execution');})]);
+  const run=await contextRunRef({runDir,sessionId:'steps-dom'}),before=await readRun(runDir);
+  assert.equal(before.workers.length,0);
+  let pageObserved;
+  const nextPage=()=>new Promise(resolve=>{pageObserved=resolve;});
+  const initialPage=nextPage();
+  const view=await monitor({run:{...before,monitor:{run,pinnedRunId:runId,capabilities:{scopedControls:true}}},response:async path=>{
+    if(!isSteps(path))return undefined;
+    try{return ok(await readStepsAt({runDir,run,generation:1}));}finally{pageObserved();}
+  }});
+  await initialPage;await view.flush();
+  assert.equal(view.document.querySelectorAll('.map-step').length,2,view.get('step-read-status').textContent);
+  assert.equal(view.document.querySelectorAll('.map-worker').length,0);
+  const planned=view.document.querySelector('.map-step');planned.focus();
+  release();const completed=await work;assert.equal(completed.status,'completed');
+  const assignedPage=nextPage();view.update(completed);await view.refresh();await assignedPage;await view.flush();
+  assert.equal(view.document.querySelectorAll('.map-worker').length,1);
+  assert.equal(view.document.querySelectorAll('.map-step').length,1);
+  assert.match(view.document.querySelector('.map-step').textContent,/Verify/);
+  assert.match(view.document.querySelector('.map-step').textContent,/Incomplete/i);
+  assert.match(view.get('step-coverage').textContent,/1.*unassigned/i);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
 test('declared steps appear before workers and open plan evidence without worker controls',async()=>{
   let items=[step('verify',{label:'Verify <exports>',dependencies:[stepRef('inspect')],displayBlockedBy:[stepRef('inspect')]}),step('inspect')];
   const view=await monitor({run:stepSnapshot(),response:path=>isSteps(path)?ok(stepPage(items)):undefined});
@@ -170,6 +211,36 @@ test('step pagination is explicit, scoped and keeps loaded selection across data
   const detail=view.get('detail');detail.scrollTop=49;await view.tick(2000);
   assert.equal(view.get('detail-heading').textContent,'Declared last');assert.equal(detail.scrollTop,49);
   assert.match(view.get('map-note').textContent,/omitted|first 60/i);assert.equal(view.get('load-more-steps').hidden,true);
+});
+
+test('unchanged automatic polls retain loaded step pages and explicit refresh remains available',async()=>{
+  let reads=0;
+  const view=await monitor({run:stepSnapshot({status:'completed',stepsRevision:'a'.repeat(64)}),response:path=>{
+    if(!isSteps(path))return;reads++;const tail=path.includes('&after=');
+    return ok(stepPage([step(tail?'tail':'head')],{nextCursor:tail?null:'next_page',hasMore:!tail,coverage:{declared:2,assigned:0,unassigned:2,dynamicWorkers:0,futureWorkers:'executionClosed'}}));
+  }});
+  await view.click(view.get('load-more-steps'));assert.equal(reads,2);
+  const card=view.document.querySelector('.map-step');card.focus();
+  for(let index=0;index<3;index++)await view.tick(2000);
+  assert.equal(reads,2,'An unchanged completed plan must not refetch loaded continuations on automatic polls');
+  assert.ok(view.document.activeElement===card);assert.equal(view.document.querySelectorAll('.map-step').length,2);
+  await view.refresh();assert.equal(reads,4,'An explicit refresh revalidates the bounded loaded page set');
+});
+
+test('step revision changes refresh worker-free child scopes once while irrelevant activity does not',async()=>{
+  let items=[step('root')],reads=0;
+  const view=await monitor({run:stepSnapshot({stepsRevision:'a'.repeat(64)}),response:path=>{
+    if(!isSteps(path))return;reads++;return ok(stepPage(items));
+  }});
+  const card=view.document.querySelector('.map-step');await view.click(card);await view.escape();card.focus();
+  const detail=view.get('detail');detail.scrollTop=37;
+  view.update({updatedAt:'2026-10-16T15:00:00Z'});await view.tick(2000);
+  assert.equal(reads,1,'Unrelated activity with unchanged verified step revision does not reread catalogs');
+  items=[...items,step('root',{ref:stepRef('root',{kind:'child',invocation:{run:stepRun,generation:4,invocationId:'c_1'}}),label:'New child plan'})];
+  view.update({stepsRevision:'b'.repeat(64)});await view.tick(2000);
+  assert.equal(reads,2);assert.equal(view.document.querySelectorAll('.map-step').length,2);
+  assert.ok(view.document.querySelector('.map-step')===card);assert.ok(view.document.activeElement===card);assert.equal(detail.scrollTop,37);
+  await view.tick(2000);assert.equal(reads,2,'The newly observed revision causes only one bounded refresh');
 });
 
 test('unavailable or stale step projections never reconstruct a catalog from metadata',async()=>{
@@ -246,13 +317,14 @@ test('conflicting or repeated continuation pages retain an honest prefix without
 
 test('step browsing stops at its request budget and discloses unloaded catalog coverage',async()=>{
   let reads=0;
-  const view=await monitor({savedPolling:'manual',run:stepSnapshot(),response:path=>{
+  const view=await monitor({run:stepSnapshot(),response:path=>{
     if(!isSteps(path))return;const index=Number(new URL(path,'http://fixture').searchParams.get('after')??0);reads++;
     return ok(stepPage([step(`bounded${index}`)],{hasMore:true,nextCursor:String(index+1),coverage:{declared:100,assigned:0,unassigned:100,dynamicWorkers:0,futureWorkers:'unknown'}}));
   }});
   for(let index=1;index<64;index++)await view.click(view.get('load-more-steps'));
   assert.equal(view.get('load-more-steps').disabled,true);assert.match(view.get('step-coverage').textContent,/64 of 100/);assert.match(view.get('step-read-status').textContent,/limit.*unloaded|unloaded.*limit/i);
   await view.click(view.get('load-more-steps'));assert.equal(reads,64,'A tiny-page provider cannot create an unbounded refresh request chain');
+  await view.tick(2000);assert.equal(reads,64,'Automatic polling cannot bypass the exhausted browsing request budget');
 });
 
 test('oversized step error bodies are cancelled at the byte boundary before JSON decoding',async()=>{

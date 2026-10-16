@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "kind": "sample-dashboard-layout-options",
+  "createdAt": "2026-10-14T02:27:15.682Z",
+  "scope": "Three independently authored interactive sample layouts; no live workflow controls or engine UI replacement.",
+  "source": {
+    "commit": "d199d002b2df01b47ab8a728f17e7a0d5d68c5d3",
+    "sha256": {
+      "index.html": "5da5bfbc7079ec9cec642aee4e6c4b5fdc5825fb1daf82b4e4ad0f464d53c2cf",
+      "styles.css": "3d9290e24c6e42f6c139b3a6bd65558555ce7af68676ad4b16c900dd6ca346c7",
+      "app.js": "03690efedbb7cff694044491bcc1727de2cff86b8fddda6aa85e1acf26996484"
+    },
+    "unchangedDuringQa": true
+  },
+  "qa": {
+    "passed": true,
+    "checks": 139,
+    "viewports": [
+      {
+        "width": 1440,
+        "height": 900
+      },
+      {
+        "width": 390,
+        "height": 844
+      }
+    ],
+    "layouts": [
+      "Canvas",
+      "Inspector",
+      "Phase"
+    ],
+    "views": 6,
+    "simulatedPhoneControl": true,
+    "headerPixels": 44,
+    "dependencyEdgesPerLayout": [
+      12,
+      12,
+      6
+    ],
+    "paintedTextInspected": true,
+    "nodeFontPixels": 15,
+    "reducedMotion": true,
+    "pageErrors": 0,
+    "consoleErrors": 0,
+    "externalRequests": 0,
+    "checksIncluded": [
+      "Option switching and distinct layout geometry",
+      "Canvas map dominance",
+      "No horizontal page overflow",
+      "Dismissed messages retained in history and restored",
+      "Node inspector keyboard activation, Escape, and focus restoration",
+      "Worker tray and phase focus",
+      "Dependency edge geometry",
+      "Painted glyph metrics and rendered screenshot review"
+    ],
+    "ownedBrowserAndServerClosed": true
+  },
+  "deployment": {
+    "url": "https://agent-workflow-layout-options.ehartye.chatgpt.site",
+    "projectId": "appgprj_6acede589260819188190635221e2cfc",
+    "deploymentId": "appgdep_6acee968a04c8191aa90b7c76448a561",
+    "version": "appgprj_6acede589260819188190635221e2cfc~appgver_0bc89c2c1e6081918d042bb6a121bdb1",
+    "evidence": "Publishing coordinator reported successful deployment and independently verified remote source SHA."
+  },
+  "corrections": [
+    "Return keyboard focus to the selected node after closing its inspector.",
+    "Route Phase dependencies around unrelated cards; distinguish incoming, focused and outgoing groups."
+  ],
+  "packaging": {
+    "initialResult": "Native Windows packaging exited 127 after successful source push; bash stripped Windows backslashes.",
+    "recovery": "Coordinator verified the remote SHA, then completed remaining packaging with the actual prepare-site-build.cjs and Windows tar in an owned stage; source push was not repeated.",
+    "rootCauseBeyondObservedQuoting": "unproven"
+  },
+  "limitations": [
+    "QA verified local exact source before deployment; this report does not assert a separate production browser session.",
+    "These are sample-data design options, not acceptance of new production workflow UI behavior.",
+    "Historical native layout writer remains unknown/TURN_TIMEOUT; source was authored separately after evidence review."
+  ]
+}

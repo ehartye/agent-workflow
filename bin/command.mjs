@@ -12,6 +12,9 @@ import {readRun,runWorkflow,requestControl,readControl} from '../engine/controll
 import {startBackground} from '../engine/background.mjs';
 import {createManagedBackend} from '../engine/backend.mjs';
 import {startMonitor} from '../engine/monitor-launch.mjs';
+import {freezeWorkflowSources} from '../engine/composition.mjs';
+import {contextRunRef} from '../engine/composition-store.mjs';
+import {validateArtifactScope} from '../engine/composition-contracts.mjs';
 import {monitorData} from '../engine/monitor-data.mjs';
 import {MAX_RUN_TIMEOUT_MS,MAX_WORKER_TIMEOUT_MS} from '../engine/deadlines.mjs';
 import {readLifecycle,readLifecycleReceipt,requestLifecycle,planPrune,applyPrune} from '../engine/run-lifecycle.mjs';
@@ -70,7 +73,12 @@ async function dataInstanceId(dataDir){
 async function roadmapCommand(p,owner){
  const o=p.values,context={dataDir:p.dataDir,runId:p.id},session={...context,sessionId:p.sessionId};let result;
  if(p.command==='plan'){
-  const script=await boundedText(o.script!==undefined?o.script:(await resolveWorkflow(p.id,{cwd:p.cwd})).scriptPath,1048576);
+  let scriptPath=o.script;
+  if(scriptPath===undefined){
+   try{scriptPath=(await resolveWorkflow(p.id,{cwd:p.cwd})).scriptPath;}
+   catch(error){if(error.code==='WORKFLOW_PATH')throw fault('CLI_FILE','A readable regular single-link workflow source without linked ancestors is required');throw error;}
+  }
+  const script=await boundedText(scriptPath,1048576);
   if(Buffer.byteLength(script,'utf8')>1048576)throw fault('CLI_INPUT_LIMIT','Script exceeded its bounded limit');
   result=await(await provider('plan-preview.mjs','previewPlan'))({script});
  }else if(p.command==='capture-preflight'){
@@ -133,8 +141,9 @@ export async function main(tokens=process.argv.slice(2)){
  if(p.command==='workflows'){print(await listWorkflows(registry));return 0;}
  if(p.command==='read'){print(await resolveWorkflow(p.id,registry));return 0;}
  if(p.command==='save'||p.command==='validate'){
-  const file=o.script??(p.command==='validate'?p.id:undefined);if(!file)throw Error('A workflow script file is required');const script=await readFile(resolve(file),'utf8');
-  print(p.command==='validate'?{valid:true,...parseScript(script)}:await saveWorkflow(p.id,script,{...registry,command:o.command,overwrite:o.overwrite}));return 0;
+  const file=o.script??(p.command==='validate'?p.id:undefined);if(!file)throw Error('A workflow script file is required');const bytes=await readFile(resolve(file)),script=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+  if(p.command==='validate'){const parsed=parseScript(script);print(o.summary?{valid:true,name:parsed.meta.name,scriptBytes:bytes.length,scriptSha256:createHash('sha256').update(bytes).digest('hex'),declaredWorkflows:parsed.meta.workflows?.length??0,declaredSteps:parsed.meta.steps?.length??0}:{valid:true,...parsed});}
+  else print(await saveWorkflow(p.id,script,{...registry,command:o.command,overwrite:o.overwrite}));return 0;
  }
  if(p.command==='list'){
   const root=paths(p.dataDir).runs;await noLinks(root);let entries;try{entries=await readdir(root,{withFileTypes:true});}catch(e){if(e.code==='ENOENT'){print({runs:[],counts:{visible:0,hidden:0,archived:0,unknown:0,unavailable:0}});return 0;}throw e;}
@@ -179,14 +188,21 @@ export async function main(tokens=process.argv.slice(2)){
   }
   const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir});
   const launch={codex:runtime.codex,cwd:p.cwd,backend:backendName,defaults,accessPolicy,...(session0Desktop==='shared'?{session0Desktop}:{}),...(capturePolicy===undefined?{}:{capturePolicy}),...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})};
+  if(o['artifact-scope-file']!==undefined){if(!o.writable)throw Error('Artifact scope requires --writable');launch.artifactScope=validateArtifactScope(await boundedJson(o['artifact-scope-file'],65536));}
   const {preflightRunInput}=await import('../engine/controller.mjs');
   preflightRunInput({script,args,launch,...(capabilities?{workerCapabilitySources:capabilities.toolSources}:{})});
   const binding=await bindRun({dataDir:p.dataDir,runtime,sessionId:p.sessionId}),input={runDir:binding.runDir,sessionId:p.sessionId,script,args,concurrency,...limits,...launch};
+  if(parseScript(script).meta.workflows?.length)launch.preparedWorkflowSources=await freezeWorkflowSources({runDir:binding.runDir,cwd:p.cwd,declarations:parseScript(script).meta.workflows});
+  if(launch.artifactScope)input.artifactScope=launch.artifactScope;
+  if(launch.preparedWorkflowSources)input.preparedWorkflowSources=launch.preparedWorkflowSources;
   try{if(!o.foreground){print(backgroundReceipt(binding.id,await startBackground(input,backgroundOptions(o)),p));return 0;}
    const backend=await createManagedBackend({runDir:binding.runDir,retainSources:true,executable:runtime.codex,cwd:p.cwd,backend:backendName,defaults,session0Desktop,accessPolicy,...(capabilities?{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint}:{})});const run=await runWorkflow({...input,launch,backend});print({id:binding.id,runDir:binding.runDir,status:run.status,generation:run.generation,coverage:run.coverage,result:run.result,error:run.error,cleanup:run.cleanup});return run.status==='completed'&&run.coverage.complete?0:1;
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}
  }
  const runDir=owner.runDir;
+ if(['steps','children'].includes(p.command)){const run=await contextRunRef({runDir,sessionId:owner.sessionId}),generation=integer(o.generation,'generation',{min:1,required:true}),options={runDir,run,generation,after:o.after??null,limit:integer(o.limit,'limit',{min:1,max:100})??50};
+  if(p.command==='steps')print(await(await import('../engine/steps.mjs')).readStepsAt(options));else print(await(await import('../engine/composition-store.mjs')).readChildrenAt(options));return 0;}
+ if(p.command==='domain-control'||p.command==='domain-control-receipt'){const run=await contextRunRef({runDir,sessionId:p.sessionId}),module=await import('../engine/controls.mjs');if(p.command==='domain-control'){if(!o['request-file'])throw Error('--request-file is required');print(await module.requestDomainControl({dataDir:p.dataDir,run,sessionId:p.sessionId,request:await boundedJson(o['request-file'],16384)}));}else print(await module.readDomainControl({dataDir:p.dataDir,run,sessionId:p.sessionId,requestId:o['request-id']}));return 0;}
  if(p.command==='append'||p.command==='append-receipt'){
   if(!o['request-id'])throw Error('--request-id is required; inspect this receipt after a lost response');
   const request={generation:integer(o.generation,'generation',{min:1,required:true}),requestId:o['request-id']};
@@ -202,7 +218,7 @@ export async function main(tokens=process.argv.slice(2)){
  }
  if(p.command==='status'){print({id:p.id,runDir,...await monitorData(runDir),lifecycle:await readLifecycle(runDir)});return 0;}
  if(p.command==='result'){print(await monitorData(runDir,{kind:'result'}));return 0;}
- if(p.command==='dashboard'){const {binding}=await createSessionServices({dataDir:p.dataDir,sessionId:p.sessionId,pinnedRunId:p.id});print({id:p.id,...await startMonitor(runDir,{binding})});return 0;}
+ if(p.command==='dashboard'){const {binding}=await createSessionServices({dataDir:p.dataDir,sessionId:p.sessionId,pinnedRunId:p.id});print({id:p.id,...await startMonitor(runDir,{binding,...(o['lan-bind']===undefined?{}:{network:{schemaVersion:1,mode:'lan',address:o['lan-bind']}})})});return 0;}
  if(p.command==='control'){if(!o.receipt)throw Error('--receipt is required');print(await readControl(runDir,o.receipt));return 0;}
  // Settled lifecycle operations never use the live-control mailbox.
  if(p.command==='lifecycle'){print(await readLifecycle(runDir));return 0;}
@@ -219,7 +235,7 @@ export async function main(tokens=process.argv.slice(2)){
   print(await monitorData(runDir,{kind:p.command==='events'?'activity':p.command,generation,position,sourceGeneration,after:integer(o.after,'after')??0,limit:integer(o.limit,'limit',{min:1,max:100})??50,basis:o.basis??'inputs',stage:o.stage??'outputs',previewBytes:32*1024*1024}));return 0;
  }
  if(p.command==='resume'||p.command==='restart-worker'){
-  print(backgroundReceipt(p.id,await startBackground({runDir,sessionId:p.sessionId,resume:true,...deadlines(o),...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})},backgroundOptions(o)),p));return 0;
+  print(backgroundReceipt(p.id,await startBackground({runDir,sessionId:p.sessionId,resume:true,...deadlines(o),...(o['workflow-revisions-file']===undefined?{}:{workflowRevisions:await boundedJson(o['workflow-revisions-file'],65536)}),...(generation!==undefined?{expectedGeneration:generation}:{}),...(o.script?{script:await readFile(resolve(o.script),'utf8')}:{}),...(p.command==='restart-worker'?{restart:{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),reconciliation:o.reconcile}}:{})},backgroundOptions(o)),p));return 0;
  }
  print(await requestControl(runDir,{sessionId:p.sessionId,generation,action:p.command,...(['steer','cancel-worker','worker-deadline'].includes(p.command)?{position:integer(o.position,'position',{required:true}),attempt:integer(o.attempt,'attempt',{min:1,required:true}),turnId:o.turn??null,...(o.text!==undefined?{text:o.text}:{}),...(p.command==='worker-deadline'?{deadline:parseDeadlineOptions(o)}:{})}:{})}));return 0;
 }

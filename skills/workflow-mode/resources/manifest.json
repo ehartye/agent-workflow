@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "skill": "workflow-mode",
+  "entry": {
+    "source": "skills/workflow-mode/SKILL.md",
+    "bytes": 2647,
+    "sha256": "662c5eb02e0bfd8dcfb8526f36805003570054b0c7a4c7f420bfadcbc2c04e0e"
+  },
+  "limits": {
+    "maxFile": 2097152,
+    "maxFiles": 512,
+    "maxBytes": 33554432
+  },
+  "files": [
+    {
+      "source": "skills/workflow-setup/references/session0-compatibility.md",
+      "sourceBytes": 3166,
+      "sourceSha256": "669e78b13eed3a4dbd2f3dc362c8842df4e367907782117468fa36da0ca69e53",
+      "output": "resources/skills/workflow-setup/references/session0-compatibility.md",
+      "outputBytes": 3166,
+      "outputSha256": "669e78b13eed3a4dbd2f3dc362c8842df4e367907782117468fa36da0ca69e53"
+    }
+  ]
+}

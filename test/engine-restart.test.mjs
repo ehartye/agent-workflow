@@ -19,6 +19,18 @@ const backend=execute=>({identity:'restart-fixture',execute,close:async()=>clean
 const script='export const meta={name:"restart",description:"Reconciled restart proof"};return await parallel([()=>agent("A"),()=>agent("B"),()=>agent("C")]);';
 async function setup(t){const runDir=await mkdtemp(join(tmpdir(),'workflow-restart-'));t.after(()=>rm(runDir,{recursive:true,force:true}));return{runDir,sessionId:'s',script};}
 const request={position:1,attempt:1,reconciliation:'Reviewed B and C effects; rerun their work.'};
+
+test('reconciled composed restart includes the child container and reuses the earlier no-agent prefix',async t=>{
+ const {mkdir,writeFile}=await import('node:fs/promises'),{resolveAccess}=await import('../engine/access-policy.mjs');const root=await mkdtemp(join(tmpdir(),'composed-restart-'));t.after(()=>rm(root,{recursive:true,force:true}));const source=join(root,'source');await mkdir(source);
+ await writeFile(join(source,'pure.mjs'),'export const meta={name:"pure",description:"no effects"};return {pure:true};');
+ await writeFile(join(source,'worker.mjs'),'export const meta={name:"worker",description:"fixture"};return {answer:await agent("B",{id:"reader"})};');
+ const declarations=['pure','worker'].map(alias=>({alias,source:{kind:'script',path:alias+'.mjs'},argsSchema:{type:'object'},resultSchema:{type:'object'},capabilities:{skills:null,tools:null},permissions:null}));
+ const script='export const meta='+JSON.stringify({name:'restart',description:'composition',workflows:declarations})+';await agent("A");const pure=await workflow("pure",{});return {pure,worker:await workflow("worker",{})};';
+ const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}});let calls=[];
+ const native=fail=>({...backend(async({prompt})=>{calls.push(prompt);if(fail&&prompt==='B')throw Object.assign(fault('FIXTURE','known failed effect'),{terminalObserved:true,evidence:{cleanup}});return{value:prompt+(fail?'':'2'),terminalObserved:true,evidence:{cleanup}};}),accessPolicy,parentCapabilities:{fingerprint:'a'.repeat(64),coverage:{complete:true}}});
+ const input={runDir:join(root,'run'),sessionId:'s',script,launch:{cwd:source,accessPolicy}};const first=await runWorkflow({...input,backend:native(true)});assert.equal(first.workers[1].status,'failed');
+ const second=await runWorkflow({...input,backend:native(false),resume:true,expectedGeneration:1,restart:request});assert.equal(second.status,'completed');assert.deepEqual(calls,['A','B','B']);assert.equal(second.result.pure.cached,true);assert.equal(second.workers[0].cached,true);assert.equal(second.workers[1].attempts,2);assert.equal(second.restart.invocationSeq,3);
+});
 async function initial(input,failedCleanup=cleanup){return runWorkflow({...input,backend:backend(async({prompt,onEvent})=>{
   onEvent({method:'thread/tokenUsage/updated',params:{threadId:prompt,turnId:'turn-'+prompt,tokenUsage:{total:{inputTokens:10,cachedInputTokens:0,outputTokens:2,reasoningOutputTokens:0,totalTokens:12}}}});
   if(prompt==='B')throw Object.assign(fault('TURN_CANCELLED','Cancelled'),{evidence:{cleanup:failedCleanup,attempts:[{number:1,status:'failed'}]}});

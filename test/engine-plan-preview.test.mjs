@@ -2,6 +2,10 @@
  * @subject engine/plan-preview.mjs
  */
 import test from 'node:test';
+test('preview retains zero-worker step declarations and recognizes inert composition calls',async()=>{
+ const {previewPlan}=await import('../engine/plan-preview.mjs');const steps=[{id:'pending',label:'Pending',dependsOn:[]}];const script='export const meta='+JSON.stringify({name:'display',description:'inert',steps})+';const value=await workflow("not-admitted",{});return await refineArtifact({});';
+ const preview=previewPlan({script});assert.deepEqual(preview.meta.steps,steps);assert.deepEqual(preview.callSites.map(s=>s.api),['workflow','refineArtifact']);
+});
 import assert from 'node:assert/strict';
 import {previewPlan} from '../engine/plan-preview.mjs';
 import {mkdtemp,access,readFile,writeFile,rm} from 'node:fs/promises';

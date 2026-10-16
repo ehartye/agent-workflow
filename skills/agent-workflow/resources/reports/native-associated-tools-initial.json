@@ -1,0 +1,324 @@
+{
+  "schema": 1,
+  "runId": "f43adae2-7ce0-458d-9387-946cf49952dd",
+  "generation": 1,
+  "scope": "reviewed completed partial source; no prior worker replay; missing managed operations only",
+  "producers": [
+    {
+      "position": 0,
+      "attempts": 1,
+      "status": "completed",
+      "reportedOutcome": "partial",
+      "patchHash": "d2fd7eb6ab7d1ef213ae1a06ee38516401600806c1aad491745e17e5a6355051",
+      "manifestHash": "f80b0471a3082047af8ca436f50efadd7f795930b93886d0435d25f8615ac437",
+      "native": {
+        "catalog": "callAndOutputObserved",
+        "read": "callAndOutputObserved",
+        "exposure": "effectiveDirectModelOnly",
+        "observations": [
+          {
+            "turnId": "01a13802-c8b3-7ce3-afed-396ff47cfe73",
+            "callId": "call_598d211872864b7fa6c1d337d6f5348d",
+            "tool": "skills.list",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          },
+          {
+            "turnId": "01a13802-c8b3-7ce3-afed-396ff47cfe73",
+            "callId": "call_b2dd500d2da14a46be437cb5f777ebbf",
+            "tool": "skills.read",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          },
+          {
+            "turnId": "01a13802-c8b3-7ce3-afed-396ff47cfe73",
+            "callId": "call_966be493f845437a8d0114884aa93bd0",
+            "tool": "skills.read",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          },
+          {
+            "turnId": "01a13802-c8b3-7ce3-afed-396ff47cfe73",
+            "callId": "call_70204cd3cbaa4ecbafecbc4ffff533c2",
+            "tool": "skills.read",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          },
+          {
+            "turnId": "01a13802-c8b3-7ce3-afed-396ff47cfe73",
+            "callId": "call_2e3c5225dd1e4320beb2b1f513a01618",
+            "tool": "skills.read",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          },
+          {
+            "turnId": "01a13802-c8b3-7ce3-afed-396ff47cfe73",
+            "callId": "call_33f93986137c4777bdd28c0381f14ee4",
+            "tool": "skills.read",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          }
+        ],
+        "discarded": 0,
+        "counters": {
+          "malformed": 0,
+          "duplicate": 0,
+          "conflicting": 0,
+          "discarded": 0,
+          "overflow": 0,
+          "unconfirmedDiscarded": 0,
+          "foreign": 0,
+          "unsupported": 0,
+          "missingCall": 0,
+          "missingOutput": 0
+        },
+        "coverage": "complete",
+        "catalogContents": "notRetained",
+        "readRootMatch": "notVerified"
+      },
+      "toolReadiness": [
+        {
+          "id": "sprites-managed",
+          "status": "passed",
+          "stages": [
+            {
+              "id": "tool-sources",
+              "status": "passed",
+              "start": "observed",
+              "exitCode": 0,
+              "markerObserved": true,
+              "outputTruncated": false
+            },
+            {
+              "id": "managed-version",
+              "status": "passed",
+              "start": "observed",
+              "exitCode": 0,
+              "markerObserved": true,
+              "outputTruncated": false
+            }
+          ]
+        }
+      ],
+      "commands": [
+        {
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "status": "failed",
+          "exitCode": 1
+        },
+        {
+          "status": "completed",
+          "exitCode": 0
+        }
+      ],
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified",
+        "jobEmpty": true,
+        "ownershipScope": "windows-job-members",
+        "nativeTerminals": {
+          "observed": 0,
+          "acknowledged": 0,
+          "inventoryEmpty": true,
+          "descendants": "notVerified"
+        }
+      },
+      "missing": [
+        "Build and verify stopped after the failed preflight; no retry.",
+        "PNG, atlas, editable project, contact sheet and preview.",
+        "Native linked README unavailable."
+      ],
+      "ownershipVerified": true,
+      "artifactIntegrityVerified": true
+    },
+    {
+      "position": 1,
+      "attempts": 1,
+      "status": "completed",
+      "reportedOutcome": "partial",
+      "patchHash": "8914a1cd7bbe5f31bf8f447511055bcf7527dfec459eaa3723bcf9280cd6127b",
+      "manifestHash": "b4ca34e98b299b3f94e71ffc3542372f58f29dae62cbfd8fad3aaad9838cd268",
+      "native": {
+        "catalog": "callAndOutputObserved",
+        "read": "callAndOutputObserved",
+        "exposure": "effectiveDirectModelOnly",
+        "observations": [
+          {
+            "turnId": "01a13802-ca47-7982-92a5-022c8722dd57",
+            "callId": "call_72d47a42dfc14ea0b7ac59a343c68c44",
+            "tool": "skills.list",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          },
+          {
+            "turnId": "01a13802-ca47-7982-92a5-022c8722dd57",
+            "callId": "call_104356414764465e9f5f84ea166f1bb0",
+            "tool": "skills.read",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          },
+          {
+            "turnId": "01a13802-ca47-7982-92a5-022c8722dd57",
+            "callId": "call_959d7d62ca0048ddb46defd5a35069b0",
+            "tool": "skills.read",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          },
+          {
+            "turnId": "01a13802-ca47-7982-92a5-022c8722dd57",
+            "callId": "call_819bfe2eb026472795ad2e49b599bb65",
+            "tool": "skills.read",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          },
+          {
+            "turnId": "01a13802-ca47-7982-92a5-022c8722dd57",
+            "callId": "call_1ee59b3d24ca441eb522da13ad2e99c3",
+            "tool": "skills.read",
+            "callObserved": true,
+            "outputObserved": true,
+            "ambiguous": false,
+            "outcome": "notVerified"
+          }
+        ],
+        "discarded": 0,
+        "counters": {
+          "malformed": 0,
+          "duplicate": 0,
+          "conflicting": 0,
+          "discarded": 0,
+          "overflow": 0,
+          "unconfirmedDiscarded": 0,
+          "foreign": 0,
+          "unsupported": 0,
+          "missingCall": 0,
+          "missingOutput": 0
+        },
+        "coverage": "complete",
+        "catalogContents": "notRetained",
+        "readRootMatch": "notVerified"
+      },
+      "toolReadiness": [
+        {
+          "id": "beeps-managed",
+          "status": "passed",
+          "stages": [
+            {
+              "id": "tool-sources",
+              "status": "passed",
+              "start": "observed",
+              "exitCode": 0,
+              "markerObserved": true,
+              "outputTruncated": false
+            },
+            {
+              "id": "managed-version",
+              "status": "passed",
+              "start": "observed",
+              "exitCode": 0,
+              "markerObserved": true,
+              "outputTruncated": false
+            }
+          ]
+        }
+      ],
+      "commands": [
+        {
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "status": "completed",
+          "exitCode": 0
+        }
+      ],
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified",
+        "jobEmpty": true,
+        "ownershipScope": "windows-job-members",
+        "nativeTerminals": {
+          "observed": 0,
+          "acknowledged": 0,
+          "inventoryEmpty": true,
+          "descendants": "notVerified"
+        }
+      },
+      "missing": [
+        "Managed schema validation: loaded native resources lacked a coordinator-verified absolute Node path.",
+        "Additional native README read failed: skill environment is not available for this callback.",
+        "WAV/render/listening acceptance is missing; rendering commands were not authorized.",
+        "Visual, native-call, and artifact acceptance are not claimed."
+      ],
+      "ownershipVerified": true,
+      "artifactIntegrityVerified": true
+    }
+  ],
+  "integrated": [
+    {
+      "producerPosition": 0,
+      "name": "native-capability-output/sprite/sprite-project.json",
+      "sha256": "aff62952e10bc78b6f7ba49ea2cb9e5c1ab0dcefd2bb85a374d9b1b7506e5685",
+      "size": 155
+    },
+    {
+      "producerPosition": 0,
+      "name": "native-capability-output/sprite/tidepool-snail.ops.json",
+      "sha256": "b164de7fb0731dfc0ec46f08d6ae7d8fd24ca1f5f55576ced1d895680eef393b",
+      "size": 5092
+    },
+    {
+      "producerPosition": 1,
+      "name": "native-capability-output/beeps/sound.json",
+      "sha256": "1443032411680e52673a7fcd0e07c54aa21f7abc8a8a79aecf847115a3510fdb",
+      "size": 1241
+    }
+  ],
+  "acceptedArtifacts": false,
+  "reconciliation": {
+    "sprite": "Failed preflight only read files and evaluated assertions; no managed build or verify launched. Authored dimensions independently correct. PowerShell5.1 array wrapping reproduced on a synthetic fixture; original shell version unverified.",
+    "beeps": "Only authored JSON/report and bounded PowerShell reads/size accounting; no managed authoring command launched. Verified Node/launcher metadata was missing from model prompt despite readiness.",
+    "continuation": "Capture bytes deliberately integrated into owned disposable launch checkout. Fresh isolated workers may run only missing operations; no restart, repeated authoring or old-status rewriting."
+  }
+}

@@ -572,7 +572,7 @@ function renderStepList(){
   for(const item of items){const worker=stepWorker(item);if(worker&&!$('show-hidden').checked&&visibilityFor(worker)!=='visible')continue;const entry=node('li');entry.dataset.graphKey=stepIdentity(item.ref);const button=node('button',`${item.label} · ${stepStatus(item)}`,'step-list-button');button.type='button';button.dataset.graphKey=stepIdentity(item.ref);button.setAttribute('aria-pressed',String(selectedStep===stepIdentity(item.ref)));button.addEventListener('click',event=>chooseStep(event.currentTarget.dataset.graphKey,event.currentTarget));entry.append(button);list.append(entry);}
   patchMapNode($('declared-step-list'),list);
 }
-async function loadSteps(append=false){
+async function loadSteps(append=false,{force=false}={}){
   const run=stepRun(),generation=snapshot?.generation;
   if(!run||!Number.isSafeInteger(generation)||generation<1){resetSteps();renderStepList();return;}
   if(!stepState||!sameRun(stepState.run,run)||stepState.generation!==generation){resetSteps();stepState={run,generation,items:[],pages:1,available:false,hasMore:false};}
@@ -582,6 +582,13 @@ async function loadSteps(append=false){
   const items=append?[...state.items]:[],cursors=new Set(append?state.cursors:[]);let cursor=append?state.nextCursor:null,page,coverage=append?state.coverage:null,loadedPages=0,bytes=append?state.bytes:0;
   const reads=append?1:state.pages;
   try{
+    const revision=snapshot.stepsRevision;
+    if(revision!==undefined&&(typeof revision!=='string'||!/^\s*[a-f0-9]{64}$/.test(revision)||revision.length!==64))throw Error('The recorded step revision is invalid.');
+    // New runtimes bind this revision to the complete verified projection.
+    // Older projections retain a conservative snapshot-based refresh key.
+    const identity=JSON.stringify([run,generation,revision??[snapshot.updatedAt,snapshot.status,snapshot.acceptingAdditions,snapshot.admissionRevision,snapshot.workers.map(worker=>[worker.position,worker.attempts,worker.status,worker.cached,worker.reusedFrom,worker.error,worker.step])]]);
+    if(!append&&!force&&state.readIdentity===identity)return;
+    if(!append)state.readIdentity=identity;
     for(let index=0;index<reads;index++){
       if(cursor!==null){if(cursors.has(cursor))throw Error('Repeated step cursor.');cursors.add(cursor);}
       page=await api(`/api/steps?generation=${generation}&limit=100${cursor!==null?`&after=${encodeURIComponent(cursor)}`:''}`,{signal:state.abort.signal,maxBytes:1048576});
@@ -1589,7 +1596,7 @@ async function mutateLifecycle(action,target={kind:'run'}){
     actionNotice=`${error.message} The lifecycle request was not retried. Coordinator receipt inspection or reconciliation is required.`;
   }finally{busy=false;stale=true;notice(actionNotice);await poll();}
 }
-async function poll() {
+async function poll(forceSteps=false) {
   clearTimeout(timer);
   if (disposed || closed || polling || busy || !authenticated || document.hidden) return;
   polling = true; updateButtons();
@@ -1615,7 +1622,7 @@ async function poll() {
     if(!health)stale=true;
     if(actionNotice)notice(actionNotice);
     notice(snapshot.error ? valueText(snapshot.error) : actionNotice); render(deferGraph);
-    await Promise.allSettled([loadNavigation(),loadSteps()]);
+    await Promise.allSettled([loadNavigation(),loadSteps(false,{force:forceSteps===true})]);
     if(deferGraph&&viewed===viewRun)render();
   } catch (error) {
     if(viewed!==viewRun)return;
@@ -1694,7 +1701,7 @@ $('close-monitor').addEventListener('click',async()=>{
   catch(error){$('connection').textContent='Dashboard close confirmation unavailable';notice(`${error.message} Close was not retried. Inspect service availability before another request.`);}
 });
 for (const id of ['status-filter', 'phase-filter']) $(id).addEventListener('change', () => { if (snapshot) { renderWorkers(); renderDetail(); renderMap(); } });
-$('refresh').addEventListener('click', () => { actionNotice = ''; poll(); });
+$('refresh').addEventListener('click', () => { actionNotice = ''; poll(true); });
 $('load-script').addEventListener('click', async () => {
   $('load-script').disabled = true;
   const generation = snapshot?.generation;

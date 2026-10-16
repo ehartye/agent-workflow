@@ -8,7 +8,14 @@ export function restartPlan(state,request,{requireReconciliation=true}={}){
   if(!worker||!['failed','unknown'].includes(worker.status))throw fault('RESTART_WORKER','Restart requires a failed or cancelled worker');
   if((worker.attempts??0)!==request.attempt)throw fault('CONTROL_ATTEMPT','Restart targets an outdated worker attempt');
   if(state.workers.slice(0,request.position).some(worker=>worker.status!=='completed'))throw fault('RESTART_PREFIX','Restart the earliest unsuccessful worker first');
-  const affected=state.workers.slice(request.position);
+  let invocationSeq=null,firstAffectedPosition=request.position;
+  if(state.compositionVersion===1){
+    invocationSeq=worker.invocation?.parentSeq??worker.invocation?.seq;
+    if(!Number.isSafeInteger(invocationSeq)||invocationSeq<1)throw fault('RESTART_DRAIN','Composed restart requires the actual invocation binding');
+    let changed=true;while(changed){changed=false;for(const item of state.workers)if(item.invocation?.seq>=invocationSeq&&item.invocation.parentSeq!==null&&item.invocation.parentSeq<invocationSeq){invocationSeq=item.invocation.parentSeq;changed=true;}}
+    firstAffectedPosition=Math.min(request.position,...state.workers.filter(item=>item.invocation?.seq>=invocationSeq).map(item=>item.position));
+  }
+  const affected=state.workers.slice(firstAffectedPosition);
   for(const item of affected){
     if(['running','unknown'].includes(item.status)&&!(item.attempts>(item.attemptOffset??0)))throw fault('RESTART_DRAIN','Unknown execution has no owned termination evidence');
     if((item.attempts??0)>(item.attemptOffset??0)){
@@ -17,7 +24,7 @@ export function restartPlan(state,request,{requireReconciliation=true}={}){
     }
   }
   if(state.attempts>=state.maxAgents)throw fault('AGENT_LIMIT','No lifetime worker attempts remain for restart');
-  return{position:request.position,attempt:request.attempt,affected:affected.map(item=>({position:item.position,status:item.status,attempts:item.attempts??0,...(item.origin?{origin:structuredClone(item.origin)}:{})})),...(requireReconciliation?{reconciliation:request.reconciliation.trim()}:{})};
+  return{position:request.position,attempt:request.attempt,...(invocationSeq===null?{}:{invocationSeq,firstAffectedPosition}),affected:affected.map(item=>({position:item.position,status:item.status,attempts:item.attempts??0,...(item.origin?{origin:structuredClone(item.origin)}:{})})),...(requireReconciliation?{reconciliation:request.reconciliation.trim()}:{})};
 }
 
 export function restartPreview(state){

@@ -1,0 +1,91 @@
+{
+  "version": 2,
+  "scenario": "docs/reviews/2026-10-15/authoring-v2/scenario.md",
+  "installedRuntime": "0.3.6",
+  "artifactMaxBytes": 81920,
+  "scorePerCriterion": [
+    0,
+    1
+  ],
+  "overallAcceptance": "All 12 criteria must pass with complete input coverage; otherwise false. Record omissions, unsupported semantics and missing evidence even if summary claims complete.",
+  "criteria": [
+    {
+      "id": "complete-artifact",
+      "number": 1,
+      "title": "Complete owned artifact; no omitted continuation, unsupported actual-completion claim or substitute self-score.",
+      "acceptance": "Full plan <=81920 UTF-8 bytes at the sole assigned path, complete numbered sequence and explicit unresolved coordinator inputs before dependent commands."
+    },
+    {
+      "id": "literal-api",
+      "number": 2,
+      "title": "Valid literal QuickJS script and supported options.",
+      "acceptance": "First exported literal metadata, actual agent calls, parallel(arrayOfZeroArgumentThunks), deliberate dependencies/null coverage. No parallel(items, callback), fake APIs or host evaluation."
+    },
+    {
+      "id": "cli-version",
+      "number": 3,
+      "title": "Supported CLI and explicit released-runtime/version decision.",
+      "acceptance": "Validation/save/start/inspection use literal argument arrays or correct PowerShell invocation; project: definitions are checkout-scoped. Fresh combined checkout uses absolute verified --script or explicitly saves its own definition. Installed0.3.6 finite worker API must be respected; candidate-only capabilities require an explicit before-dispatch version/install decision."
+    },
+    {
+      "id": "native-skills",
+      "number": 4,
+      "title": "Deliberate original per-role selection and genuine native activation.",
+      "acceptance": "Map review-ui/review-style to beautiful, ui-write to beautiful+tdd, fresh-verify to test-strategy; original roots resolved before admission, actual executor skills.list/read and main/source proof separate from availability."
+    },
+    {
+      "id": "prerequisites",
+      "number": 5,
+      "title": "Readiness under actual authority separated from activation and delivery.",
+      "acceptance": "Resolve real parent context and required tool operations; missing browser blocks rendering only, independent source authoring can proceed. CLI version does not prove rendering."
+    },
+    {
+      "id": "budgets",
+      "number": 6,
+      "title": "Explicit lifetime/task/attempt/concurrency/batch/deadline policy.",
+      "acceptance": "No-worker-wall-deadline with an owning orchestrator and manual control is a VALID policy; do not demand arbitrary finite retention or expiry. Manual dashboard Close is valid. Current0.3.6 cannot promise unsupported worker timeout values: select supported finite behavior or explicitly defer that requirement until a verified runtime update. State bounds and null coverage without equating concurrency to lifetime."
+    },
+    {
+      "id": "ownership-checkpoint",
+      "number": 7,
+      "title": "One writer per shared path and useful early artifact checkpoint.",
+      "acceptance": "Review app/style independently; only UI writer owns those two files, coordinator owns tests. Early inspectable source/artifact precedes polishing."
+    },
+    {
+      "id": "unknown-effects",
+      "number": 8,
+      "title": "Reconcile negative-drain effects honestly before dependent work.",
+      "acceptance": "Initial jobEmpty:false writer remains unknown; no replacement/merge/replay before genuine coordinator/runtime effect reconciliation. Preserve independent accepted writer. Show executable closure after actual reconciliation without treating historical unknown presence as a permanent global block."
+    },
+    {
+      "id": "recovery-cases",
+      "number": 9,
+      "title": "Complete both required-package-loss and changed-parent-catalog recovery branches.",
+      "acceptance": "Preserve original slots/effects/bindings; no silent substitution, grant widening or unsafe retry. Resolve current sources/context, admit safe unfinished scope or reuse accepted bytes, then integrate/verify. An unwritten future plan or placeholder-only closure is incomplete."
+    },
+    {
+      "id": "capture-handoff",
+      "number": 10,
+      "title": "Authoritative capture identity and reviewed integrity before integration.",
+      "acceptance": "Exact observed producer run/generation/position/attempt, original outcome, manifest/blob/hash/allowed paths and positive owned cleanup; dependsOn does not transfer files."
+    },
+    {
+      "id": "fresh-verification",
+      "number": 11,
+      "title": "Stable combined source, fresh verifier and final required gates.",
+      "acceptance": "Coordinator integrates reviewed bytes, freezes/rechecks identity, launches fresh independent verifier via correct checkout script resolution; full tests/check/smoke. Missing rendering remains explicitly unaccepted; no cached/self-reported substitute."
+    },
+    {
+      "id": "observation-lifecycle",
+      "number": 12,
+      "title": "Named attached observer and separate dashboard/run lifecycle.",
+      "acceptance": "Pre-arm named consumer, use startup watch argv, consumed attachment and processed cursor through terminal, relay failures/unknown/idle, preserve reconnect gaps. Stop controls run, Close ends dashboard; no automatic retry on observer failure."
+    }
+  ],
+  "limitations": [
+    "One simultaneous pair cannot establish general effectiveness, per-skill causality or automatic triggering.",
+    "Condition activation is separately checked by coordinator; grader must not infer conditions.",
+    "Planning is not actual execution or tool/render acceptance.",
+    "No planned follow-up steer; if one occurs preserve exact differential exposure and qualify comparison."
+  ]
+}

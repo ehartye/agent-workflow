@@ -1,0 +1,231 @@
+# Fresh CLI and monitor API
+
+This describes the working-tree candidate API based on published 0.4.5. That baseline retains capability source packages per run, along with live independent tasks, revisioned worker budgets, durable command facts and consumer-owned coverage receipts. The roadmap commands below are candidate interfaces requiring reviewed provider integration and fresh acceptance. Earlier retained runtimes keep their recorded behavior. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
+
+`--args-file` is available since 0.3.6. Earlier retained runtimes keep their original API; they can pass small manifest path/hash/range references through `--args JSON`. Check the recorded runtime's help before choosing a transport.
+
+## CLI
+
+All commands accept --data-dir. Otherwise state selection uses AGENT_WORKFLOW_DATA_DIR, then LOCALAPPDATA/agent-workflow or home .local/share/agent-workflow. PLUGIN_DATA is ignored for implicit selection.
+
+| Command | Accepted task options |
+| --- | --- |
+| setup | Install/select pinned managed runtime |
+| doctor | --cwd, --backend |
+| workflows / read [scope:]name | --cwd |
+| save [scope:]name | --script, --cwd, --command, --overwrite |
+| validate file | Alternatively --script file |
+| run [scope:]name | Alternatively --script file; --cwd, --session, --args JSON or --args-file path, --concurrency, --model, --effort, --max-attempts, --access parent\|restricted, --parent-access file, --writable, --foreground, --backend, --worker-timeout-ms, --run-timeout-ms, --capture-policy file, --worker-capabilities file |
+| list / status ID / result ID | Inspect persisted runs; list accepts --show-hidden |
+| watch ID | --session, --generation, --jsonl; optional --after, --idle-ms, --poll-ms |
+| worker ID | --position, --generation, optional --source-generation |
+| events ID | --position, --generation, --source-generation, --after, --limit |
+| patch ID | --position, --generation, --source-generation, --basis inputs or base |
+| exclusions ID | --position, --generation, optional --source-generation, --stage inputs or outputs, --after, --limit |
+| dashboard [ID] | --session, optional --current-ui; omitted ID selects newest recorded run in that session |
+| resume ID | --session, optional --generation and edited --script |
+| pause ID / stop ID | --session, --generation |
+| steer ID | --session, --generation, --position, --attempt, --turn, --text |
+| cancel-worker ID | --session, --generation, --position, --attempt, optional --turn |
+| restart-worker ID | --session, --generation, --position, --attempt, --reconcile |
+| control ID | --receipt |
+| append ID (candidate) | --session, --generation, --request-id UUID, --tasks-file path; [strict independent-task contract](live-append.md) |
+| append-receipt ID (candidate) | --generation, --request-id UUID |
+| worker-deadline ID (candidate) | --session, --generation, --position, --attempt, optional --turn, --deadline-revision; exactly one of --set-ms, --extend-ms, --clear |
+| lifecycle ID / lifecycle-receipt ID | Visibility, exact targets and counts; receipt read requires --receipt |
+| hide ID / archive ID / restore ID | --session, --generation, --revision, --request, optional --reason and exact --target worker identity |
+| prune-plan ID / prune ID | Reviewed retirement; see [complete contracts](session-delivery.md) |
+| mode on/off/status | --scope session or project, --session, --cwd |
+| capture-preflight (candidate) | --cwd, optional --capture-policy; read-only admission |
+| plan [scope:]name (candidate) | --cwd; alternatively --script file, exclusive with name; inert preview |
+| usage ID (candidate) | --generation required; observed totals, no spending cap |
+| acceptance ID (candidate) | --session, --request-file required; read-only assembly |
+| checkpoint-record ID (candidate) | --session, --request-file; coordinator mutation |
+| checkpoint ID (candidate) | --checkpoint-id OR --after/--limit; read one or list |
+| check-record ID (candidate) | --session, --checkpoint-id, --check-id, --job-id; internally resolved check |
+| job-start ID (candidate) | --session, --request-file; original saved authority |
+| job-status ID (candidate) | --session, --job-id; reconnect without re-execution |
+| job-output ID (candidate) | --session, --job-id, --stream stdout\|stderr; optional --after byte cursor and --limit-bytes 1..65536 |
+| job-cancel ID (candidate) | --session, --job-id, --request-id, --revision; explicit mutation |
+
+Use exact returned IDs rather than relying on dashboard's convenience selection when inspecting a specific run. Starts, resume, pause, stop, steer, cancel, restart and dashboard require --session or CODEX_THREAD_ID; existing-run mutations must match its original identity. Worker positions are zero-based; generation is positive. Read status immediately before controls and use its observed attempt/turn. Events use after=0, limit=50 by default; limit is 1–100.
+
+Roadmap usage, acceptance, checkpoint/check and job commands use the saved run's recorded runtime; capture-preflight and plan use the explicitly installed current runtime. Acceptance and job reads also check the original session. Unsupported providers return exit 1 without installation or a current-runtime retry. Workers cannot record checkpoints/checks, start jobs or cancel jobs. Setup still accepts no `--cwd`. See [exact dispatch, input and exit contracts](roadmap-command-contracts.md), including strict `engine/cli.mjs --inspect` read parity and missing integration checks.
+
+Roadmap input files must be regular single-link UTF-8 with no linked ancestors and stable pathname/handle identity. Job request files and serialized requests are limited to 2,097,152 bytes (2 MiB) by the reviewed R4 contract; checkpoint files remain 1 MiB, acceptance 65,536 bytes, policy 2 MiB and plan source 1 MiB. Job snapshots remain 1 MiB. The provider separately bounds the public options wrapper to 2 MiB + 65,536 bytes and its private ledger record to 4 MiB; public responses stay at 1 MiB and receipt metadata at 65,536 bytes. Missing providers remain unsupported, so these limits alone do not establish genuine job admission or execution.
+
+Run defaults: concurrency 2 (range 1–256), `--access parent`. Parent access requires `--parent-access file` containing an explicit originating-session snapshot; missing or unsupported authority fails closed. The supported snapshot is `{version:1,sessionId,provenance:"codex-session-context",filesystem:"unrestricted",networkAccess:true,approvalPolicy:"never"}`. This is coordinator-supplied context, not independent verification by a child configuration. `--access restricted` explicitly retains read-only/no-network/never-approve execution. Doctor defaults restricted; parent doctor also requires the snapshot and originating session. Saved launch and run headers retain the normalized policy and fingerprint; resume/restart cannot replace it, and old runs with no policy remain legacy restricted.
+
+Parent `--writable` defaults workers to `workspace:'isolated'` while retaining full parent execution permissions. Captured independent worktrees provide ownership, review and replay boundaries, not filesystem security isolation. Explicit worker read-only permissions narrow native execution and omit an inherited writer workspace; explicit read-only plus `workspace:'isolated'` is invalid. Restricted `--writable` retains the Windows MXC workspace-write ceiling. Native MCP/app connections may have independent authority; a narrowed command sandbox does not certify their external effects as read-only. Model/effort follow validated native catalog/configuration; `--max-attempts` is 1–5. Backend names are mxc and configured; Windows defaults mxc. A configured backend must independently pass admission. There is no automatic transport/backend fallback after dispatch.
+
+Parent runs separately retain `parentCapabilitiesHash` from the admitted backend catalog. Fresh parent admission requires complete catalog metadata and a valid fingerprint. Resume/restart reject a missing or changed catalog with `PARENT_CAPABILITIES_CHANGED` before generation mutation or dispatch; generic backend cache invalidation cannot silently repeat completed writers under different plugins. Legacy restricted runs retain their original replay behavior. A new current-catalog run still requires prior-effect reconciliation; this guard grants no retry permission.
+
+Candidate workers default to unbounded wall time (`null`); `--worker-timeout-ms` accepts a positive safe integer for an explicit budget or 0 to clear it. A task's explicit `timeoutMs:null` overrides a finite global default. [Live worker deadline controls](worker-session-control.md) set, extend or clear the active budget with exact identity and revision, without another turn or changed replay key. Startup, individual command, protocol, interruption and cleanup bounds remain separate. Installed 0.3.6 retains its 600,000 ms default and 1,800,000 ms ceiling. Overall run wall deadlines default to disabled (0), with an optional limit up to 86,400,000 ms. Completion/manual Stop owns the default run lifetime; evaluator CPU, memory and no-pending-work idle protections still apply. Persisted deadline values retain their original meaning on replay. Explicit capture policy is immutable after new-run admission; resume/restart reject policy overrides. See [capture and lifecycle](session-delivery.md) for policy syntax, inventories, exact revision targets and lost-response inspection.
+
+Normal run returns a detached startup receipt. --foreground waits and returns a nonzero exit code unless the run completed with complete worker coverage. Read-only status exit zero means the read succeeded, not the run. result returns retained result/error; inspect status for coverage and cleanup.
+
+Detached `run`, `resume` and `restart-worker` accept `--startup-timeout-ms`: a per-invocation launcher wall budget, default 60,000 ms, 0 to remove it, or an integer 1–2,147,483,647. It covers backend admission and capability-source retention before ready/commit acknowledgement. Large catalogs may need a deliberate longer or unbounded wait. Values are validated before run binding/forking; the flag is refused with `--foreground`. It does not change worker/run deadlines, permissions, source checks, individual protocol/command limits or cleanup, and is not inherited on later invocations. Older recorded runtimes retain their own parser and can refuse this option. Before commit delivery a timeout reports `START_TIMEOUT` with no authorized start; once commit may have been sent it remains `START_UNCERTAIN`. Inspect retained admission/effect/cleanup evidence after either outcome or a lost response; do not automatically resubmit.
+
+### New-run argument input
+
+Use `run ... --args JSON` for small values or `run ... --args-file path` for larger UTF-8 JSON. They are mutually exclusive; resume/restart accept neither input override. File paths resolve from the invoking process directory, independently of `--cwd`. The CLI reads a regular file boundedly (at most 2 MiB raw bytes), rejects malformed JSON/invalid UTF-8/nonregular/oversized input, and snapshots the parsed **value** into saved args. Editing or removing the source file after start cannot retarget replay. JSON whitespace is not preserved; Unicode and JSON data values are. Omitted args remain `null`.
+
+Both forms preflight the exact serialized evaluator start envelope before `bindRun`, backend creation or inference. Its existing 2 MiB UTF-8 limit includes script body, args, JSON escaping and envelope overhead; a smaller file can still exceed it. Scripts remain limited to 1 MiB. Broker messages/responses (including final results) remain 1 MiB each; worker prompts remain 65536 UTF-16 code units. Collections allow 4096 entries, but worker requests and lifetime starts/attempts are capped at 1000 per run; broker calls are capped at 10000. Limits are not raised and input is not truncated. Saved runs still select their recorded runtime/API identities.
+
+Bulk data belongs in frozen/hash-verified project manifests and chunks, with small args carrying paths, hashes, counts and assigned ranges. The evaluator has no filesystem. Workers verify input identity and read only their assigned records. Cached replay does not verify current external bytes; a path alone is insufficient for freshness. See [large inputs and bounded batches](../skills/workflow-authoring/references/large-inputs-and-batches.md) for input-choice tradeoffs, bounded rounds, separate concurrency/batch size, total call budgets and missing-result preservation.
+
+The persisted run header and detached launch request have separate 2 MiB serialized-record limits. The CLI also checks the known persisted input before binding: full script **and parsed metadata**, args, launch and duplicated declared capability/policy fields. This is a lower bound, not complete admission: backend/runtime/catalog/workspace/lifecycle facts and detached request fields add overhead later. Passing input preflight does not guarantee the final record fits. Leave headroom and use small manifest descriptors for bulk work; inspect any later refusal rather than retrying an uncertain start.
+
+Large worker outputs use a separate [output handoff and limit contract](worker-output-limits.md). Since 0.3.6 the native inbound Codex frame default is 16 MiB; earlier retained runtimes remain unchanged. The 512 MiB captured-file/diff limits, 512 KiB native answer limit, 1 MiB retained previews and evaluator-response bounds remain separate. Return bounded summaries and verified artifact references for bulk results. The next candidate's [durable command facts](durable-command-facts.md) retain bounded sanitized command identity/outcome separately from the ordinary activity tail; they do not preserve full shell bodies or raise these output limits.
+
+Native schema validation may impose a smaller serialized JSON budget (174,762 UTF-8 bytes in this admitted worker context). Task/schema limits can be lower still. Keep summaries and path/hash/byte references small, retain full owned artifacts, and report any missing coverage explicitly. An inbound frame allowance never increases an answer or evaluator budget.
+
+## Attached observation
+
+`watch ID --session SESSION --generation N --jsonl` attaches a read-only JSONL observer to the exact retained run. Detached startup receipts include `watch.required:true`, `attached:false`, the generation/cursor and copyable `argv`; returning that receipt does not attach an observer. The coordinator names an owner, starts the observer, confirms its `attached` record and retains the last event cursor actually processed by its consumer. Bytes written by the CLI alone do not prove consumption. Keep the same data directory and original session. Stop the observer with Ctrl+C without stopping or retrying workflow execution. The candidate's optional [consumer-owned receipt](observer-coverage.md) records processed cursors, attachment, terminal basis and gaps separately from run data and host chat delivery.
+
+Terminal worker/run notifications are durable SQLite records written with their corresponding state transactions. A worker notification follows its settled execution/cleanup; a forced-drain unknown is deferred until aggregate close. The final run notification and header commit together after backend cleanup, preserving negative or unknown cleanup facts. Events include sequence, generation, kind, status/time, exact worker position/attempt when applicable, and bounded cleanup/error facts. They exclude prompts, raw outputs, account data and credentials. Worker failures remain replayable after a consumer disconnects. `--after` defaults to 0 and must be 0 or a retained event in the selected current generation; reconnect explicitly with the last received cursor. Generation changes require a refreshed exact target. The journal never silently drops earlier terminal events: its 100,000-event capacity reserves the generation's maximum worker count plus one before admission. Older runtimes without this contract remain unsupported rather than migrated.
+
+Polling defaults to 500 ms (`--poll-ms` 100–10,000). `worker-progress` reports the latest safe completed-command/file-change fact, not a complete tool stream. An observer-local idle warning defaults to 60,000 ms (`--idle-ms` 1,000–86,400,000); commentary does not reset a running worker's idle clock. A warning occurs once until new actual progress, identifies the exact attempt and prompts inspection, not cancellation or retry. Watching has no execution controls and writes no run state. The `attached`, `worker-progress` and `idle-warning` records are live observer facts, separate from durable terminal notifications. A named attached coordinator observer relays them to the originating conversation; no native host push-delivery guarantee is claimed.
+
+The observer drains available terminal pages before exit. Exit 0 means the observed run status is `completed`, or the output consumer disconnected; distinguish these cases from received records, never the exit code alone. Other terminal statuses exit 1, observation errors exit 2 and explicit observer cancellation exits 130. Completion does not certify task objectives or artifact acceptance. A lost/broken output pipe does not advance the consumer cursor past an incompletely written record or mutate the workflow. The coordinator still verifies effects, capture integrity and final coverage.
+
+## Worker capability bundle
+
+New runs accept `--worker-capabilities <file>`. The bounded UTF-8 JSON file declares an immutable ceiling; scripts select only declared IDs with `agent(prompt,{skills:['compose'],requireTools:['compose-cli']})`. Omission preserves existing behavior. Resume/restart reject bundle overrides, recheck original source identities and availability, and retain earlier failed/unknown rows. A changed source, receipt, dependency or capability fingerprint cannot reuse saved results. The resolver participates in runtime source identity.
+
+Since 0.4.3, new public runs retain complete admitted source packages in private `source-packages-v1/` storage. Original roots remain provenance; genuine native `skills.list`/`skills.read` and completion checks use the exact retained execution mapping. Saved descriptors and retained inventories are verified before replay; changed/missing stores or incompatible backends refuse admission. Earlier descriptorless runs keep their original checks, without retrofitted copies or version substitution. Retention grants no live authority, dependency installation or external runtime lifetime. See [run-owned source lifetime](worker-capabilities.md#run-owned-source-lifetime).
+
+The exact version 1 shape below lists required fields. Arrays may be empty for skills/tools; a declared tool requires nonempty skills, runtime/dependency files and readiness. `sha256` is a lowercase 64-character SHA-256 of actual file bytes. Values are coordinator-reviewed identities, not self-certifying JSON claims.
+
+```javascript
+{
+  version: 1,
+  skills: [{
+    id: 'compose', name: 'plugin:compose',
+    root: '<absolute original plugin directory>',
+    path: '<absolute original skills/compose/SKILL.md>', sha256: '<digest>',
+    references: [{path: 'scripts/usage.md', sha256: '<digest>'}]
+  }],
+  tools: [{
+    id: 'compose-cli', skills: ['compose'],
+    node: {path: '<absolute verified node.exe>', version: 'v24.18.0', sha256: '<digest>'},
+    launcher: {root: '<absolute plugin directory>', path: '<absolute managed launcher>', sha256: '<digest>'},
+    runtime: {
+      root: '<absolute retained managed runtime>',
+      files: [{path: 'cli.mjs', sha256: '<digest>'}],
+      receipt: {path: 'receipt.json', sha256: '<digest>'}
+    },
+    dependencies: {
+      root: '<absolute retained dependency directory>',
+      files: [{path: 'package-lock.json', sha256: '<digest>'}],
+      receipt: {path: 'receipt.json', sha256: '<digest>'}
+    },
+    environment: {AGENT_BEEPS_HOME: '<absolute managed home>', PLAYWRIGHT_BROWSERS_PATH: '<absolute browser cache>'},
+    readiness: [{id: 'capabilities', args: ['capabilities'], marker: '<exact stdout marker>', timeoutMs: 5000}],
+    guidance: '<task invocation constraints; use instructions returned by the native skill tool>'
+  }]
+}
+```
+
+Unknown fields, duplicate IDs/names/paths, unsafe or linked paths, missing skill sources, changed bytes and plugin manifests in selected skill directories reject admission. References/files use normalized relative paths inside their declared source root; no traversal, filesystem links or caller-substituted relocated copies. Run-owned retention uses the separately verified descriptor mapping described above and preserves directory layout. The coordinator must enumerate required references, tool sources and dependencies: the resolver verifies those files and receipt bytes, but cannot authenticate a receipt or discover an undeclared transitive dependency closure from JSON. A missing managed tool may remain unavailable for independent source authoring; identity mismatch/unsafe paths reject even when that tool is optional.
+
+Every file exposed beneath an exact selected skill directory, including native discovery metadata and resources, must have a declared content identity. The scan is bounded at 512 entries and depth 6; nested undeclared skills, plugin manifests and descendant links reject. Linked documentation outside the native skill package may be declared by its original plugin-relative path and verified hash. If native resource access cannot reach it, an ordinary bounded read of that exact verified document is allowed only after genuine native skill activation; it cannot replace `skills.list`/`skills.read` or manually load another skill body. Windows native command arguments also have a pre-dispatch encoded-size guard; a valid manifest can still exceed that platform budget and be refused.
+
+Bounds: manifest 256 KiB; 32 skills, 16 tools; portable IDs 1–100 characters, native names 1–200; paths at most 4,096. Each skill has at most 64 references; skill verification reads at most 128 files/64 MiB, with 1 MiB per SKILL.md and 16 MiB per reference. Each tool source check reads at most 128 files/512 MiB, with 256 MiB for Node and 16 MiB for other files. Each runtime/dependency tree has at most 64 files. Each tool declares at most eight readiness stages, each with at most 32 arguments (2,048 characters each/16,384 total) and timeout 1–20,000 ms. Readiness output is capped at 8,192 bytes and never retained. Readiness runs exactly `[node.path,launcher.path,...args]`, once per required stage. These commands must be reviewed nonmutating queries; instruction guidance is not an enforced executable allowlist. No setup/install/service/fallback/retry is synthesized.
+
+Each readiness stage has exactly one expectation variant:
+
+```js
+{id: 'version', args: ['--version'], marker: '0.15.0', timeoutMs: 5000}
+{id: 'discovery', args: ['--check', '--json'], json: {installed: true, version: '0.15.0'}, timeoutMs: 5000}
+```
+
+The command arguments and JSON field names above are illustrative; use the selected tool's verified interface. `marker` is a nonempty string of at most 200 characters, matched against the entire trimmed stdout, never a substring. `json` is a nonempty top-level object with at most 16 own property expectations. Keys match `[A-Za-z][A-Za-z0-9_-]{0,99}`; `prototype` and names owned by `Object.prototype`, including `constructor` and `__proto__`, are refused. Inherited properties, accessors and symbols are refused. Values are only null, booleans, finite numbers or strings up to 200 characters. The entire stdout must parse as a JSON object whose own expected fields equal the declared scalars without coercion; additional fields are allowed and not retained. Both variants require exit zero and output below the conservative 8,192-byte truncation boundary. Evidence reports `expectation: 'marker' | 'json'` and `matched`; text checks also preserve `markerObserved`. A match alone does not override a nonzero exit, truncation or expired deadline. Discovery fields cannot prove Blender startup, browser rendering or artifact production.
+
+Worker skill access uses genuine pinned Codex 0.162.1 `skills.list`/`skills.read`. `thread/start.selectedCapabilityRoots` maps explicit role IDs to `{location:{type:'environment',environmentId:'local',path:dirname(SKILL.md)}}`; parent mode also provisions the admitted native catalog roots. Descriptor-backed runs use retained execution paths for both selections and parent catalog sources, preserving original identities as provenance. Workers with any selected roots receive the validated process-local `features.code_mode.direct_only_tool_namespaces=["skills"]` override. Workers use the returned package/main_resource and native pagination, then associated CLI instructions from that read. There is no extraRoots registration, UserInput skill injection, copied body or fake skill server. Restricted role roots avoid broader plugin bundles; parent catalog availability has the explicitly captured parent authority.
+
+Before tool-dependent inference, the owned restricted worker executes actual root/file/environment checks and every required readiness stage through native `command/exec` with read-only/no-network policy. Only explicit `AGENT_BEEPS_HOME`, `AGENT_SPRITES_HOME` and `PLAYWRIGHT_BROWSERS_PATH` values may be selected; conflicting tool environments reject. Parent managed homes are not inherited. Optional associated tools retain missing source/readiness stages. Schema correction repeats neither activation instructions nor readiness commands and asks only for an answer from existing evidence.
+
+Readiness and task/correction execution share one worker deadline, starting immediately before readiness after existing App Server/thread startup. No later readiness command or model turn starts after expiry. Post-readiness MCP inventory uses the largest enabled configured `mcp_servers.*.startup_timeout_sec` plus the ordinary 15-second protocol allowance, with a 15-second minimum when no startup budget is configured. The live worker deadline and cancellation still end that wait earlier; extending or clearing a worker deadline does not retroactively change a submitted RPC's bound. Invalid, negative or unrepresentable startup budgets refuse admission rather than overflow the host timer. Worker evidence retains bounded `nativeInventory` status, `timeoutMs` and `elapsedMs`, without tool bodies or credentials. Readiness command caps remain separate. Cleanup has its separate bounded drain and must retain uncertainty after a lost response. Establishing the thread before readiness permits native inventory cleanup even when a known executed check fails with zero inference.
+
+Only fully admitted required tools add verified invocation metadata to the initial task prompt: tool ID, absolute Node path/version, launcher path, named environment values and the exact readiness stages that passed. The bounded manifest supplies these values; skill bodies are not copied. Optional tools receive no passed-invocation claim. This metadata proves neither other operations nor artifact production, and is not an executable allowlist or broader permission grant.
+
+Evidence distinguishes native direct-tool exposure, exact selected roots, source fingerprints, readiness facts and namespaced call/output pairs. Each explicit `skills` selection requires an initial native main-resource read matching its admitted execution directory: retained for descriptor-backed runs, original for earlier runs. Bounded native JSON response metadata is reduced to a root identity and main-resource match before buffering; contents and request bodies are not retained. `native.activation` records required, observed and missing skill IDs, and `body:'notVerified'`. Failed reads, references alone, continuation pages alone, wrong roots, ambiguous/reused call IDs and incomplete observation cannot satisfy activation. `readRootMatch:'observedForSelectedMainReads'` describes reported initial main-response metadata, not full pagination or proof instructions were followed. Catalog contents remain unretained; task JSON cannot replace native evidence. Missing activation rejects completion with `CAPABILITY_NATIVE_SKILLS` and `missingSkills`. Parent catalog availability alone does not require invoking every discovered skill.
+
+After the model finishes, one bounded command revalidates exact selected source/reference identities under the same worker policy and remaining deadline. `completionSources` is separate from initial admission. Known removal/change yields `CAPABILITY_SOURCE_CHANGED`; unavailable or unknown completion-check evidence yields `CAPABILITY_SOURCE_UNVERIFIED`. This detects persistent cache drift; it does not lock the host cache, prevent deletion or silently select a newer package. Reconcile outcomes and prepare a fresh current bundle before another run. Historical run status/evidence remain unchanged.
+
+`noInference` means no task turn was dispatched; post-model source/activation rejection retains the observed model attempt without claiming no inference or no process startup. A lost readiness/completion response retains uncertainty and prevents ordinary replay. Cleanup remains independently required. Version/capabilities checks cannot certify render transport, artifacts or effects. Generated files must stay in assigned writer roots and pass capture integrity plus coordinator review. Parent native MCP/apps/browser availability depends on actual native configuration/authentication; host-only connections are not cloned. Fresh native skill/tool/artifact acceptance, combined verification and release belong to the coordinator.
+
+The supported route is source-backed by [native skill tools](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/ext/skills/src/tools/mod.rs#L55), [executor skill tests](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/app-server/tests/suite/v2/executor_skills.rs#L306) and [DirectModelOnly exposure](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/core/src/tools/spec_plan.rs#L541). [Native acceptance](verification.md) separately records genuine public-CLI skill calls and managed Beeps init/new/list with captured output review. WAV rendering/listening and sprite export remain unverified.
+
+## Scripts, persistence and replay
+
+The [script reference](../skills/agent-workflow/references/runtime-api.md) defines agent, parallel, pipeline, phase, log and JSON args. Literal first meta is required. Extra exports/imports and unsupported options reject. Scripts execute only in separate bounded QuickJS children; broker messages are JSON.
+
+Registry lookup is closest project to Git root, then personal, then plugin. Saved definitions reload on read. Collision, traversal and link checks fail closed. A run captures its script, arguments and launch settings independently from later definition edits.
+
+Managed state contains runtime-v2.json, fingerprinted runtime-v2 versions and runs-v2/<UUID>. Each run records original runtime/session ownership beside its SQLite database and launch/completion evidence. SQLite persists worker results before returning them to the evaluator. Do not edit records or clear locks to force recovery.
+
+Replay retains only the matching completed invocation prefix. Stable execution settings, dependencies, schema and timeout participate; labels/phases are cosmetic. Unknown outcomes, missing evidence, failed cleanup and incompatible runtime/session block ordinary resume. Explicit restart requires settlement, eligible failed/unknown position, exact attempt and reconciliation of the entire repeated suffix. See [controls](../skills/agent-workflow/references/controls.md).
+
+Worker evidence includes status, prompt/options, attempts, result/error, activity, observed usage, native thread/turn details and workspace artifacts when applicable. Coverage reports requested/completed/cached/failed/unknown; complete requires terminal completed state and all discovered workers completed. Script-level assertions of task coverage can still be incomplete.
+
+## Authenticated session HTTP monitor
+
+dashboard starts a separate loopback server bound to 127.0.0.1 on port 0. Its full URL includes a fragment token. API requests require Authorization: Bearer <token>, an exact Host, and an exact Origin when present. The browser removes the fragment and uses tab session storage. Static assets expose no run data. There is no default inactivity expiry; Close ends the monitor without stopping the workflow. Explicit --current-ui uses the selected current presentation while reads and controls retain each run's verified original runtime.
+
+| Route | Method and contract |
+| --- | --- |
+| /api/run | GET coherent bounded current snapshot, coverage and recent control receipts |
+| /api/worker/N | GET; generation required, optional sourceGeneration |
+| /api/activity | GET; generation and position required, optional sourceGeneration/after/limit |
+| /api/messages | GET; generation and position required, optional sourceGeneration/after/limit=1..100; retained terminal messages and explicit coverage |
+| /api/patch/N | GET; generation required, optional sourceGeneration and basis=inputs or base |
+| /api/exclusions/N | GET; generation required, optional sourceGeneration, stage=inputs or outputs, after and limit=1..100 |
+| /api/script | GET saved script text; generation required |
+| /api/result | GET retained result/error; generation required |
+| /api/control | POST generation/action and applicable position/attempt/turnId/text/deadline; exact target required on a session-bound monitor |
+| /api/control/receipts/:id | GET; exact generation required; read a received control ID without applying it |
+| /api/resume | POST generation; resume saved script |
+| /api/restart | POST generation/position/attempt/reconciliation |
+| /api/close | POST JSON object; close this monitor |
+
+POST bodies require application/json and are capped at 40,000 bytes. Unknown fields on control/resume/restart reject. Generation conflicts return 409; malformed inputs return 400. Controls return receipts; resume/restart return startup acknowledgement. The authenticated monitor uses the run's recorded session after launcher ownership validation. Edited-script resume is a CLI operation.
+
+Session-bound equivalents use `/api/runs/:runId/messages`,
+`/api/runs/:runId/control` and
+`/api/runs/:runId/control/receipts/:id`. Message queries reject unknown or repeated
+keys. The [message-history contract](message-history.md) defines bounded pages,
+terminal provenance, eviction counts and explicit legacy raw-only coverage.
+An unsupported retained-runtime reader stays unavailable; a newer execution
+module is never substituted into an older run.
+
+For `action:'worker-deadline'`, include `generation`, `position`, `attempt`,
+nullable `turnId` and `deadline:{operation,expectedRevision,valueMs?}`.
+`operation` is `set`, `extend` or `clear`; `expectedRevision` is the exact
+nonnegative saved revision. Set/Extend require positive safe integer
+milliseconds; Clear omits `valueMs`. Session-bound controls additionally require
+`target:{dataInstanceId,runId,runtimeId,generation,position,attempt,turnId}`,
+matching both the request and current saved identity. The browser sends no
+session or permission override. Extend requires a finite active budget, and
+stale identity/revision or expired/closed deadlines return 409.
+See [dashboard deadlines](dashboard-deadlines.md) and the
+[worker-session contract](worker-session-control.md).
+
+Receipt reads are authenticated, bounded and available only when the retained
+runtime exposes its reader. A known earlier generation remains readable after
+the run advances. Pending/applying receipts do not prove application; applied,
+rejected and unknown remain distinct. Inspect the received ID after a lost
+response. If no ID arrived, preserve the unknown outcome and reconcile saved
+effects before another mutation; do not automatically repeat the POST.
+
+Activity retains at most 256 records per worker and 4,096 per generation, each at most 16,000 bytes. Pages disclose discarded records and shortened fields; raw reasoning is excluded. Cached activity identifies its original source generation. Prior worker/patch/activity reads require a linked prior execution. Runtime inspection makes no model call.
+
+Session-bound monitors additionally expose authenticated `/api/session/runs` and `/api/runs/ID/...` scoped reads/controls, lifecycle operations and receipt inspection. `/runs/ID` and `/session` are presentation routes. In the 0.3.6 Current run flow, opening or filtering Change run is read-only; deliberately choosing a row selects that run and enables available controls only after a fresh matching run/runtime/data-instance/generation snapshot. Automatic following does not select a control target, and selecting a run sends no mutation. Version 0.3.5 retains its separate control-selection step. `/api/health` describes dashboard health independently of saved execution outcomes. The HTTP surface has no global workflow-start, configuration or approval service: worker policy remains approvals never. Typed task reports remain unverified claims without an authenticated acceptance receipt; see [evidence meanings](session-delivery.md#session-dashboard-and-evidence-meanings).
+
+## Session 0 desktop compatibility
+
+`doctor` and new `run` accept `--session0-desktop inherit|shared`, default `inherit`. `shared` requires Windows MXC and a native Session 0 launch. It is an explicitly authorized shared UI boundary, independent of routing mode and worker capability bundles. It changes no configured filesystem/network permissions.
+
+New runs save `launch.session0Desktop: "shared"`; resume/restart inherit it and do not accept overrides. Default/older launch records omit the property. Doctor and cleanup evidence expose `desktopCompatibility: {requested: "shared", applied: true|false|null}`. True records a successful native host application, false rejection before launch, and null missing confirmation. Command admission, inference execution and cleanup remain separate checks. Detached backend failures retain bounded `admissionFailure` diagnostics in their finish receipt. See [operational guidance](../skills/workflow-setup/references/session0-compatibility.md).

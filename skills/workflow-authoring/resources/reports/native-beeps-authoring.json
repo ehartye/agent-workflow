@@ -1,0 +1,201 @@
+{
+  "schema": 1,
+  "at": "2026-10-14T02:22:29.742Z",
+  "scope": "Genuine native skill calls and managed nonrendering audio authoring; not rendering or release acceptance",
+  "runId": "a5ec5b30-5892-4926-b491-08be8f42f2e5",
+  "generation": 1,
+  "position": 0,
+  "status": "completed",
+  "taskResult": {
+    "status": "partial",
+    "files": [
+      "native-capability-output/beeps/.agent-beeps/.gitignore",
+      "native-capability-output/beeps/.agent-beeps/kit.json",
+      "native-capability-output/beeps/.agent-beeps/project.json",
+      "native-capability-output/beeps/.agent-beeps/patches/little-product-success.json",
+      "native-capability-output/beeps/validation-report.md"
+    ],
+    "commands": [
+      {
+        "operation": "managed init",
+        "exitCode": 0
+      },
+      {
+        "operation": "managed new",
+        "exitCode": 0
+      },
+      {
+        "operation": "managed list",
+        "exitCode": 0
+      },
+      {
+        "operation": "final Node inspection",
+        "exitCode": 0
+      }
+    ],
+    "inputPreserved": true,
+    "missing": [
+      "WAV/render verification",
+      "Listening acceptance"
+    ]
+  },
+  "runtimeId": "0.3.1-33b2b029c748972e-node24.18.0",
+  "sourceCapture": {
+    "patchHash": "55dd198d70261a90014c59dce3042d0a835a628465046aa4898451b4b502398a",
+    "manifestHash": "2be99a001bfccd69bf8d21ca307cbc2b4cfcb9e8c149184f683e3e82ba7122ca",
+    "changedFiles": [
+      "native-capability-output/beeps/.agent-beeps/.gitignore",
+      "native-capability-output/beeps/.agent-beeps/kit.json",
+      "native-capability-output/beeps/.agent-beeps/patches/little-product-success.json",
+      "native-capability-output/beeps/.agent-beeps/project.json",
+      "native-capability-output/beeps/validation-report.md"
+    ],
+    "verified": true
+  },
+  "cleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members",
+    "nativeTerminals": {
+      "observed": 0,
+      "acknowledged": 0,
+      "inventoryEmpty": true,
+      "descendants": "notVerified"
+    }
+  },
+  "native": {
+    "catalog": "callAndOutputObserved",
+    "read": "callAndOutputObserved",
+    "exposure": "effectiveDirectModelOnly",
+    "observations": [
+      {
+        "turnId": "01a1381e-9a4b-7f10-aecf-5cbb17bf6f54",
+        "callId": "call_30643ec209e749baaf61c9fef9c0e004",
+        "tool": "skills.list",
+        "callObserved": true,
+        "outputObserved": true,
+        "ambiguous": false,
+        "outcome": "notVerified"
+      },
+      {
+        "turnId": "01a1381e-9a4b-7f10-aecf-5cbb17bf6f54",
+        "callId": "call_437b121945fe42748ebc9b0b3306e7cc",
+        "tool": "skills.read",
+        "callObserved": true,
+        "outputObserved": true,
+        "ambiguous": false,
+        "outcome": "notVerified"
+      },
+      {
+        "turnId": "01a1381e-9a4b-7f10-aecf-5cbb17bf6f54",
+        "callId": "call_68628d12cfda42fd9249463f417f9611",
+        "tool": "skills.read",
+        "callObserved": true,
+        "outputObserved": true,
+        "ambiguous": false,
+        "outcome": "notVerified"
+      },
+      {
+        "turnId": "01a1381e-9a4b-7f10-aecf-5cbb17bf6f54",
+        "callId": "call_d2dc3d5c1d2a4eee84638e3404a7fa53",
+        "tool": "skills.read",
+        "callObserved": true,
+        "outputObserved": true,
+        "ambiguous": false,
+        "outcome": "notVerified"
+      }
+    ],
+    "discarded": 0,
+    "counters": {
+      "malformed": 0,
+      "duplicate": 0,
+      "conflicting": 0,
+      "discarded": 0,
+      "overflow": 0,
+      "unconfirmedDiscarded": 0,
+      "foreign": 0,
+      "unsupported": 0,
+      "missingCall": 0,
+      "missingOutput": 0
+    },
+    "coverage": "complete",
+    "catalogContents": "notRetained",
+    "readRootMatch": "notVerified"
+  },
+  "originalInputsPreserved": true,
+  "savedPatchPreservesProvidedFields": true,
+  "savedPatch": {
+    "name": "little-product-success",
+    "schema": "beeps/patch@1",
+    "layers": 2
+  },
+  "files": [
+    {
+      "path": "native-capability-output/beeps/.agent-beeps/.gitignore",
+      "bytes": 26,
+      "sha256": "267b8472d1278a8eb834cdbfee9274806bfb5b932f906886da0d8ad64727815a"
+    },
+    {
+      "path": "native-capability-output/beeps/.agent-beeps/kit.json",
+      "bytes": 46,
+      "sha256": "22025c445c280cc7e96b0b10a36632bec474edff4499f92cbd04daf945417208"
+    },
+    {
+      "path": "native-capability-output/beeps/.agent-beeps/patches/little-product-success.json",
+      "bytes": 1585,
+      "sha256": "a2c61282ad5d8bd885a1834e2ce91a36d6c76f9906fdd2d4a79174d24aa52fe5"
+    },
+    {
+      "path": "native-capability-output/beeps/.agent-beeps/project.json",
+      "bytes": 189,
+      "sha256": "fd542b7c2efda60bffbaffe577bbe418ee81edf57fde9e95d9b8a170c36eb1fb"
+    },
+    {
+      "path": "native-capability-output/beeps/sound.json",
+      "bytes": 1241,
+      "sha256": "1443032411680e52673a7fcd0e07c54aa21f7abc8a8a79aecf847115a3510fdb"
+    },
+    {
+      "path": "native-capability-output/beeps/validation-report.md",
+      "bytes": 16989,
+      "sha256": "3b8b0c0d4dfdd6145bb31fdb0e720911bee957c01ed1b928bd9358e999fdd4a2"
+    }
+  ],
+  "bytes": 20076,
+  "acceptedScope": "Coordinator accepted genuine native skill invocation, source-preserving managed init/new/list output, verified capture and positive worker/job/native-terminal drain.",
+  "missing": [
+    "WAV rendering/export",
+    "Listening acceptance",
+    "Sprite export: separate sandbox loopback EACCES failure retained"
+  ],
+  "commandEvidence": {
+    "reportedManagedExits": [
+      {
+        "operation": "init",
+        "exitCode": 0
+      },
+      {
+        "operation": "new",
+        "exitCode": 0
+      },
+      {
+        "operation": "list",
+        "exitCode": 0
+      }
+    ],
+    "generatedArtifactsIndependentlyVerified": true,
+    "fullHistoricalPayloads": "notRetained",
+    "qualification": "Early command payloads exceeded activity retention. Exact invocation details are in the captured worker report; generated files and original inputs were independently verified. No claim of retained full command payload verification."
+  },
+  "coordinatorReview": {
+    "reportReviewed": true,
+    "captureReverified": true,
+    "providedFieldsReverified": true,
+    "extraDefaults": [
+      "/layers/1/gainDb=0",
+      "/variation/pitchCents=0"
+    ]
+  }
+}

@@ -18,6 +18,15 @@ import {fileURLToPath} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
 import {runWorkflow} from '../engine/controller.mjs';
 
+test('pinned steps route pages actual declarations and rejects duplicate queries',async t=>{
+ const runDir=await mkdtemp(join(tmpdir(),'steps-http-'));t.after(()=>rm(runDir,{recursive:true,force:true}));
+ await runWorkflow({runDir,sessionId:'s',script:'export const meta={name:"planned",description:"zero workers",steps:[{id:"a",label:"A",dependsOn:[]},{id:"b",label:"B",dependsOn:["a"]}]};return null;',backend:{identity:'fixture',execute:async()=>{throw Error('forbidden');},close:async()=>({serverExited:true})}});
+ const {createMonitor}=await import('../engine/monitor-server.mjs');const monitor=await createMonitor({runDir});t.after(()=>monitor.close());const url=new URL(monitor.url),authorization='Bearer '+new URLSearchParams(url.hash.slice(1)).get('token');
+ const first=await fetch(url.origin+'/api/steps?generation=1&limit=1',{headers:{authorization}});assert.equal(first.status,200);const page=await first.json();assert.equal(page.coverage.declared,2);assert.equal(page.coverage.assigned,0);assert.equal(page.items[0].execution,'planned');assert.equal(page.hasMore,true);
+ const next=await fetch(url.origin+'/api/steps?generation=1&limit=1&after='+page.nextCursor,{headers:{authorization}}).then(r=>r.json());assert.equal(next.items[0].ref.stepId,'b');assert.equal(next.hasMore,false);
+ assert.equal((await fetch(url.origin+'/api/steps?generation=1&generation=1',{headers:{authorization}})).status,400);
+});
+
 test('monitor preserves uncertain added dispatch across summary full-worker and saved-run reads',async t=>{
  const {runDir}=await setup(t),{requestAppend}=await import('../engine/append.mjs'),{randomUUID}=await import('node:crypto');
  const {monitorData}=await import('../engine/monitor-data.mjs'),{readRun}=await import('../engine/controller.mjs');

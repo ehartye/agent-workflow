@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "at": "2026-10-15T05:38:43.318Z",
+  "candidateVersion": "0.4.0",
+  "published": false,
+  "runId": "95889500-c8d5-411a-8601-a925d710e4be",
+  "generation": 1,
+  "runtimeSourceDigest": "ef83b461799d136492123e0e671db6d552a65a568b0a63af8ac5c8cb797cd5f8",
+  "acceptance": "notAccepted",
+  "reason": "Probe required a 15000ms execution-timeout field that the actual model-visible exec_command tool does not expose. yield_time_ms is an observation wait. The worker returned a known blocked result before the control sequence.",
+  "engineStatus": "completed",
+  "worker": {
+    "position": 0,
+    "status": "completed",
+    "taskStatus": "blocked",
+    "attempts": 1,
+    "reportedCommandCalls": 0,
+    "deadline": {
+      "configuredTimeoutMs": null,
+      "revision": 0,
+      "remainingMs": null,
+      "expiresAt": null,
+      "status": "closed"
+    }
+  },
+  "persistedCounts": {
+    "controls": 0,
+    "append_requests": 0,
+    "append_tasks": 0,
+    "command_facts": 0
+  },
+  "cleanup": {
+    "worker": {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified",
+      "jobEmpty": true,
+      "ownershipScope": "windows-job-members",
+      "jobHost": {
+        "closeObserved": true,
+        "exitCode": 0,
+        "signal": "none",
+        "receipt": "drained"
+      },
+      "nativeTerminals": {
+        "observed": 0,
+        "acknowledged": 0,
+        "inventoryEmpty": true,
+        "descendants": "notVerified"
+      }
+    },
+    "run": {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified",
+      "jobEmpty": true,
+      "ownershipScope": "windows-job-members",
+      "startup": [
+        {
+          "stage": "discovery",
+          "cleanup": {
+            "serverExited": true,
+            "forced": false,
+            "descendants": "notVerified",
+            "jobEmpty": true,
+            "ownershipScope": "windows-job-members"
+          }
+        },
+        {
+          "stage": "admission",
+          "cleanup": {
+            "serverExited": true,
+            "forced": false,
+            "descendants": "notVerified",
+            "jobEmpty": true,
+            "ownershipScope": "windows-job-members"
+          }
+        },
+        {
+          "stage": "setup",
+          "cleanup": {
+            "serverExited": true,
+            "forced": false,
+            "descendants": "notVerified",
+            "jobEmpty": true,
+            "ownershipScope": "windows-job-members"
+          }
+        }
+      ]
+    }
+  },
+  "observation": {
+    "processedCursor": 2,
+    "terminal": {
+      "seq": 2,
+      "status": "completed",
+      "processedAt": "2026-10-15T05:32:17.624Z",
+      "basis": "observedAfterAttachment"
+    },
+    "launchedAt": "2026-10-15T05:31:44.225Z",
+    "attachedAt": "2026-10-15T05:31:55.664Z",
+    "preattachmentCoverage": "missing",
+    "hostChatDelivery": "separate collaboration notices; not certified by consumer receipt"
+  },
+  "stop": {
+    "notSent": "already terminal",
+    "status": "completed"
+  },
+  "correction": "Clarify actual command API fields in worker prerequisites and review a separate bounded probe using its helper-owned duration. Preserve this attempt; do not replay or overwrite it.",
+  "limits": [
+    "No live control or append acceptance follows from this run.",
+    "No command item notifications were retained; absence is not independent global proof against all possible effects.",
+    "Owned cleanup covers Windows job members, not arbitrary descendants."
+  ]
+}

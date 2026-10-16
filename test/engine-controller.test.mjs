@@ -30,6 +30,107 @@ async function setup(t) {
 // Synthetic backend observations; these tests make no model, Windows job or descendant claim.
 const backend = execute => ({ identity: 'fixture-v1', execute, close: async () => ({ serverExited: true, descendants: 'notVerified' }) });
 
+const declaration=(alias,path)=>({alias,source:{kind:'script',path},argsSchema:{type:'object'},resultSchema:{type:'object'},capabilities:{skills:null,tools:null},permissions:null});
+async function compositionFixture(t,body,children){
+ const {runDir:root,runWorkflow,readRun}=await setup(t),{mkdir}=await import('node:fs/promises');
+ const source=join(root,'sources');await mkdir(source);
+ for(const [name,text]of Object.entries(children))await writeFile(join(source,name),text);
+ const {resolveAccess}=await import('../engine/access-policy.mjs');
+ const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}});
+ let starts=0;const clean={serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members',nativeTerminals:{inventoryEmpty:true}};
+ const native={identity:'composition-fixture',accessPolicy,parentCapabilities:{fingerprint:'a'.repeat(64),coverage:{complete:true}},close:async()=>clean,execute:async({prompt})=>{starts++;await new Promise(r=>setTimeout(r,prompt==='slow'?90:5));return{value:{prompt},terminalObserved:true,evidence:{cleanup:clean}};}};
+ const script='export const meta='+JSON.stringify({name:'Composition',description:'public process fixture',steps:[{id:'unused',label:'Unassigned',dependsOn:[]}],workflows:Object.keys(children).map((name,i)=>declaration('child'+i,name))})+';'+body;
+ const input={runDir:join(root,'state'),sessionId:'s',launch:{cwd:source,accessPolicy},script,backend:native,concurrency:1};
+ return{input,root,source,runWorkflow,readRun,starts:()=>starts};
+}
+
+test('composition retains no-agent sources and scoped steps, replays after source deletion and refuses corrupt retained bytes',async t=>{
+ const f=await compositionFixture(t,'return await workflow("child0",{n:7});',{'pure.mjs':meta+'return {n:args.n};'});
+ const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');assert.equal(first.result.value.n,7);assert.equal(f.starts(),0);
+ assert.equal(first.result.invocation.invocationId,'c_1');assert.equal(first.compositionVersion,1);
+ const {unlink,readFile}=await import('node:fs/promises');await unlink(join(f.source,'pure.mjs'));
+ const replay=await f.runWorkflow({...f.input,resume:true});assert.equal(replay.result.cached,true);assert.equal(replay.result.value.n,7);
+ const {verifyWorkflowSources}=await import('../engine/composition.mjs');const catalog=await verifyWorkflowSources({runDir:f.input.runDir,descriptor:replay.workflowSources});
+ const retained=join(f.input.runDir,'workflow-sources-v1','blobs',catalog.entries[0].script.sha256);
+ const bytes=await readFile(retained);await writeFile(retained,Buffer.alloc(bytes.length,32));
+ await assert.rejects(f.runWorkflow({...f.input,resume:true}),{code:'COMPOSITION_CORRUPT'});const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'),{readOnly:true});assert.equal(JSON.parse(db.prepare('SELECT value FROM header WHERE id=1').get().value).generation,replay.generation);db.close();
+});
+
+test('depth1 child agent and root share worker permits but child lifetime permits stay occupied until exit',async t=>{
+ const f=await compositionFixture(t,'return {rows:await parallel([()=>workflow("child0",{}),()=>workflow("child0",{})])};',{'worker.mjs':'export const meta={name:"child",description:"one worker",steps:[{id:"read",label:"Read",dependsOn:[],worker:{id:"reader"}}]};return await agent("slow",{id:"reader",maxAttempts:1});'});
+ const state=await f.runWorkflow(f.input);assert.equal(state.status,'completed');assert.equal(f.starts(),2);assert.equal(state.workers.length,2);
+ assert.deepEqual(state.workers.map(w=>w.origin.kind),['child','child']);assert.notEqual(state.workers[0].step.scope.invocation.invocationId,state.workers[1].step.scope.invocation.invocationId);
+ const {DatabaseSync}=await import('node:sqlite'),db=new DatabaseSync(join(f.input.runDir,'run.sqlite'),{readOnly:true});
+ const events=db.prepare('SELECT value FROM events ORDER BY seq').all().map(r=>JSON.parse(r.value)).filter(e=>e.method==='child-process');db.close();
+ assert.equal(events.filter(e=>e.event==='spawn').length,2);let live=0,maximum=0;for(const e of events){live+=e.event==='spawn'?1:-1;maximum=Math.max(maximum,live);}assert.equal(maximum,1);assert.equal(live,0);
+ const replay=await f.runWorkflow({...f.input,resume:true});assert.equal(replay.coverage.cached,2);assert.equal(f.starts(),2);
+});
+
+test('saved read and replay keep child ordinals distinct from interleaved global agent journal sequences',async t=>{
+ const f=await compositionFixture(t,'const a=await agent("root-before",{id:"rootBefore"});const b=await workflow("child0",{});const c=await agent("root-between",{id:"rootBetween"});const d=await workflow("child0",{});return {a,b,c,d};',{'worker.mjs':meta+'return await agent("inside",{id:"reader"});'});
+ const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');assert.equal(f.starts(),4);assert.equal(first.result.b.invocation.invocationId,'c_1');assert.equal(first.result.d.invocation.invocationId,'c_2');assert.deepEqual(await f.readRun(f.input.runDir),first);
+ const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'),{readOnly:true});const invocations=db.prepare('SELECT value FROM invocations WHERE generation=1 ORDER BY seq').all().map(r=>JSON.parse(r.value));db.close();assert.deepEqual(invocations.map(r=>r.kind),['agent','workflow','agent','agent','workflow','agent']);assert.deepEqual(invocations.filter(r=>r.kind==='workflow').map(r=>({seq:r.seq,id:r.child.invocationId})),[{seq:2,id:'c_1'},{seq:5,id:'c_2'}]);
+ const replay=await f.runWorkflow({...f.input,resume:true});assert.equal(replay.status,'completed');assert.equal(replay.coverage.cached,4);assert.equal(f.starts(),4);assert.equal(replay.result.b.cached,true);assert.equal(replay.result.d.cached,true);assert.deepEqual(await f.readRun(f.input.runDir),replay);
+});
+
+test('declared steps bind actual workers without scheduling display dependencies and preserve unassigned terminal steps',async t=>{
+ const {runDir,runWorkflow}=await setup(t);
+ const script='export const meta={name:"steps",description:"display",steps:[{id:"first",label:"First",dependsOn:[]},{id:"second",label:"Second",dependsOn:["first"],worker:{id:"actual"}}]};return await agent("Read",{id:"actual"});';
+ const state=await runWorkflow({runDir,sessionId:'s',script,backend:backend(async()=>({value:'ok',terminalObserved:true}))});
+ assert.equal(state.status,'completed');assert.equal(state.workers[0].step.stepId,'second');assert.deepEqual(state.workers[0].dependencies,undefined);
+ const {readStepsAt}=await import('../engine/steps.mjs');const page=await readStepsAt({runDir,generation:1,run:null});
+ assert.equal(page.available,true);assert.equal(page.coverage.unassigned,1);assert.equal(page.items[0].execution,'planned');assert.equal(page.items[1].acceptance,'unverified');assert.equal(page.items[1].displayBlockedBy[0].stepId,'first');
+});
+
+test('composition source revision invalidates no-agent invocation and interleaved completed ancestors',async t=>{
+ const f=await compositionFixture(t,'return {rows:await parallel([()=>workflow("child0",{}),()=>workflow("child1",{})]),tail:await agent("tail")};',{'a.mjs':meta+'await agent("slow",{id:"w"});return {version:1};','b.mjs':meta+'return {version:1};'});f.input.concurrency=2;
+ const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');assert.equal(f.starts(),2);
+ const {verifyWorkflowSources}=await import('../engine/composition.mjs');const cat=await verifyWorkflowSources({runDir:f.input.runDir,descriptor:first.workflowSources});
+ await writeFile(join(f.source,'b.mjs'),meta+'return {version:2};');
+ const request={schemaVersion:1,expectedGeneration:1,expectedCatalogHash:cat.catalogHash,reconciliation:'Synthetic fixture only; no external effects and all native fixture work drained.',replacements:[{alias:'child1',expectedSourceId:cat.entries.find(e=>e.alias==='child1').sourceId,source:{kind:'script',path:'b.mjs'}}]};
+ const second=await f.runWorkflow({...f.input,resume:true,expectedGeneration:1,workflowRevisions:request});
+ assert.equal(second.status,'completed');assert.equal(second.result.rows[1].value.version,2);assert.equal(second.result.rows[0].cached,false,'interleaved ancestor closes over invalidated descendant');assert.equal(second.workers.at(-1).cached,false);assert.equal(f.starts(),4);
+});
+
+test('preallocated Pause request identity survives receipt loss and later generation conflict',async t=>{
+ const {runDir,runWorkflow,requestControl,readControl}=await setup(t),{randomUUID}=await import('node:crypto');const requestId=randomUUID();let first;
+ const state=await runWorkflow({runDir,sessionId:'s',script:meta+'return null;',backend:backend(async()=>{throw Error('forbidden');}),onReady:async()=>{
+  first=await requestControl(runDir,{sessionId:'s',generation:1,action:'pause',requestId});
+  const duplicate=await requestControl(runDir,{sessionId:'s',generation:1,action:'pause',requestId});assert.deepEqual(duplicate,first);assert.equal(first.id,requestId);
+ }});
+ assert.equal(state.status,'paused');const retained=await readControl(runDir,requestId);assert.equal(retained.status,'applied');
+ assert.deepEqual(await requestControl(runDir,{sessionId:'s',generation:1,action:'pause',requestId}),retained);
+ await assert.rejects(requestControl(runDir,{sessionId:'s',generation:1,action:'stop',requestId}),{code:'CONTROL_CONFLICT'});
+});
+
+test('saved composition reads reject corrupt invocation links beyond requested child page',async t=>{
+ const f=await compositionFixture(t,'return {a:await workflow("child0",{}),b:await workflow("child0",{})};',{'a.mjs':meta+'return {ok:true};'});const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');
+ const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'));db.prepare('DELETE FROM invocation_links WHERE generation=1 AND seq=2').run();db.close();
+ await assert.rejects(f.readRun(f.input.runDir),{code:'COMPOSITION_CORRUPT'});
+});
+
+test('child paging refuses a cursor from an earlier generation after validating all invocation history',async t=>{
+ const f=await compositionFixture(t,'return {a:await workflow("child0",{}),b:await workflow("child0",{})};',{'a.mjs':meta+'return {ok:true};'});await f.runWorkflow(f.input);
+ const {readChildrenAt}=await import('../engine/composition-store.mjs');const page=await readChildrenAt({runDir:f.input.runDir,run:null,generation:1,limit:1});assert.equal(page.items.length,1);assert.equal(page.hasMore,true);
+ const next=await readChildrenAt({runDir:f.input.runDir,run:null,generation:1,limit:1,after:page.nextCursor});assert.equal(next.items[0].child.invocationId,'c_2');
+ await f.runWorkflow({...f.input,resume:true});await assert.rejects(readChildrenAt({runDir:f.input.runDir,run:null,generation:2,after:page.nextCursor}),{code:'COMPOSITION_INPUT'});
+});
+
+test('saved composition reads reject a rehashed child agent detached from its authoritative ancestor',async t=>{
+ const f=await compositionFixture(t,'await agent("root");return await workflow("child0",{});',{'a.mjs':meta+'return await agent("inside",{id:"reader"});'});const before=await f.runWorkflow(f.input);assert.equal(before.status,'completed');
+ const {digest}=await import('../engine/composition-contracts.mjs');const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'));const row=db.prepare('SELECT value FROM invocations WHERE generation=1 AND seq=3').get(),record=JSON.parse(row.value);record.parentSeq=null;db.prepare('UPDATE invocations SET value=?,record_hash=? WHERE generation=1 AND seq=3').run(JSON.stringify(record),digest(record));db.close();
+ await assert.rejects(f.readRun(f.input.runDir),{code:'COMPOSITION_CORRUPT'});await assert.rejects(f.runWorkflow({...f.input,resume:true}),{code:'COMPOSITION_CORRUPT'});assert.equal(f.starts(),2);
+});
+
+test('steps validate full source bindings before a paged response',async t=>{
+ const {runDir,runWorkflow}=await setup(t);await runWorkflow({runDir,sessionId:'s',script:meta+'return null;',backend:backend(async()=>{throw Error('forbidden');})});
+ const {digest}=await import('../engine/composition-contracts.mjs'),{readStepsAt}=await import('../engine/steps.mjs');const db=new DatabaseSync(join(runDir,'run.sqlite'));let c=JSON.parse(db.prepare('SELECT value FROM step_catalogs WHERE generation=1').get().value);delete c.catalogHash;c.sourceId='f'.repeat(64);c.catalogHash=digest(c);db.prepare('UPDATE step_catalogs SET value=? WHERE generation=1').run(JSON.stringify(c));db.close();await assert.rejects(readStepsAt({runDir,run:null,generation:1}),{code:'STEP_CORRUPT'});
+});
+
+test('unintegrated artifact entrypoints refuse explicitly before worker admission',async t=>{
+ const {runDir,runWorkflow}=await setup(t);let calls=0;const first=await runWorkflow({runDir,sessionId:'s',script:meta+'return await refineArtifact({});',backend:backend(async()=>{calls++;return{value:'unexpected',terminalObserved:true};})});assert.equal(calls,0);assert.equal(first.status,'failed');assert.equal(first.error.code,'REFINEMENT_UNSUPPORTED');
+});
+
 test('new-run persisted input overflow refuses before creating state artifacts',async t=>{
  const {runDir:root,runWorkflow}=await setup(t),runDir=join(root,'unbound');let calls=0;
  const script=`export const meta={name:"large",description:${JSON.stringify('m'.repeat(600000))}};return args;`;

@@ -1,0 +1,80 @@
+{
+  "status": "passed",
+  "inferenceRequests": 0,
+  "plantedHardlinkRejected": true,
+  "thread": {
+    "cwd": "<owned-worktree>",
+    "runtimeWorkspaceRoots": [
+      "<owned-worktree>"
+    ],
+    "sandbox": {
+      "type": "workspaceWrite",
+      "writableRoots": [],
+      "networkAccess": false,
+      "excludeTmpdirEnvVar": true,
+      "excludeSlashTmp": true
+    },
+    "approvalPolicy": "never",
+    "activePermissionProfile": null
+  },
+  "boundaries": [
+    {
+      "name": "owned",
+      "allowed": true,
+      "expected": true
+    },
+    {
+      "name": "source",
+      "allowed": false,
+      "expected": false,
+      "code": "EPERM"
+    },
+    {
+      "name": "sibling",
+      "allowed": false,
+      "expected": false,
+      "code": "EPERM"
+    },
+    {
+      "name": "ordinary-temp",
+      "allowed": false,
+      "expected": false,
+      "code": "EPERM"
+    },
+    {
+      "name": "git-pointer",
+      "allowed": false,
+      "expected": false,
+      "code": "EPERM"
+    },
+    {
+      "name": "gitdir",
+      "allowed": false,
+      "expected": false,
+      "code": "EPERM"
+    },
+    {
+      "name": "junction",
+      "allowed": false,
+      "expected": false,
+      "code": "EPERM"
+    },
+    {
+      "name": "create-hardlink",
+      "created": false,
+      "allowed": false,
+      "expected": false,
+      "code": "EPERM"
+    }
+  ],
+  "outsidePreserved": true,
+  "ownedWriteObserved": true,
+  "cleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members"
+  },
+  "checkedAt": "2026-10-13T18:29:56.79Z"
+}

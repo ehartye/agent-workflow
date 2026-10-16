@@ -1,0 +1,517 @@
+{
+  "version": 1,
+  "auditedAt": "2026-10-15T05:47:00.887Z",
+  "candidateVersion": "0.4.0",
+  "published": false,
+  "acceptance": "acceptedWithinScope",
+  "runId": "11684a6e-290c-4728-a9e2-17cf7484ea75",
+  "generation": 1,
+  "runtime": {
+    "id": "0.4.0-a1aa023cd7b364e7-node24.18.0",
+    "sourceDigest": "a1aa023cd7b364e7397483fac14626dbc96e25cba44887a3ff772eacbf5dec7c",
+    "node": "v24.18.0",
+    "codexDigest": "dd13bdb162a184fa04039488b234a8258ef9b76f84e926c505d5742b19249a6a",
+    "dependenciesDigest": "379dfe98e4982278988de7a6017f704d5ce01017d4506aa291a96cd29df82ba5",
+    "currentSourceReverified": true
+  },
+  "codeHashes": {
+    "engine/controller.mjs": "e75ff6d8f1cb121e6bb3dd2cfad1ed4f7d36ef6d617dbfbce4990a8ca0e49bcf",
+    "engine/controls.mjs": "996dec0ef74d342d85eca1422dadea108ce088c6e26284145c865ae9029e6bce",
+    "engine/append.mjs": "0c5c33a429e47490d506e465279873eabb6ac1b15f186201770262c306f3cfb2",
+    "engine/deadlines.mjs": "b98cdfb2403a1c1b9ddade03e0ed340cd271e7ccc5bac190788787a2c488b09f",
+    "engine/live-deadline.mjs": "61de6a044da630c0a3d2678c81620c8cd5bb4ad48537afdc4e30d2b9644c320b",
+    "engine/backend.mjs": "e7cd0f9a59cb32d1f68ca1fd81179ba9c6a4979793fdcf608a4fd1173a33db17",
+    "engine/worker-session.mjs": "539e816a56b9529f40155f1b2916862956352cbb573e654965c5721ca694ea31",
+    "engine/activity.mjs": "3588cec1af1160dbbe3a122d9200272a7f0c4bf169be59da79f1b59e5cc28d7b",
+    "engine/notifications.mjs": "21f8062da0614c383d0920a2fc6bbc2eee6f6300806b39cd50ea039ee579dabe",
+    "engine/observer-coverage.mjs": "5456e3079257536cff6aee9f34dbfa6e46276aaee98fa1346f57dd888baf61cb",
+    "engine/monitor-data.mjs": "f272ed82afeb153a66c5ac0d93aa5a0e482434d7fe0c824f4cdabf4d9ba3c094",
+    "foundation/turn.mjs": "4d7eaaf19eb3ead0998c8b5acc9ba00e2b49e100fb0b3b060e14b10689db2a7d",
+    "bin/arguments.mjs": "08feb27af78589855de66246be6a925c63af23b35eb0069cf8c63a50e1aed6a3",
+    "bin/command.mjs": "38bc281be3cc2af26a245aa64b6598a7f76c91aa4f1a1d389e06defef322710b"
+  },
+  "ownerSelection": {
+    "version": "0.3.6",
+    "id": "0.3.6-d38c52e87c8ac6d4-node24.18.0",
+    "separateDataContext": true,
+    "changedByThisAudit": false
+  },
+  "counts": {
+    "workers": 2,
+    "attempts": 2,
+    "reservedAttempts": 0,
+    "controls": 3,
+    "appendRequests": 1,
+    "appendTasks": 1,
+    "commandFacts": 6
+  },
+  "deadline": {
+    "defaultTimeoutMs": null,
+    "originalOptionsPreserved": true,
+    "originalReplayKeyPreserved": true,
+    "sameTurnContinuitySha256": "cac687791263b8ad663a469b2ddc13a70eee84590094556607d36b6dd017e134",
+    "controls": [
+      {
+        "id": "2c01277a-d631-42ac-90e1-374c813c794b",
+        "operation": "set",
+        "valueMs": 240000,
+        "expectedRevision": 0,
+        "appliedRevision": 1,
+        "status": "applied",
+        "position": 0,
+        "attempt": 1,
+        "requestedAt": "2026-10-15T05:42:27.736Z",
+        "appliedAt": "2026-10-15T05:42:27.757Z",
+        "remainingMs": 240000
+      },
+      {
+        "id": "17c10b73-ad08-480b-9690-b1c828d38e82",
+        "operation": "extend",
+        "valueMs": 60000,
+        "expectedRevision": 1,
+        "appliedRevision": 2,
+        "status": "applied",
+        "position": 0,
+        "attempt": 1,
+        "requestedAt": "2026-10-15T05:42:32.139Z",
+        "appliedAt": "2026-10-15T05:42:32.172Z",
+        "remainingMs": 295586
+      },
+      {
+        "id": "23bfcf33-5761-4cc8-b86b-7c498bb9ce04",
+        "operation": "clear",
+        "valueMs": null,
+        "expectedRevision": 2,
+        "appliedRevision": 3,
+        "status": "applied",
+        "position": 0,
+        "attempt": 1,
+        "requestedAt": "2026-10-15T05:42:34.328Z",
+        "appliedAt": "2026-10-15T05:42:34.341Z",
+        "remainingMs": null
+      }
+    ],
+    "finalRevision": 3,
+    "finalRemainingMs": null,
+    "finalStatus": "closed",
+    "staleRefusal": {
+      "case": "deadline-stale-clear",
+      "exitCode": 1,
+      "startedAt": "2026-10-15T05:42:28.072Z",
+      "finishedAt": "2026-10-15T05:42:30.099Z",
+      "noPersistedControl": true,
+      "noExtraRevisionOrAttempt": true
+    }
+  },
+  "append": {
+    "requestId": "8bb62438-83d7-4b14-b674-2ff3323ad1b3",
+    "payloadHash": "7723d66c42bea4822bce82aede82af635de65b20a72edcb5b578ee2f6f0c61c8",
+    "position": 1,
+    "origin": {
+      "kind": "append",
+      "generation": 1,
+      "requestId": "8bb62438-83d7-4b14-b674-2ff3323ad1b3",
+      "taskId": "independent-reader"
+    },
+    "duplicateSameIdentityAndPosition": true,
+    "duplicateCapacityBefore": {
+      "workerCount": 2,
+      "workers": 2,
+      "attempts": 1,
+      "reservedAttempts": 1
+    },
+    "duplicateCapacityAfter": {
+      "workerCount": 2,
+      "workers": 2,
+      "attempts": 2,
+      "reservedAttempts": 0
+    },
+    "wrongSessionAndGeneration": [
+      {
+        "case": "append-wrong-session",
+        "exitCode": 1,
+        "startedAt": "2026-10-15T05:42:46.526Z",
+        "finishedAt": "2026-10-15T05:42:46.592Z"
+      },
+      {
+        "case": "append-wrong-generation",
+        "exitCode": 1,
+        "startedAt": "2026-10-15T05:42:46.596Z",
+        "finishedAt": "2026-10-15T05:42:48.629Z"
+      }
+    ],
+    "negativeRequestsAbsent": true,
+    "noAdditionalCapacityConsumed": true,
+    "actualRunningOverlapRecorded": true,
+    "appendedCompletedBeforeHeldRelease": true,
+    "ledger": {
+      "consumed": 2,
+      "reserved": 0,
+      "nextSlot": 2,
+      "maxAgents": 1000,
+      "accepting": false
+    }
+  },
+  "workers": [
+    {
+      "position": 0,
+      "status": "completed",
+      "attempts": 1,
+      "origin": {
+        "kind": "guest",
+        "ordinal": 0
+      },
+      "originalKeySha256": "f482816b25b4c567fb23f9e8be7ff8a583e5377f118b71fa1d81d69ca024aad9",
+      "originalTimeoutMs": null,
+      "deadline": {
+        "configuredTimeoutMs": null,
+        "revision": 3,
+        "remainingMs": null,
+        "expiresAt": null,
+        "status": "closed"
+      },
+      "reportedCommandCalls": 2,
+      "resultNonceAndPayloadVerified": true,
+      "startedAt": "2026-10-15T05:42:18.595Z",
+      "completedAt": "2026-10-15T05:42:51.341Z",
+      "cleanup": {
+        "serverExited": true,
+        "jobEmpty": true,
+        "forced": false,
+        "ownershipScope": "windows-job-members",
+        "descendants": "notVerified",
+        "nativeInventoryEmpty": true,
+        "jobHost": {
+          "closeObserved": true,
+          "exitCode": 0,
+          "signal": "none",
+          "receipt": "drained"
+        }
+      }
+    },
+    {
+      "position": 1,
+      "status": "completed",
+      "attempts": 1,
+      "origin": {
+        "kind": "append",
+        "generation": 1,
+        "requestId": "8bb62438-83d7-4b14-b674-2ff3323ad1b3",
+        "taskId": "independent-reader"
+      },
+      "originalKeySha256": "4f2f434cec36c9e238e8e5dd3645791c864b62ec78b15d1fc6d366d180fe861f",
+      "originalTimeoutMs": null,
+      "deadline": {
+        "configuredTimeoutMs": null,
+        "revision": 0,
+        "remainingMs": null,
+        "expiresAt": null,
+        "status": "closed"
+      },
+      "reportedCommandCalls": 1,
+      "resultNonceAndPayloadVerified": true,
+      "startedAt": "2026-10-15T05:42:36.250Z",
+      "completedAt": "2026-10-15T05:42:46.299Z",
+      "cleanup": {
+        "serverExited": true,
+        "jobEmpty": true,
+        "forced": false,
+        "ownershipScope": "windows-job-members",
+        "descendants": "notVerified",
+        "nativeInventoryEmpty": true,
+        "jobHost": {
+          "closeObserved": true,
+          "exitCode": 0,
+          "signal": "none",
+          "receipt": "drained"
+        }
+      }
+    }
+  ],
+  "commandFacts": [
+    {
+      "schemaVersion": 1,
+      "coverage": "itemNotificationsOnly",
+      "priorActivityUncovered": 0,
+      "limits": {
+        "workerRecords": 128,
+        "workerBytes": 65536,
+        "generationRecords": 1024,
+        "generationBytes": 524288,
+        "recordBytes": 2048,
+        "hashInputBytes": 65536
+      },
+      "observed": 4,
+      "retained": 4,
+      "dropped": 0,
+      "evicted": {
+        "countLimit": 0,
+        "byteLimit": 0
+      },
+      "retainedBytes": 1881,
+      "records": [
+        {
+          "seq": 27,
+          "generation": 1,
+          "position": 0,
+          "attempt": 1,
+          "at": "2026-10-15T05:42:25.479Z",
+          "event": "started",
+          "command": {
+            "representation": "sha256",
+            "encoding": "utf8",
+            "bytes": 273,
+            "sha256": "42c90e0605de948ae3a9e0c987a4d8e029406c23b50afec380eab87d8dd4a071"
+          },
+          "status": "inProgress",
+          "exitCode": null,
+          "timedOut": false,
+          "outcome": "unknown",
+          "threadIdSha256": "f1dd400ceab0e5fe988f5f8ae3fd83be620769de46e11fe4d833beb083245a18",
+          "turnIdSha256": "42bc6c48dd08058d2c7799f82d9a656356d3a071ffb39521b5d6c0e9e1a56116",
+          "itemIdSha256": "7c233cba38dcbdacc99d71378e71fcc8ab7847a62cfaa97e3ddf7a01b6c5f00e"
+        },
+        {
+          "seq": 32,
+          "generation": 1,
+          "position": 0,
+          "attempt": 1,
+          "at": "2026-10-15T05:42:38.578Z",
+          "event": "completed",
+          "command": {
+            "representation": "sha256",
+            "encoding": "utf8",
+            "bytes": 273,
+            "sha256": "42c90e0605de948ae3a9e0c987a4d8e029406c23b50afec380eab87d8dd4a071"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "timedOut": false,
+          "outcome": "succeeded",
+          "threadIdSha256": "f1dd400ceab0e5fe988f5f8ae3fd83be620769de46e11fe4d833beb083245a18",
+          "turnIdSha256": "42bc6c48dd08058d2c7799f82d9a656356d3a071ffb39521b5d6c0e9e1a56116",
+          "itemIdSha256": "7c233cba38dcbdacc99d71378e71fcc8ab7847a62cfaa97e3ddf7a01b6c5f00e"
+        },
+        {
+          "seq": 56,
+          "generation": 1,
+          "position": 0,
+          "attempt": 1,
+          "at": "2026-10-15T05:42:41.915Z",
+          "event": "started",
+          "command": {
+            "representation": "sha256",
+            "encoding": "utf8",
+            "bytes": 273,
+            "sha256": "42c90e0605de948ae3a9e0c987a4d8e029406c23b50afec380eab87d8dd4a071"
+          },
+          "status": "inProgress",
+          "exitCode": null,
+          "timedOut": false,
+          "outcome": "unknown",
+          "threadIdSha256": "f1dd400ceab0e5fe988f5f8ae3fd83be620769de46e11fe4d833beb083245a18",
+          "turnIdSha256": "42bc6c48dd08058d2c7799f82d9a656356d3a071ffb39521b5d6c0e9e1a56116",
+          "itemIdSha256": "bb423fdd379dbc235c2d5035ef6dc21d8e877ec95e142ea13151f85d25e9b144"
+        },
+        {
+          "seq": 153,
+          "generation": 1,
+          "position": 0,
+          "attempt": 1,
+          "at": "2026-10-15T05:42:48.770Z",
+          "event": "completed",
+          "command": {
+            "representation": "sha256",
+            "encoding": "utf8",
+            "bytes": 273,
+            "sha256": "42c90e0605de948ae3a9e0c987a4d8e029406c23b50afec380eab87d8dd4a071"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "timedOut": false,
+          "outcome": "succeeded",
+          "threadIdSha256": "f1dd400ceab0e5fe988f5f8ae3fd83be620769de46e11fe4d833beb083245a18",
+          "turnIdSha256": "42bc6c48dd08058d2c7799f82d9a656356d3a071ffb39521b5d6c0e9e1a56116",
+          "itemIdSha256": "bb423fdd379dbc235c2d5035ef6dc21d8e877ec95e142ea13151f85d25e9b144"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 1,
+      "coverage": "itemNotificationsOnly",
+      "priorActivityUncovered": 0,
+      "limits": {
+        "workerRecords": 128,
+        "workerBytes": 65536,
+        "generationRecords": 1024,
+        "generationBytes": 524288,
+        "recordBytes": 2048,
+        "hashInputBytes": 65536
+      },
+      "observed": 2,
+      "retained": 2,
+      "dropped": 0,
+      "evicted": {
+        "countLimit": 0,
+        "byteLimit": 0
+      },
+      "retainedBytes": 940,
+      "records": [
+        {
+          "seq": 58,
+          "generation": 1,
+          "position": 1,
+          "attempt": 1,
+          "at": "2026-10-15T05:42:42.657Z",
+          "event": "started",
+          "command": {
+            "representation": "sha256",
+            "encoding": "utf8",
+            "bytes": 276,
+            "sha256": "5521a1a23792313a0fced15b486edcaa15d0784b478ae5ce499af012f5a90ef6"
+          },
+          "status": "inProgress",
+          "exitCode": null,
+          "timedOut": false,
+          "outcome": "unknown",
+          "threadIdSha256": "21e0020b4f80af52a76a4ab9822681588590a503e9ac97e6c191d1c044a79ade",
+          "turnIdSha256": "075bd02775c2581c3d06d4542a62bf0efd18d215cefee3825de881842d42d4c4",
+          "itemIdSha256": "9b403515db68b4717bcb34c5733d0e80cf227239f5ce415c8a9595879958f6c6"
+        },
+        {
+          "seq": 60,
+          "generation": 1,
+          "position": 1,
+          "attempt": 1,
+          "at": "2026-10-15T05:42:43.639Z",
+          "event": "completed",
+          "command": {
+            "representation": "sha256",
+            "encoding": "utf8",
+            "bytes": 276,
+            "sha256": "5521a1a23792313a0fced15b486edcaa15d0784b478ae5ce499af012f5a90ef6"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "timedOut": false,
+          "outcome": "succeeded",
+          "threadIdSha256": "21e0020b4f80af52a76a4ab9822681588590a503e9ac97e6c191d1c044a79ade",
+          "turnIdSha256": "075bd02775c2581c3d06d4542a62bf0efd18d215cefee3825de881842d42d4c4",
+          "itemIdSha256": "9b403515db68b4717bcb34c5733d0e80cf227239f5ce415c8a9595879958f6c6"
+        }
+      ]
+    }
+  ],
+  "cleanup": {
+    "startup": [
+      {
+        "stage": "discovery",
+        "cleanup": {
+          "serverExited": true,
+          "jobEmpty": true,
+          "forced": false,
+          "ownershipScope": "windows-job-members",
+          "descendants": "notVerified"
+        }
+      },
+      {
+        "stage": "admission",
+        "cleanup": {
+          "serverExited": true,
+          "jobEmpty": true,
+          "forced": false,
+          "ownershipScope": "windows-job-members",
+          "descendants": "notVerified"
+        }
+      },
+      {
+        "stage": "setup",
+        "cleanup": {
+          "serverExited": true,
+          "jobEmpty": true,
+          "forced": false,
+          "ownershipScope": "windows-job-members",
+          "descendants": "notVerified"
+        }
+      }
+    ],
+    "run": {
+      "serverExited": true,
+      "jobEmpty": true,
+      "forced": false,
+      "ownershipScope": "windows-job-members",
+      "descendants": "notVerified"
+    }
+  },
+  "observation": {
+    "lastProcessedCursor": 3,
+    "terminal": {
+      "seq": 3,
+      "status": "completed",
+      "processedAt": "2026-10-15T05:42:51.381Z",
+      "basis": "observedAfterAttachment"
+    },
+    "launchedAt": "2026-10-15T05:42:09.348Z",
+    "attachedAt": "2026-10-15T05:42:20.661Z",
+    "preattachmentGapMs": 11313,
+    "preattachmentCoverage": "missing",
+    "droppedConnections": 0,
+    "unclosedConnections": 0,
+    "progressRecords": 3,
+    "watchExitCode": 0,
+    "hostChatDelivery": "Separate collaboration notices; not certified by consumer receipt"
+  },
+  "fixture": {
+    "inputs": {
+      "workflow.js": {
+        "bytes": 740,
+        "sha256": "874216942b1bcd07d03c842d02d35dce8ce2ef16c739c229b643e28d8be2a3b9"
+      },
+      "gate-read.mjs": {
+        "bytes": 1837,
+        "sha256": "5f15cd388063e82103075e4b3b449de600646c46f551c5d90b23009b055f44bc"
+      },
+      "args.json": {
+        "bytes": 3254,
+        "sha256": "ac9a28569879386fdf4cf82c012d3a675fed5fa14daeea1e66bbb864b5f41062"
+      },
+      "tasks.json": {
+        "bytes": 3174,
+        "sha256": "597fb6b3efd64bbc13fc9f8b603e66d234e820d7624948413201ddcfa68b7c18"
+      }
+    },
+    "nodeExecutableSha256": "9a4eb5f1c29c6a2e93852ead46b999e284a6a5ca8bab4d4e241d587d025a52de",
+    "payloadSha256": "b6b0c0259148bd3477d78d17db2196eeb325c4e77629b87c0eac500e43505e95",
+    "releaseSha256": "282ff206ede3d6be72462b9aaab5e79d33f061456c3c43d69857f881e0542d35",
+    "nonceVerifiedButNotPublished": true,
+    "expectedFilesVerified": true
+  },
+  "limits": {
+    "workers": 2,
+    "initialMaxAttempts": 1,
+    "appendedAttempts": 1,
+    "concurrency": 2,
+    "maximumWaitCommands": 20,
+    "waitMs": 12000,
+    "explicitRunWallMs": 480000,
+    "operatorStopAtMs": 360000,
+    "runtimeMaxAgents": 1000,
+    "fixtureWorkerLimitEnforcedByOperator": true
+  },
+  "initialAttempt": {
+    "report": "reports/native-live-controls-0.4.0-initial.json",
+    "sha256": "c1b7bbd035a902a47ed37e75b5081c3879499993e0580508c05779819ecc3f2d",
+    "acceptance": "notAccepted",
+    "originalOutcomePreserved": true
+  },
+  "limitations": [
+    "Only the two-worker owned fixture is accepted; no game, asset, broader task or release acceptance.",
+    "No selected task skills were required or activated; no same-skill or native-grant claim.",
+    "Parent execution authority is not task-specific filesystem security isolation; this audit does not publish or independently authenticate parent-context assertions.",
+    "Command facts cover observed native item notifications only, not arbitrary external effects; no fact drops observed in this run.",
+    "Negative pre/post counter comparisons were executed by the retained operator; this independent audit verifies failure receipts, duplicate snapshots and final SQLite absence/counters, not a new reproduction.",
+    "Startup stages prove owned server/job drain; worker final evidence additionally proves empty native-terminal inventory. Arbitrary descendants remain notVerified.",
+    "Set/extend/clear acceptance is same-turn only; no elapsed-timeout, Pause/Stop or restarted-worker acceptance inferred.",
+    "Earlier blocked attempt remains notAccepted; no replay, repair or overwrite performed."
+  ]
+}

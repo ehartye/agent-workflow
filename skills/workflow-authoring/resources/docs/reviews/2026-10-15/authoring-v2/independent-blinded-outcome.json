@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-10-15T05:25:52.381Z",
+  "conditionMappingRead": false,
+  "grade": {
+    "path": "docs/reviews/2026-10-15/authoring-v2/blind-grade.json",
+    "sha256": "93366b315865a34d46adff1f89f257fe73db23c354c32a4656c29074bcd62175",
+    "bytes": 56170
+  },
+  "artifacts": [
+    {
+      "label": "A",
+      "sha256": "8318e6c286da82349b5e7a656b73d7abacace841dd3bf300794d00a6576e7d52",
+      "bytes": 53834,
+      "rawScore": 12,
+      "independentScore": 12,
+      "planningAccepted": true,
+      "criteria": [
+        {
+          "id": "complete-artifact",
+          "score": 1,
+          "reason": "Complete numbered artifact, resolved-before-use coordinator inputs, under 81920 bytes."
+        },
+        {
+          "id": "literal-api",
+          "score": 1,
+          "reason": "Literal metadata and actual zero-argument parallel thunks; supported role options and explicit incomplete results."
+        },
+        {
+          "id": "cli-version",
+          "score": 1,
+          "reason": "Released finite 0.3.6 choice, correct PowerShell argv and combined-checkout absolute script."
+        },
+        {
+          "id": "native-skills",
+          "score": 1,
+          "reason": "Original beautiful/tdd/test-strategy role selection and genuine main-resource/source proof required."
+        },
+        {
+          "id": "prerequisites",
+          "score": 1,
+          "reason": "Actual parent authority/readiness separate from native activation; missing renderer remains unaccepted."
+        },
+        {
+          "id": "budgets",
+          "score": 1,
+          "reason": "Explicit finite worker choice, task/concurrency/attempt/recovery bounds, optional run wall and manual Close."
+        },
+        {
+          "id": "ownership-checkpoint",
+          "score": 1,
+          "reason": "Independent app/style readers, sole coupled UI writer, coordinator tests, early persisted checkpoint."
+        },
+        {
+          "id": "unknown-effects",
+          "score": 1,
+          "reason": "Historical negative drain remains unknown; genuine effect reconciliation precedes safe unfinished-scope closure."
+        },
+        {
+          "id": "recovery-cases",
+          "score": 1,
+          "reason": "Both package-loss and changed-catalog branches preserve old bindings and continue through integration/fresh verification."
+        },
+        {
+          "id": "capture-handoff",
+          "score": 1,
+          "reason": "Exact producer tuple, authoritative capture/blob/hash/path/cleanup barrier; dependencies do not move files."
+        },
+        {
+          "id": "fresh-verification",
+          "score": 1,
+          "reason": "Stable combined manifest, new verifier, full tests/check/smoke; missing paint explicitly unaccepted."
+        },
+        {
+          "id": "observation-lifecycle",
+          "score": 1,
+          "reason": "Named prearmed observer, actual consumed attachment/cursor and gaps; Stop and dashboard Close separated."
+        }
+      ],
+      "literalScriptParse": "passed",
+      "disputes": []
+    },
+    {
+      "label": "B",
+      "sha256": "df979eb261328d5500d29ce8de495a6b50641d056b42fd4c6be797522f8490d2",
+      "bytes": 81204,
+      "rawScore": 12,
+      "independentScore": 12,
+      "planningAccepted": true,
+      "criteria": [
+        {
+          "id": "complete-artifact",
+          "score": 1,
+          "reason": "Complete numbered artifact, resolved-before-use coordinator inputs, under 81920 bytes."
+        },
+        {
+          "id": "literal-api",
+          "score": 1,
+          "reason": "Literal metadata and actual zero-argument parallel thunks; supported role options and explicit incomplete results."
+        },
+        {
+          "id": "cli-version",
+          "score": 1,
+          "reason": "Released finite 0.3.6 choice, correct PowerShell argv and combined-checkout absolute script."
+        },
+        {
+          "id": "native-skills",
+          "score": 1,
+          "reason": "Original beautiful/tdd/test-strategy role selection and genuine main-resource/source proof required."
+        },
+        {
+          "id": "prerequisites",
+          "score": 1,
+          "reason": "Actual parent authority/readiness separate from native activation; missing renderer remains unaccepted."
+        },
+        {
+          "id": "budgets",
+          "score": 1,
+          "reason": "Explicit finite worker choice, task/concurrency/attempt/recovery bounds, optional run wall and manual Close."
+        },
+        {
+          "id": "ownership-checkpoint",
+          "score": 1,
+          "reason": "Independent app/style readers, sole coupled UI writer, coordinator tests, early persisted checkpoint."
+        },
+        {
+          "id": "unknown-effects",
+          "score": 1,
+          "reason": "Historical negative drain remains unknown; genuine effect reconciliation precedes safe unfinished-scope closure."
+        },
+        {
+          "id": "recovery-cases",
+          "score": 1,
+          "reason": "Both package-loss and changed-catalog branches preserve old bindings and continue through integration/fresh verification."
+        },
+        {
+          "id": "capture-handoff",
+          "score": 1,
+          "reason": "Exact producer tuple, authoritative capture/blob/hash/path/cleanup barrier; dependencies do not move files."
+        },
+        {
+          "id": "fresh-verification",
+          "score": 1,
+          "reason": "Stable combined manifest, new verifier, full tests/check/smoke; missing paint explicitly unaccepted."
+        },
+        {
+          "id": "observation-lifecycle",
+          "score": 1,
+          "reason": "Named prearmed observer, actual consumed attachment/cursor and gaps; Stop and dashboard Close separated."
+        }
+      ],
+      "literalScriptParse": "passed",
+      "disputes": []
+    }
+  ],
+  "validation": {
+    "gradeCapture": "accepted",
+    "originalInputHashes": true,
+    "declaredFullByteRanges": "contiguous, exact lengths; no gaps",
+    "artifactExcerpts": 94,
+    "publicReferenceExcerpts": 32,
+    "publicReferenceFiles": 13,
+    "publicReferenceHashes": "match installed released 0.3.6",
+    "genuineSelectedMainReads": [
+      "yoda",
+      "test-strategy"
+    ],
+    "positiveOwnedCleanup": true
+  },
+  "limitations": [
+    "Independent static planning review, not execution of either proposed workflow.",
+    "Read ranges and exact excerpts verified; evicted command payloads prevent independently reconstructing every historical grader read.",
+    "Native main-resource identity/output metadata observed; skill body comprehension and full pagination not independently proven.",
+    "One pair cannot establish causality, per-skill efficacy or automatic triggering.",
+    "No condition mapping or historical score read before this freeze."
+  ]
+}

@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-15T05:52:53.765Z",
+  "version": "0.4.0",
+  "scope": "Canonical Windows source-package local acceptance; publication and owner installation require separate evidence",
+  "published": false,
+  "ownerInstallationVerified": false,
+  "source": {
+    "baseCommit": "09bd25527fc50c17663daec50a00aa259e7facbe",
+    "runtimeSourceDigest": "967cd6160299faad254eee70618864b3be95716692051e652c78969791854ca5",
+    "gitCheckpoint": "2b9aeb470711bb6aece13f03f1ef40a6c36f1c45",
+    "gitRuntimeFileCount": 97,
+    "allRuntimeFilesMatchGit": true,
+    "htmlNormalization": {
+      "at": "2026-10-15T05:49:49.996Z",
+      "path": "engine/monitor/index.html",
+      "before": {
+        "sha256": "5025f0ee754bca4a2debc476b4c16fa5ee220cbfef0e2796fbb481c8b530d939",
+        "bytes": 13289,
+        "runtimeSourceDigest": "a1aa023cd7b364e7397483fac14626dbc96e25cba44887a3ff772eacbf5dec7c"
+      },
+      "after": {
+        "sha256": "331e9b10b3c3cae84f9e8e2d388bb8c650a1f04ea8d2b67d832ce7e15209f83f",
+        "bytes": 13288,
+        "runtimeSourceDigest": "967cd6160299faad254eee70618864b3be95716692051e652c78969791854ca5"
+      },
+      "textEquivalent": true,
+      "change": "Normalize the sole CRLF to the already committed LF bytes; all 96 other runtime-entry files match Git exactly",
+      "nativeProbe": "11684a6e-290c-4728-a9e2-17cf7484ea75 used the before digest; execution code unchanged"
+    },
+    "receiptOutsideRuntimeDigest": true
+  },
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "node": "v24.18.0"
+  },
+  "gates": [
+    {
+      "stage": "test",
+      "command": "npm.cmd test",
+      "exitCode": 0,
+      "logBytes": 61386,
+      "logSha256": "2e9a9796c34fa0cbe9f3552cb5baa5c82097b1fb7369cf590eb364bea1b96bb2"
+    },
+    {
+      "stage": "check",
+      "command": "npm.cmd run check",
+      "exitCode": 0,
+      "logBytes": 177,
+      "logSha256": "d7787d3629582972b00403d7bca9b5a3dcb9b03c6b1770dd3b4321bc9b88975c"
+    },
+    {
+      "stage": "smoke",
+      "command": "npm.cmd run smoke",
+      "exitCode": 0,
+      "logBytes": 196,
+      "logSha256": "ae9ec92fff7e01571b6bee6b47a2d4a470313504259a0023de08b0c32d3e4478"
+    },
+    {
+      "stage": "clean-install",
+      "command": "node scripts/check-install.mjs",
+      "exitCode": 0,
+      "logBytes": 243,
+      "logSha256": "db3f97b364b73c95ab9526d574beffe3b39dfa1f74f473c795a2bad1b64f6299"
+    },
+    {
+      "stage": "audit",
+      "command": "npm.cmd audit --omit=dev --json",
+      "exitCode": 0,
+      "logBytes": 361,
+      "logSha256": "4f36dceb7b689298817eabc2bfef0479175aa238ab53fd315565a909293759f5"
+    }
+  ],
+  "tests": {
+    "tests": 622,
+    "suites": 0,
+    "pass": 622,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "duration_ms": 131311.9501
+  },
+  "audit": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    }
+  },
+  "isolatedInstall": {
+    "runtimeId": "0.4.0-967cd6160299faad-node24.18.0",
+    "sourceDigest": "967cd6160299faad254eee70618864b3be95716692051e652c78969791854ca5",
+    "codexDigest": "dd13bdb162a184fa04039488b234a8258ef9b76f84e926c505d5742b19249a6a",
+    "dependenciesDigest": "379dfe98e4982278988de7a6017f704d5ce01017d4506aa291a96cd29df82ba5",
+    "doctor": "passed",
+    "inferenceRequests": 0,
+    "cleanup": {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified",
+      "jobEmpty": true,
+      "ownershipScope": "windows-job-members",
+      "startup": [
+        {
+          "stage": "discovery",
+          "cleanup": {
+            "serverExited": true,
+            "forced": false,
+            "descendants": "notVerified",
+            "jobEmpty": true,
+            "ownershipScope": "windows-job-members"
+          }
+        },
+        {
+          "stage": "admission",
+          "cleanup": {
+            "serverExited": true,
+            "forced": false,
+            "descendants": "notVerified",
+            "jobEmpty": true,
+            "ownershipScope": "windows-job-members"
+          }
+        },
+        {
+          "stage": "setup",
+          "cleanup": {
+            "serverExited": true,
+            "forced": false,
+            "descendants": "notVerified",
+            "jobEmpty": true,
+            "ownershipScope": "windows-job-members"
+          }
+        }
+      ]
+    },
+    "preservedPriorCandidateRuntimeIds": [
+      "0.4.0-a1aa023cd7b364e7-node24.18.0",
+      "0.4.0-ef83b461799d1364-node24.18.0"
+    ],
+    "ownerSelected": "0.3.6-d38c52e87c8ac6d4-node24.18.0",
+    "ownerChanged": false
+  },
+  "nativeAcceptance": {
+    "report": "reports/native-live-controls-0.4.0.json",
+    "sha256": "319c88e1ef771c35279130c85389a91061dbc8d770cae527cc65754772671943",
+    "acceptance": "acceptedWithinScope",
+    "runId": "11684a6e-290c-4728-a9e2-17cf7484ea75",
+    "sourceDigest": "a1aa023cd7b364e7397483fac14626dbc96e25cba44887a3ff772eacbf5dec7c",
+    "exactCanonicalNativeModelRun": false,
+    "qualification": "The native probe used source a1aa023…; canonical package differs only by a text-equivalent one-byte HTML line-ending normalization. All execution code and other runtime-entry bytes are identical. Canonical command-only doctor and local gates passed separately."
+  },
+  "authoringEvaluation": {
+    "report": "docs/reviews/2026-10-15/authoring-v2/acceptance.json",
+    "baselineScore": 12,
+    "activatedScore": 12,
+    "maximumScore": 12,
+    "advantageClaim": false,
+    "planningOnly": true
+  },
+  "releaseGates": {
+    "actionsEnabled": false,
+    "requiredHostedCheck": "notRun",
+    "ownerExceptionForThisVersion": "notGranted",
+    "publishedTag": "pending",
+    "marketplaceSelection": "pending",
+    "ownerInstallation": "pending"
+  },
+  "limitations": [
+    "No GitHub Actions or hosted CI pass claimed; repository Actions remains disabled by owner instruction.",
+    "The 0.3.6 local-verification exception is not reused for 0.4.0.",
+    "Native model acceptance is bounded to the exact two-worker fixture and recorded pre-normalization source.",
+    "Consumer observation receipts certify their own processed cursors and gaps, not host chat delivery."
+  ]
+}

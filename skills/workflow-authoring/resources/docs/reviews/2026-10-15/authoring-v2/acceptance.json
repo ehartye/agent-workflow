@@ -1,0 +1,229 @@
+{
+  "version": 2,
+  "at": "2026-10-15T05:28:04.523Z",
+  "baseline": "released Agent Workflow 0.3.6",
+  "publicBase": "09bd25527fc50c17663daec50a00aa259e7facbe",
+  "blindedFreeze": {
+    "sha256": "5b6f8bf6ca4a698adbef608036c12ce69681396222e3aadacc81e6dafa8cdfd7",
+    "at": "2026-10-15T05:25:52.381Z",
+    "mappingUnreadAtFreeze": true
+  },
+  "outcome": "Both complete plans accepted for the 12 planning criteria; no score advantage demonstrated.",
+  "mapping": [
+    {
+      "label": "A",
+      "condition": "activated",
+      "position": 1,
+      "originalSha256": "5fae5e02d73a6352c6526b15bbdd4172e073f6df75384b30afc43b5bb9da3501",
+      "originalBytes": 54350,
+      "anonymousSha256": "8318e6c286da82349b5e7a656b73d7abacace841dd3bf300794d00a6576e7d52",
+      "anonymousBytes": 53834,
+      "removedDisclosureCount": 3,
+      "transformationVerified": true
+    },
+    {
+      "label": "B",
+      "condition": "baseline",
+      "position": 0,
+      "originalSha256": "9f3589219207e60b9a6fa8df9dafaa31983382b6d32e94bf096106fbfee95f33",
+      "originalBytes": 81389,
+      "anonymousSha256": "df979eb261328d5500d29ce8de495a6b50641d056b42fd4c6be797522f8490d2",
+      "anonymousBytes": 81204,
+      "removedDisclosureCount": 3,
+      "transformationVerified": true
+    }
+  ],
+  "grader": {
+    "runId": "adf8732f-c646-4921-ac6b-799eceef4d08",
+    "generation": 1,
+    "position": 0,
+    "attempt": 1,
+    "recordedRuntime": "0.3.6-d38c52e87c8ac6d4-node24.18.0",
+    "selectedMainReads": {
+      "status": "complete",
+      "required": [
+        "yoda",
+        "test-strategy"
+      ],
+      "observed": [
+        "yoda",
+        "test-strategy"
+      ],
+      "missing": [],
+      "body": "notVerified"
+    },
+    "sourceCheck": "passed",
+    "completionSourceCheck": "passed",
+    "nativeCounters": {
+      "malformed": 0,
+      "duplicate": 0,
+      "conflicting": 0,
+      "discarded": 0,
+      "overflow": 0,
+      "unconfirmedDiscarded": 0,
+      "foreign": 0,
+      "unsupported": 0,
+      "missingCall": 0,
+      "missingOutput": 0
+    },
+    "cleanup": {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified",
+      "jobEmpty": true,
+      "ownershipScope": "windows-job-members",
+      "jobHost": {
+        "closeObserved": true,
+        "exitCode": 0,
+        "signal": "none",
+        "receipt": "drained"
+      },
+      "nativeTerminals": {
+        "observed": 0,
+        "acknowledged": 0,
+        "inventoryEmpty": true,
+        "descendants": "notVerified"
+      }
+    },
+    "workspaceVerified": true,
+    "changedPaths": [
+      "docs/reviews/2026-10-15/authoring-v2/blind-grade.json"
+    ],
+    "output": {
+      "path": "docs/reviews/2026-10-15/authoring-v2/blind-grade.json",
+      "sha256": "93366b315865a34d46adff1f89f257fe73db23c354c32a4656c29074bcd62175",
+      "bytes": 56170
+    },
+    "patchHash": "e900cfc1d9cbefee3c048ed148bfb70e5278d8568edd508b40559395638f0245",
+    "manifestHash": "a7754883661a98bd7c823fa39e58c61684a7cfe7012d7b5a4219c54bebf781e0",
+    "commandCoverage": "retainedItemsOnly",
+    "bodyProof": "notVerified"
+  },
+  "independentValidation": {
+    "gradeCapture": "accepted",
+    "originalInputHashes": true,
+    "declaredFullByteRanges": "contiguous, exact lengths; no gaps",
+    "artifactExcerpts": 94,
+    "publicReferenceExcerpts": 32,
+    "publicReferenceFiles": 13,
+    "publicReferenceHashes": "match installed released 0.3.6",
+    "genuineSelectedMainReads": [
+      "yoda",
+      "test-strategy"
+    ],
+    "positiveOwnedCleanup": true
+  },
+  "comparison": {
+    "v1": {
+      "baselineRaw": 11,
+      "activatedRaw": 9,
+      "activatedAfterDisputedDeadlinePoint": 10,
+      "acceptedNeither": true,
+      "record": "../authoring-coordinator.md",
+      "sameCheckpointSteer": true
+    },
+    "v2": {
+      "baselineRaw": 12,
+      "activatedRaw": 12,
+      "baselineIndependent": 12,
+      "activatedIndependent": 12,
+      "bothPlanningAccepted": true,
+      "scoreDisputes": [],
+      "plannedFollowupSteer": false
+    }
+  },
+  "observation": {
+    "pair": {
+      "version": 1,
+      "runId": "525e0816-c2bc-498a-9696-b64e67c9cac7",
+      "generation": 1,
+      "observer": "native-jsonl-consumer",
+      "launchedAt": "2026-10-15T04:55:19.536Z",
+      "lastProcessedCursor": 3,
+      "droppedConnections": 0,
+      "unclosedConnections": 0,
+      "connections": [
+        {
+          "id": "c0cd1227-55d5-4837-89c3-911364c39910",
+          "startedAt": "2026-10-15T04:57:03.813Z",
+          "requestedAfter": 0,
+          "lastProcessedCursor": 3,
+          "status": "terminal",
+          "preAttachmentCoverage": "missing",
+          "attachedAt": "2026-10-15T04:57:05.644Z",
+          "terminalAtAttachment": false,
+          "progressRecords": 24,
+          "idleWarnings": 4,
+          "closedAt": "2026-10-15T05:06:56.961Z"
+        }
+      ],
+      "terminal": {
+        "seq": 3,
+        "status": "completed",
+        "processedAt": "2026-10-15T05:06:56.948Z",
+        "basis": "observedAfterAttachment"
+      }
+    },
+    "grading": {
+      "version": 1,
+      "runId": "adf8732f-c646-4921-ac6b-799eceef4d08",
+      "generation": 1,
+      "observer": "native-jsonl-consumer",
+      "launchedAt": "2026-10-15T05:12:35.434Z",
+      "lastProcessedCursor": 2,
+      "droppedConnections": 0,
+      "unclosedConnections": 0,
+      "connections": [
+        {
+          "id": "5aa8624f-ab82-474d-b0e8-089cb36d0b46",
+          "startedAt": "2026-10-15T05:12:44.707Z",
+          "requestedAfter": 0,
+          "lastProcessedCursor": 2,
+          "status": "terminal",
+          "preAttachmentCoverage": "missing",
+          "attachedAt": "2026-10-15T05:12:46.714Z",
+          "terminalAtAttachment": false,
+          "progressRecords": 22,
+          "idleWarnings": 2,
+          "closedAt": "2026-10-15T05:19:48.812Z"
+        }
+      ],
+      "terminal": {
+        "seq": 2,
+        "status": "completed",
+        "processedAt": "2026-10-15T05:19:48.800Z",
+        "basis": "observedAfterAttachment"
+      }
+    },
+    "earlyArtifactTelemetry": [
+      {
+        "position": 0,
+        "firstRetainedCompletedFileChange": {
+          "seq": 1549,
+          "kind": "file-change",
+          "at": "2026-10-15T04:56:31.491Z"
+        },
+        "count": 12
+      },
+      {
+        "position": 1,
+        "firstRetainedCompletedFileChange": null,
+        "count": 0
+      }
+    ],
+    "qualification": "Completed file-change telemetry does not identify a useful first artifact or its exact first disk write. No position1 file-change record is not proof of no artifact: commands may write files, polling is lossy, and preattachment coverage was missing.",
+    "initialPairFailure": "Read-only consumer used a relative receipt path and failed before watch creation. Corrected absolute path attached later; original gap retained; no worker restart.",
+    "hostChat": "Node consumption receipts do not establish host-chat delivery; the assigned observer separately relayed attachment, idle and terminal notices."
+  },
+  "limitations": [
+    "Independent static planning review, not execution of either proposed workflow.",
+    "Read ranges and exact excerpts verified; evicted command payloads prevent independently reconstructing every historical grader read.",
+    "Native main-resource identity/output metadata observed; skill body comprehension and full pagination not independently proven.",
+    "One pair cannot establish causality, per-skill efficacy or automatic triggering.",
+    "No condition mapping or historical score read before this freeze.",
+    "The clarified common rubric and public API access differ from v1; successful v2 plans do not establish that the skill caused improvement.",
+    "Blinding removed only explicit condition disclosures; length/style remain visible. Shared full parent authority means blinding was an instruction boundary, not filesystem isolation.",
+    "Exact plan and grade artifacts retain literal local example/provenance paths. Sanitized acceptance receipts omit private context, authentication fragments and tool payloads.",
+    "Neither hypothetical product implementation, render acceptance, nor any newly developed runtime capability was tested by these plans."
+  ]
+}

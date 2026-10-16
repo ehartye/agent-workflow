@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "status": "passed",
+  "checkedAt": "2026-10-13T18:54:45.648Z",
+  "codex": "0.162.1",
+  "backend": "mxc",
+  "authentication": "managed ChatGPT",
+  "inferenceRequests": 1,
+  "ownedWriteObserved": true,
+  "outsidePreserved": true,
+  "boundaries": [
+    {
+      "target": "owned",
+      "tool": "apply_patch",
+      "callId": "call_2626cafa889045b3bc68de22e61bf932",
+      "allowed": true,
+      "output": "Script completed\nWall time 0.1 seconds\nOutput:\n\n{}"
+    },
+    {
+      "target": "source",
+      "tool": "apply_patch",
+      "callId": "call_d90acb550ac5484a92dcb9d184bc75ca",
+      "allowed": false,
+      "output": "Script failed\nWall time 0.0 seconds\nOutput:\n\nScript error:\npatch rejected: writing outside of the project; rejected by user approval settings"
+    },
+    {
+      "target": "sibling",
+      "tool": "apply_patch",
+      "callId": "call_ad8e442ca479459ab7f9be88e4a56a8b",
+      "allowed": false,
+      "output": "Script failed\nWall time 0.0 seconds\nOutput:\n\nScript error:\npatch rejected: writing outside of the project; rejected by user approval settings"
+    },
+    {
+      "target": "ordinary-temp",
+      "tool": "apply_patch",
+      "callId": "call_65e5cb152b4f49fea0d5a1131d04525d",
+      "allowed": false,
+      "output": "Script failed\nWall time 0.0 seconds\nOutput:\n\nScript error:\npatch rejected: writing outside of the project; rejected by user approval settings"
+    }
+  ],
+  "cleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members"
+  },
+  "evidence": "Native raw tool-call/output records paired by call_id, plus host byte checks. Only tool records retained; no raw reasoning.",
+  "scope": "Owned/source/sibling/ordinary-temp patch writes. Command/Git/junction/new-hardlink boundaries are covered separately."
+}
