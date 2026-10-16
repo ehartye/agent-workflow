@@ -1,0 +1,63 @@
+{
+  "status": "passed",
+  "backend": "mxc",
+  "generation": 2,
+  "duplicateRejected": true,
+  "markerMatched": true,
+  "attempts": 2,
+  "workerAttempts": 2,
+  "history": {
+    "status": "unknown",
+    "error": {
+      "code": "TURN_CANCELLED",
+      "message": "Codex turn was cancelled"
+    },
+    "usage": {
+      "observedThreads": 1,
+      "inputTokens": 31163,
+      "cachedInputTokens": 13952,
+      "outputTokens": 157,
+      "reasoningOutputTokens": 19,
+      "totalTokens": 31320,
+      "cacheWriteInputTokens": 0
+    },
+    "activityObserved": 24,
+    "cleanup": {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified",
+      "jobEmpty": true,
+      "ownershipScope": "windows-job-members",
+      "nativeTerminals": {
+        "observed": 1,
+        "acknowledged": 1,
+        "inventoryEmpty": true,
+        "descendants": "notVerified"
+      }
+    }
+  },
+  "priorExecutions": [
+    {
+      "generation": 1,
+      "position": 0
+    }
+  ],
+  "usage": {
+    "observedThreads": 2,
+    "inputTokens": 79577,
+    "cachedInputTokens": 44800,
+    "outputTokens": 347,
+    "reasoningOutputTokens": 37,
+    "totalTokens": 79924,
+    "cacheWriteInputTokens": 0
+  },
+  "cleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members"
+  },
+  "reconciliationRecorded": true,
+  "checkedAt": "2026-10-13T18:02:28.824Z"
+}

@@ -86,7 +86,7 @@ export async function readRun(runDir) {
   await regular(path);
   const db = new DatabaseSync(path, { readOnly: true });
   try { db.exec('BEGIN');const value=snapshot(db);if(value?.compositionVersion===1){const run=await contextRunRef({runDir,sessionId:value.sessionId}),sources=await verifyWorkflowSources({runDir,descriptor:value.workflowSources}),context=createRootContext({db,runDir,run,generation:value.generation,sessionId:value.sessionId,state:value,sources,signal:new AbortController().signal,assertOwner:()=>{},transaction:()=>{throw fault('COMPOSITION_INPUT','Saved read cannot publish records');},workspaceInputs:async()=>value.workspaceInputs??null,resolveWorker:async()=>null,resolveAuthority:()=>null});await validateInvocationHistory({context});}
-    if(value?.stepsVersion===1){const run=await contextRunRef({runDir,sessionId:value.sessionId}),catalogs=loadStepCatalogs(db,value.generation);validateStepBindings({db,state:value,catalogs,run});projectSteps({catalogs,workers:value.workers,run,generation:value.generation,available:true,accepting:value.acceptingAdditions});}db.exec('COMMIT');return value; } finally { db.close(); }
+    if(value?.stepsVersion===1){const run=await contextRunRef({runDir,sessionId:value.sessionId}),catalogs=await validateStepBindings({db,state:value,run,runDir});projectSteps({catalogs,workers:value.workers,run,generation:value.generation,available:true,accepting:value.acceptingAdditions});}db.exec('COMMIT');return value; } finally { db.close(); }
 }
 
 export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, restart, workflowRevisions, accessPolicy,capturePolicy,workerCapabilities,workerCapabilitiesHash, concurrency = 2, maxAgents = 1000, timeoutMs, workerTimeoutMs, drainTimeoutMs=20000, onReady, launch=null }) {
@@ -245,6 +245,15 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     reuse = !previous || previous.backendIdentity === backend.identity;
     const oldWorkers = previous?.workers ?? [];
     const compositionEnabled=Boolean(meta.workflows?.length||previous?.compositionVersion);
+    if(previous?.compositionVersion===1){
+      // A cached child does not reissue its nested agent calls. Validate saved
+      // effective settings here as well, before publishing another generation.
+      if(previous.backendIdentity!==backend.identity||previous.workerTimeoutMs!==workerTimeoutMs)throw fault('COMPOSITION_REPLAY_CHANGED','Completed composition requires its saved backend and worker deadline settings');
+      if(backend.resolveOptions)for(const worker of oldWorkers.filter(w=>w.origin?.kind!=='append'&&w.status==='completed')){
+        const {label,phase,...before}=worker.options,{label:nextLabel,phase:nextPhase,...after}={...worker.options,...backend.resolveOptions(worker.options)};
+        if(canonical(before)!==canonical(after))throw fault('COMPOSITION_REPLAY_CHANGED','Completed child worker effective settings changed; inspect retained effects before replacement');
+      }
+    }
     if(compositionEnabled&&!normalizedAccess)throw fault('COMPOSITION_INPUT','Composition requires a verified saved access identity');
     if(workflowRevisions!==undefined&&(!resume||workflowRevisions.expectedGeneration!==previous?.generation||expectedGeneration!==previous?.generation||previous.cleanup?.jobEmpty!==true||previous.cleanup?.ownershipScope!=='windows-job-members'||previous.cleanup?.error||previous.cleanup?.nativeTerminals?.error||oldWorkers.some(w=>w.status!=='completed'||w.evidence?.cleanup?.serverExited!==true||w.evidence?.cleanup?.jobEmpty!==true||w.evidence?.cleanup?.ownershipScope!=='windows-job-members'||w.evidence?.cleanup?.error||w.evidence?.cleanup?.nativeTerminals?.inventoryEmpty!==true)))throw fault('COMPOSITION_UNKNOWN','Source revision requires exact generation and positively drained reconciled work');
     createCompositionTables(db);createStepTables(db);
@@ -257,6 +266,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       for(const d of meta.workflows??[]){for(const [key,field]of [['skills','skills'],['tools','tools']])if(d.capabilities[key]!==null&&d.capabilities[key].some(id=>!capabilities?.manifest[field]?.some(item=>item.id===id)))throw fault('COMPOSITION_INPUT','Child declaration exceeds admitted capabilities');if(d.permissions?.sandbox==='workspace-write'&&normalizedAccess.policy.permissions.sandbox==='read-only')throw fault('COMPOSITION_INPUT','Child declaration exceeds root permissions');}
     }
     if(previous?.compositionVersion){const previousSources=await verifyWorkflowSources({runDir,descriptor:previous.workflowSources});const readContext=createRootContext({db,runDir,run:runRef,generation:previous.generation,sessionId,state:previous,sources:previousSources,signal:evaluatorAbort.signal,assertOwner:own,transaction:body=>transaction(db,body),workspaceInputs:async()=>previous.workspaceInputs??null,resolveWorker:async()=>null,resolveAuthority:()=>null});await validateInvocationHistory({context:readContext});}
+    if(previous?.stepsVersion===1){const catalogs=await validateStepBindings({db,state:previous,run:runRef,runDir});projectSteps({catalogs,workers:oldWorkers,run:runRef,generation:previous.generation,available:true,accepting:previous.acceptingAdditions});}
     if(oldWorkers.some(worker=>worker.origin?.kind==='append')&&(previous.backendIdentity!==backend.identity||previous.maxAgents!==maxAgents||previous.concurrency!==concurrency))throw fault('APPEND_IDENTITY','Saved additions retain their original backend, lifetime budget and concurrency ceiling');
     if(previous&&!restartAdmission&&oldWorkers.some(worker=>worker.origin?.kind==='append'&&worker.status!=='completed'))throw fault('APPEND_RECONCILE','Noncompleted additions require explicit effect reconciliation and physical-suffix restart');
     const oldGuests=oldWorkers.filter(worker=>worker.origin?.kind!=='append');
@@ -415,7 +425,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         if(prior!==restartPrefix[restartValidated])throw fault('RESTART_CHANGED','Saved guest prefix changed before the restart target');
         restartValidated++;if(restartValidated===restartPrefix.length)releaseRestartPrefix();
       }
-      const cached=!journal&&(addition?previous?.backendIdentity===backend.identity:reuse)&&(!restartAdmission||prior?.position<restartAdmission.position)&&prior?.key===key&&prior.status==='completed';
+      const cached=!journal&&(addition?previous?.backendIdentity===backend.identity:reuse)&&(!restartAdmission||prior?.position<(restartAdmission.firstAffectedPosition??restartAdmission.position))&&prior?.key===key&&prior.status==='completed';
       let position,worker;transaction(db,()=>{position=addition?.position??allocateSlot(db,state.generation,{reserve:!cached});worker={position,origin:addition?.origin??(scope?.depth?{kind:'child',invocationId:scope.id,ordinal}:{kind:'guest',ordinal}),key,prompt,options,phase:options.phase??scope?.phase??currentPhase,status:'queued',cached:false,...(step?{step}:{}),...(journal?{invocation:{seq:journal.seq,parentSeq:journal.parentSeq,scopeId:journal.scopeId,localCall:journal.localCall}}:{})};if(journal){journal.workerPosition=position;writeInvocation(context,journal,{insert:true});saveWorker(worker);}});
       if(capabilitySelection)worker.capabilitySelection={fingerprint:capabilitySelection.fingerprint,skills:options.skills??[],requireTools:options.requireTools??[]};
       const workerAbort=new AbortController();workerAborts.set(position,workerAbort);

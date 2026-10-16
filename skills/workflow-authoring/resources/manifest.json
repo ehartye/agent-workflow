@@ -3,8 +3,8 @@
   "skill": "workflow-authoring",
   "entry": {
     "source": "skills/workflow-authoring/SKILL.md",
-    "bytes": 23028,
-    "sha256": "01a84a8c2ad6db4668889fc4d7f1e22ecd26c0bc9e9ed4ab8fb124c9f4ba7ba9"
+    "bytes": 24331,
+    "sha256": "b2d2ef9a7756db2fc820d4438b4ca4ec3498b1354275af1a96c4f142b364f2a2"
   },
   "limits": {
     "maxFile": 2097152,
@@ -30,19 +30,19 @@
     },
     {
       "source": "docs/api.md",
-      "sourceBytes": 38597,
-      "sourceSha256": "e87e3bf557ba9cc8c80785d9d3f2a49d9c7b1de31a22a431cfe1c3e6c3184c83",
+      "sourceBytes": 41923,
+      "sourceSha256": "d82cab3019c74aeabd5f40c5a853d79a52db7243f09a24d67e1506e20f6d2637",
       "output": "resources/docs/api.md",
-      "outputBytes": 38597,
-      "outputSha256": "e87e3bf557ba9cc8c80785d9d3f2a49d9c7b1de31a22a431cfe1c3e6c3184c83"
+      "outputBytes": 41923,
+      "outputSha256": "d82cab3019c74aeabd5f40c5a853d79a52db7243f09a24d67e1506e20f6d2637"
     },
     {
       "source": "docs/codex-parity.md",
-      "sourceBytes": 16076,
-      "sourceSha256": "cbf5211437a540d60bd74b0172d9ed6da6423f743243775dd77b461e9a5016df",
+      "sourceBytes": 16720,
+      "sourceSha256": "ac9f309e922f32ea8e6cde686ae6550a5b9d5c9faff736508e42d277855e9533",
       "output": "resources/docs/codex-parity.md",
-      "outputBytes": 16076,
-      "outputSha256": "cbf5211437a540d60bd74b0172d9ed6da6423f743243775dd77b461e9a5016df"
+      "outputBytes": 16720,
+      "outputSha256": "ac9f309e922f32ea8e6cde686ae6550a5b9d5c9faff736508e42d277855e9533"
     },
     {
       "source": "docs/dashboard-deadlines.md",
@@ -51,6 +51,14 @@
       "output": "resources/docs/dashboard-deadlines.md",
       "outputBytes": 11784,
       "outputSha256": "e1327b613f2ff3e996ea0d20eef8dafcab300023768a563c704a96fe5400b313"
+    },
+    {
+      "source": "docs/dashboard-lan.md",
+      "sourceBytes": 4755,
+      "sourceSha256": "6b7581f03885a8f9d7086b6382e9fcaca6d7df2ddf0a6539f969171120096eea",
+      "output": "resources/docs/dashboard-lan.md",
+      "outputBytes": 4755,
+      "outputSha256": "6b7581f03885a8f9d7086b6382e9fcaca6d7df2ddf0a6539f969171120096eea"
     },
     {
       "source": "docs/durable-command-facts.md",
@@ -310,11 +318,11 @@
     },
     {
       "source": "docs/verification.md",
-      "sourceBytes": 17937,
-      "sourceSha256": "f4cdf3f836ab930a9ddd8076872588a86ac780aef6e9d98dc5fcc10191feda47",
+      "sourceBytes": 18844,
+      "sourceSha256": "73daebe5bc5867504587346a44271bc638d534bfdffbc7ec1920b136942796a1",
       "output": "resources/docs/verification.md",
-      "outputBytes": 17937,
-      "outputSha256": "f4cdf3f836ab930a9ddd8076872588a86ac780aef6e9d98dc5fcc10191feda47"
+      "outputBytes": 18844,
+      "outputSha256": "73daebe5bc5867504587346a44271bc638d534bfdffbc7ec1920b136942796a1"
     },
     {
       "source": "docs/worker-capabilities.md",
@@ -339,6 +347,22 @@
       "output": "resources/docs/worker-session-control.md",
       "outputBytes": 9068,
       "outputSha256": "175ca2a97071dff5a4ac8b93defa0919226669eec3f0056d704354026cf9d64a"
+    },
+    {
+      "source": "docs/workflow-composition.md",
+      "sourceBytes": 9326,
+      "sourceSha256": "07a6173bee462dbf67d52045778631dcd6998d8825db98179c88b38bc7cf17ff",
+      "output": "resources/docs/workflow-composition.md",
+      "outputBytes": 9303,
+      "outputSha256": "38489cfd983abbf94aa1568a0d9ee159e41879e2c1e0db327509f1b87c2e97e3"
+    },
+    {
+      "source": "docs/workflow-steps.md",
+      "sourceBytes": 6704,
+      "sourceSha256": "81b592128e45a1828a96618f00dc3355c5b2cc06ae00eccc7ecd271908f57c5f",
+      "output": "resources/docs/workflow-steps.md",
+      "outputBytes": 6681,
+      "outputSha256": "9a7259f106cd0917a69ea74d0cd5e5dcf55a34b930b437e638a34da3eea95319"
     },
     {
       "source": "reports/activity-browser-check.json",
@@ -606,11 +630,11 @@
     },
     {
       "source": "skills/agent-workflow/references/runtime-api.md",
-      "sourceBytes": 11448,
-      "sourceSha256": "072cb1f2207433793432425cd67a551de881abcb2321e782bc3e2ab970f12b3b",
+      "sourceBytes": 14140,
+      "sourceSha256": "ce805ceb6c66a0e769d272a8efdd130098954ca036b49c1b9f77d5a6509913e5",
       "output": "resources/skills/agent-workflow/references/runtime-api.md",
-      "outputBytes": 11448,
-      "outputSha256": "072cb1f2207433793432425cd67a551de881abcb2321e782bc3e2ab970f12b3b"
+      "outputBytes": 14140,
+      "outputSha256": "ce805ceb6c66a0e769d272a8efdd130098954ca036b49c1b9f77d5a6509913e5"
     },
     {
       "source": "skills/agent-workflow/references/worker-prerequisites.md",
@@ -622,11 +646,11 @@
     },
     {
       "source": "skills/workflow-authoring/references/complete-plan-acceptance.md",
-      "sourceBytes": 4382,
-      "sourceSha256": "df64951ffccd51b4f25472411ce1a72580ac5230413c20177e5883d1b54dc5f7",
+      "sourceBytes": 5666,
+      "sourceSha256": "f8c39ea6c78ff8f85ad42d9af55761b0bfad807564e1312289aff9fb47c44c5a",
       "output": "resources/skills/workflow-authoring/references/complete-plan-acceptance.md",
-      "outputBytes": 4382,
-      "outputSha256": "df64951ffccd51b4f25472411ce1a72580ac5230413c20177e5883d1b54dc5f7"
+      "outputBytes": 5666,
+      "outputSha256": "f8c39ea6c78ff8f85ad42d9af55761b0bfad807564e1312289aff9fb47c44c5a"
     },
     {
       "source": "skills/workflow-authoring/references/criterion-and-research.md",
@@ -654,11 +678,11 @@
     },
     {
       "source": "skills/workflow-authoring/references/worker-admission-and-replay.md",
-      "sourceBytes": 13603,
-      "sourceSha256": "81bd2ae9c471728bc0b7c83245c2566fa31de945a7089fdb7a18555c66e7938b",
+      "sourceBytes": 16486,
+      "sourceSha256": "956ee8c3dee24a8e19a1468293d5d5fff6cc1ea9a2fb982f58f8f30b304baf0c",
       "output": "resources/skills/workflow-authoring/references/worker-admission-and-replay.md",
-      "outputBytes": 13603,
-      "outputSha256": "81bd2ae9c471728bc0b7c83245c2566fa31de945a7089fdb7a18555c66e7938b"
+      "outputBytes": 16486,
+      "outputSha256": "956ee8c3dee24a8e19a1468293d5d5fff6cc1ea9a2fb982f58f8f30b304baf0c"
     },
     {
       "source": "skills/workflow-setup/references/session0-compatibility.md",
@@ -667,6 +691,14 @@
       "output": "resources/skills/workflow-setup/references/session0-compatibility.md",
       "outputBytes": 3166,
       "outputSha256": "669e78b13eed3a4dbd2f3dc362c8842df4e367907782117468fa36da0ca69e53"
+    },
+    {
+      "source": "skills/workflow-setup/references/upgrades.md",
+      "sourceBytes": 6382,
+      "sourceSha256": "872d47248e00aa4546d7f48f7310bc27a06ec1ca0892d1c14f341bdad57b7789",
+      "output": "resources/skills/workflow-setup/references/upgrades.md",
+      "outputBytes": 6382,
+      "outputSha256": "872d47248e00aa4546d7f48f7310bc27a06ec1ca0892d1c14f341bdad57b7789"
     },
     {
       "source": "workflows/decomposition-delivery.js",

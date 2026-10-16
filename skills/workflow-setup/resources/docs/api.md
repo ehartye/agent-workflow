@@ -1,6 +1,6 @@
 # Fresh CLI and monitor API
 
-This describes the working-tree candidate API based on published 0.4.5. That baseline retains capability source packages per run, along with live independent tasks, revisioned worker budgets, durable command facts and consumer-owned coverage receipts. The roadmap commands below are candidate interfaces requiring reviewed provider integration and fresh acceptance. Earlier retained runtimes keep their recorded behavior. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
+This describes the working-tree candidate API above released 0.5.0. That baseline retains capability source packages per run, live independent tasks, revisioned worker budgets, durable command facts and consumer-owned coverage receipts. The candidate adds [declared steps](workflow-steps.md), [depth-one composition](workflow-composition.md), [explicit LAN binding](dashboard-lan.md) and generated same-package skill resources. These additions have no new version or native qualification claim here. Artifact/refinement providers are unavailable. Other roadmap commands below retain their own provider/acceptance boundaries. Earlier retained runtimes keep their recorded behavior. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
 
 `--args-file` is available since 0.3.6. Earlier retained runtimes keep their original API; they can pass small manifest path/hash/range references through `--args JSON`. Check the recorded runtime's help before choosing a transport.
 
@@ -14,7 +14,7 @@ All commands accept --data-dir. Otherwise state selection uses AGENT_WORKFLOW_DA
 | doctor | --cwd, --backend |
 | workflows / read [scope:]name | --cwd |
 | save [scope:]name | --script, --cwd, --command, --overwrite |
-| validate file | Alternatively --script file |
+| validate file | Alternatively --script file; --summary emits bounded script identity and declaration counts |
 | run [scope:]name | Alternatively --script file; --cwd, --session, --args JSON or --args-file path, --concurrency, --model, --effort, --max-attempts, --access parent\|restricted, --parent-access file, --writable, --foreground, --backend, --worker-timeout-ms, --run-timeout-ms, --capture-policy file, --worker-capabilities file |
 | list / status ID / result ID | Inspect persisted runs; list accepts --show-hidden |
 | watch ID | --session, --generation, --jsonl; optional --after, --idle-ms, --poll-ms |
@@ -22,8 +22,11 @@ All commands accept --data-dir. Otherwise state selection uses AGENT_WORKFLOW_DA
 | events ID | --position, --generation, --source-generation, --after, --limit |
 | patch ID | --position, --generation, --source-generation, --basis inputs or base |
 | exclusions ID | --position, --generation, optional --source-generation, --stage inputs or outputs, --after, --limit |
-| dashboard [ID] | --session, optional --current-ui; omitted ID selects newest recorded run in that session |
-| resume ID | --session, optional --generation and edited --script |
+| dashboard [ID] | --session, optional --current-ui and --lan-bind exactPrivateIPv4; omitted ID selects newest recorded run in that session |
+| resume ID | --session, optional --generation, edited --script and reviewed --workflow-revisions-file |
+| steps ID / children ID (candidate) | --generation required, optional --after opaqueCursor, --limit 1..100 (default 50); read-only recorded-runtime projections |
+| domain-control ID (candidate) | --session, --request-file; exact revisioned pause/stop/cancel-child request |
+| domain-control-receipt ID (candidate) | --session, --request-id UUID; read same request after lost output |
 | pause ID / stop ID | --session, --generation |
 | steer ID | --session, --generation, --position, --attempt, --turn, --text |
 | cancel-worker ID | --session, --generation, --position, --attempt, optional --turn |
@@ -130,9 +133,11 @@ The exact version 1 shape below lists required fields. Arrays may be empty for s
 
 Unknown fields, duplicate IDs/names/paths, unsafe or linked paths, missing skill sources, changed bytes and plugin manifests in selected skill directories reject admission. References/files use normalized relative paths inside their declared source root; no traversal, filesystem links or caller-substituted relocated copies. Run-owned retention uses the separately verified descriptor mapping described above and preserves directory layout. The coordinator must enumerate required references, tool sources and dependencies: the resolver verifies those files and receipt bytes, but cannot authenticate a receipt or discover an undeclared transitive dependency closure from JSON. A missing managed tool may remain unavailable for independent source authoring; identity mismatch/unsafe paths reject even when that tool is optional.
 
-Every file exposed beneath an exact selected skill directory, including native discovery metadata and resources, must have a declared content identity. The scan is bounded at 512 entries and depth 6; nested undeclared skills, plugin manifests and descendant links reject. Linked documentation outside the native skill package may be declared by its original plugin-relative path and verified hash. If native resource access cannot reach it, an ordinary bounded read of that exact verified document is allowed only after genuine native skill activation; it cannot replace `skills.list`/`skills.read` or manually load another skill body. Windows native command arguments also have a pre-dispatch encoded-size guard; a valid manifest can still exceed that platform budget and be refused.
+Every file exposed beneath an exact selected skill directory, including native discovery metadata and resources, must have a declared content identity. Each skill's discovery scan is bounded at 512 entries and depth 6; nested undeclared skills, plugin manifests and descendant links reject. Native resource binding is to that skill directory, not its whole plugin root. The four shipped mains link generated `resources/` closures within their own packages; cross-skill links instruct genuine activation instead of copying another SKILL.md. `scripts/package-skill-resources.mjs` refreshes those canonical reference closures and source/output hash manifests; `--check` and the public `npm run check` enforce freshness without writes. Packaged scripts/recipes are reference text: execute only real plugin-root entrypoints. Linked outside-package documentation still requires explicit original path/hash admission; if inaccessible, report it missing. An ordinary bounded read of an explicitly verified document is allowed only after genuine activation and within authorized scope, never to substitute for list/read or load another skill body.
 
-Bounds: manifest 256 KiB; 32 skills, 16 tools; portable IDs 1–100 characters, native names 1–200; paths at most 4,096. Each skill has at most 64 references; skill verification reads at most 128 files/64 MiB, with 1 MiB per SKILL.md and 16 MiB per reference. Each tool source check reads at most 128 files/512 MiB, with 256 MiB for Node and 16 MiB for other files. Each runtime/dependency tree has at most 64 files. Each tool declares at most eight readiness stages, each with at most 32 arguments (2,048 characters each/16,384 total) and timeout 1–20,000 ms. Readiness output is capped at 8,192 bytes and never retained. Readiness runs exactly `[node.path,launcher.path,...args]`, once per required stage. These commands must be reviewed nonmutating queries; instruction guidance is not an enforced executable allowlist. No setup/install/service/fallback/retry is synthesized.
+Bounds: manifest 256 KiB; 32 skills, 16 tools; portable IDs 1–100 characters, native names 1–200; paths at most 4,096. Each skill permits at most 128 references; the per-skill discovery scan allows 512 entries, while skill verification separately caps the **aggregate** checked files at 512 and bytes at 64 MiB (1 MiB per SKILL.md, 16 MiB per reference). Each tool source check has its separate 128-file/512 MiB cap, with 256 MiB for Node and 16 MiB for other files. Each runtime/dependency tree has at most 64 files. Each tool declares at most eight readiness stages, each with at most 32 arguments (2,048 characters each/16,384 total) and timeout 1–20,000 ms. Readiness output is capped at 8,192 bytes and never retained. Readiness runs exactly `[node.path,launcher.path,...args]`, once per required stage. These commands must be reviewed nonmutating queries; instruction guidance is not an enforced executable allowlist. No setup/install/service/fallback/retry is synthesized.
+
+Candidate source-readiness checks carry serialized skill/tool descriptors through bounded stdin rather than Windows argv. The receiver requires a positive ready marker, exact UTF-8 byte count and SHA-256 binding, complete EOF, then all file/environment checks. Input remains at most 256 KiB, sent in bounded 8,192-byte chunks. Fingerprints and aggregate source ceilings are unchanged. The ordinary encoded argv guard still applies to readiness commands and other native invocations; stdin transport does not raise their budgets or establish native acceptance.
 
 Each readiness stage has exactly one expectation variant:
 
@@ -161,7 +166,7 @@ The supported route is source-backed by [native skill tools](https://github.com/
 
 ## Scripts, persistence and replay
 
-The [script reference](../skills/agent-workflow/references/runtime-api.md) defines agent, parallel, pipeline, phase, log and JSON args. Literal first meta is required. Extra exports/imports and unsupported options reject. Scripts execute only in separate bounded QuickJS children; broker messages are JSON.
+The [script reference](../skills/agent-workflow/references/runtime-api.md) defines agent, parallel, pipeline, phase, log, JSON args and candidate `workflow(alias,args)`. Literal first meta is required; declare steps and child sources before dispatch. Extra exports/imports and unsupported options reject. Scripts execute only in separate bounded QuickJS children; broker messages are JSON. See [composition](workflow-composition.md) for exact source/result/replay limits and [steps](workflow-steps.md) for plan versus scheduling semantics.
 
 Registry lookup is closest project to Git root, then personal, then plugin. Saved definitions reload on read. Collision, traversal and link checks fail closed. A run captures its script, arguments and launch settings independently from later definition edits.
 
@@ -173,11 +178,13 @@ Worker evidence includes status, prompt/options, attempts, result/error, activit
 
 ## Authenticated session HTTP monitor
 
-dashboard starts a separate loopback server bound to 127.0.0.1 on port 0. Its full URL includes a fragment token. API requests require Authorization: Bearer <token>, an exact Host, and an exact Origin when present. The browser removes the fragment and uses tab session storage. Static assets expose no run data. There is no default inactivity expiry; Close ends the monitor without stopping the workflow. Explicit --current-ui uses the selected current presentation while reads and controls retain each run's verified original runtime.
+dashboard starts a separate server bound to 127.0.0.1 on port 0 by default. Candidate `--lan-bind` requires one exact currently assigned noninternal RFC1918 IPv4 interface address, rechecked before listen; no wildcard, DNS/public auto-bind or firewall change. Its full URL includes a fragment token. API requests require Authorization: Bearer <token>, an exact Host, and an exact Origin when present. The browser removes the fragment and uses tab session storage. Static assets expose no run data. There is no default inactivity expiry; authenticated `POST /api/close` with `{}` ends the monitor without stopping the workflow. There is no CLI close command. Explicit --current-ui uses the selected current presentation while reads and controls retain each run's verified original runtime. See [launch/close commands, bearer authority and second-device gaps](dashboard-lan.md).
 
 | Route | Method and contract |
 | --- | --- |
 | /api/run | GET coherent bounded current snapshot, coverage and recent control receipts |
+| /api/steps / /api/children | GET; generation required, optional after/limit=1..100 (default 50); opaque sequence-bound pages, at most 1 MiB; unknown/repeated keys reject |
+| /api/domain-controls | POST exact revisioned domain request; GET /api/domain-controls/:requestId reads receipt without applying it |
 | /api/worker/N | GET; generation required, optional sourceGeneration |
 | /api/activity | GET; generation and position required, optional sourceGeneration/after/limit |
 | /api/messages | GET; generation and position required, optional sourceGeneration/after/limit=1..100; retained terminal messages and explicit coverage |
@@ -200,6 +207,8 @@ keys. The [message-history contract](message-history.md) defines bounded pages,
 terminal provenance, eviction counts and explicit legacy raw-only coverage.
 An unsupported retained-runtime reader stays unavailable; a newer execution
 module is never substituted into an older run.
+
+Steps/children/domain-controls also have session-bound `/api/runs/:runId/...` routes. Step pages validate complete retained catalogs and worker associations before paging; unavailable old step evidence remains unavailable, never a plan inferred from metadata. Child pages retain source, invocation, result and reuse identities. See [step limits and display versus scheduling](workflow-steps.md) and [composition source/result/replay/control contracts](workflow-composition.md). Unsupported providers return 503; malformed page inputs return 400 and step generation/cursor conflicts 409. Current UI cannot provide a missing recorded-runtime reader.
 
 For `action:'worker-deadline'`, include `generation`, `position`, `attempt`,
 nullable `turnId` and `deadline:{operation,expectedRevision,valueMs?}`.

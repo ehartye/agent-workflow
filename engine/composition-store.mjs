@@ -5,6 +5,7 @@ import {fault} from '../foundation/client.mjs';
 import {strictJSON,exact,digest,canonicalJSON,sha256,isSha,isCount,isId,validateRunRef,validateChildRef} from './composition-contracts.mjs';
 import {readCompositionBlob,readCompositionFile,putCompositionBlob,verifyWorkflowSources} from './composition.mjs';
 import {loadInputs,verifyWorkspace} from './workspaces.mjs';
+import {compileSchema} from './schema.mjs';
 
 const contexts=new WeakSet();
 export function assertRootContext(context){if(!context||!contexts.has(context))throw fault('COMPOSITION_INPUT','A controller-owned host context is required');context.assertOwner();return context;}
@@ -35,14 +36,39 @@ export function writeInvocation(context,record,{insert=false}={}){assertRootCont
 export function invocationRows(db,generation){if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='invocations'").get())return[];const rows=db.prepare('SELECT seq,value,record_hash FROM invocations WHERE generation=? ORDER BY seq LIMIT 2002').all(generation);if(rows.length>2000)throw fault('COMPOSITION_CORRUPT','Invocation count exceeds complete bounded history');return rows.map(r=>{let v;try{v=JSON.parse(r.value);}catch{}if(!v||v.seq!==r.seq||digest(v)!==r.record_hash)throw fault('COMPOSITION_CORRUPT','Invocation record hash differs');return v;});}
 export async function validateInvocationHistory({context,generation=context.generation}){
  assertRootContext(context);const rows=invocationRows(context.db,generation),map=new Map(rows.map(r=>[r.seq,r]));let last='';const links=context.db.prepare('SELECT scope_id,local_call,seq FROM invocation_links WHERE generation=? ORDER BY seq').all(generation);if(links.length!==rows.length)throw fault('COMPOSITION_CORRUPT','Invocation links differ from complete history');
+ const checked=new Set(),histories=new Map([[generation,map]]);
+ async function verifyResult(record,selectedGeneration){
+  const b=await context.readBlob({reference:record.result}),value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));
+  if(!isSha(record.resultHash)||sha256(b)!==record.resultHash||!b.equals(Buffer.from(canonicalJSON(value))))throw Error();
+  if(record.kind==='agent'){
+   const row=context.db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(selectedGeneration,record.workerPosition),worker=row?JSON.parse(row.value):null;
+   if(!worker||worker.key!==record.key||worker.status!=='completed'||sha256(JSON.stringify(worker.result))!==worker.resultHash||canonicalJSON(worker.result)!==canonicalJSON(value)||canonicalJSON(worker.invocation)!==canonicalJSON({seq:record.seq,parentSeq:record.parentSeq,scopeId:record.scopeId,localCall:record.localCall})||worker.options.schema&&!compileSchema(worker.options.schema).validate(value))throw Error();
+   // The worker serialization hash and canonical journal hash intentionally
+   // differ. Compare their verified values, including the retained execution.
+   if(worker.cached){exact(worker.reusedFrom,['generation','position']);const ref=worker.reusedFrom;if(!Number.isSafeInteger(ref.generation)||ref.generation<1||ref.generation>=selectedGeneration||!isCount(ref.position)||ref.position>=1000)throw Error();const sourceRow=context.db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(ref.generation,ref.position),source=sourceRow?JSON.parse(sourceRow.value):null;if(!source||source.key!==worker.key||source.status!=='completed'||sha256(JSON.stringify(source.result))!==source.resultHash||canonicalJSON(source.result)!==canonicalJSON(value)||canonicalJSON(source.origin)!==canonicalJSON(worker.origin))throw Error();}
+  }else if(record.kind==='workflow'){const source=context.sources.entries.find(e=>e.sourceId===record.sourceId);if(source&&!compileSchema(source.declaration.resultSchema).validate(value))throw Error();}
+ }
+ async function verifyLineage(record){
+  let current=record,g=generation;
+  while(!checked.has(g+':'+current.seq)){
+   if(current.status!=='completed')throw Error();await verifyResult(current,g);checked.add(g+':'+current.seq);
+   if(current.reusedFrom===null)break;
+   exact(current.reusedFrom,['generation','seq']);const ref=current.reusedFrom;
+   if(!Number.isSafeInteger(ref.generation)||ref.generation<1||ref.generation>=g||!Number.isSafeInteger(ref.seq)||ref.seq<1)throw Error();
+   if(!histories.has(ref.generation)){const all=invocationRows(context.db,ref.generation),allLinks=context.db.prepare('SELECT scope_id,local_call,seq FROM invocation_links WHERE generation=? ORDER BY seq').all(ref.generation);if(all.length!==allLinks.length)throw Error();let previousKey='';for(let i=0;i<all.length;i++){const row=all[i],link=allLinks[i];if(row.seq!==i+1||row.previousKey!==previousKey||link.seq!==row.seq||link.scope_id!==row.scopeId||link.local_call!==row.localCall)throw Error();previousKey=row.key;}histories.set(ref.generation,new Map(all.map(r=>[r.seq,r])));}
+   const prior=histories.get(ref.generation).get(ref.seq);
+   if(prior)exact(prior,Object.keys(record));
+   if(!prior||prior.status!=='completed'||['kind','key','previousKey','sourceId','argsHash','policyHash','catalogHash','capabilitiesHash','scopeId','localCall','parentSeq','resultHash'].some(key=>canonicalJSON(prior[key])!==canonicalJSON(current[key]))||canonicalJSON(prior.result)!==canonicalJSON(current.result))throw Error();
+   current=prior;g=ref.generation;
+  }
+ }
  let childOrdinal=0;const localCalls=new Map();
  for(let i=0;i<rows.length;i++){
   const r=rows[i];try{exact(r,['schemaVersion','seq','parentSeq','scopeId','localCall','kind','key','previousKey','status','sourceId','argsHash','policyHash','catalogHash','capabilitiesHash','workerPosition','child','result','resultHash','error','reusedFrom']);const link=links[i];if(r.schemaVersion!==1||r.seq!==i+1||!isId(r.scopeId)||!isCount(r.localCall)||!['agent','workflow','refineArtifact'].includes(r.kind)||!['intent','running','completed','failed','unknown','cancelled'].includes(r.status)||!isSha(r.key)||r.previousKey!==last||!isSha(r.argsHash)||r.policyHash!==context.policyHash||r.catalogHash!==context.catalogHash||r.capabilitiesHash!==context.capabilitiesHash||link.seq!==r.seq||link.scope_id!==r.scopeId||link.local_call!==r.localCall||r.parentSeq!==null&&(!map.has(r.parentSeq)||r.parentSeq>=r.seq))throw Error();
    const parent=r.parentSeq===null?null:map.get(r.parentSeq);if(parent===null?r.scopeId!=='root':parent.kind!=='workflow'||r.kind!=='agent'||r.scopeId!==parent.child?.invocationId)throw Error();if(localCalls.has(r.scopeId)&&localCalls.get(r.scopeId)>=r.localCall)throw Error();localCalls.set(r.scopeId,r.localCall);
    if(r.kind==='agent'){if(!isCount(r.workerPosition)||r.workerPosition>=1000||r.child!==null||r.sourceId!==null)throw Error();const row=context.db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(generation,r.workerPosition),w=row?JSON.parse(row.value):null;if(!w||w.key!==r.key||canonicalJSON(w.invocation)!==canonicalJSON({seq:r.seq,parentSeq:r.parentSeq,scopeId:r.scopeId,localCall:r.localCall})||(parent?w.origin?.kind!=='child'||w.origin.invocationId!==r.scopeId:w.origin?.kind!=='guest')||r.status==='completed'&&(w.status!=='completed'||sha256(JSON.stringify(w.result))!==w.resultHash))throw Error();}
    if(r.kind==='workflow'){exact(r.child,['run','generation','invocationId']);if(r.parentSeq!==null||r.scopeId!=='root'||r.workerPosition!==null||!isSha(r.sourceId)||!context.sources.entries.some(e=>e.sourceId===r.sourceId)||r.child.generation!==generation||r.child.invocationId!==`c_${++childOrdinal}`||canonicalJSON(r.child.run)!==canonicalJSON(context.run))throw Error();}
-   if(r.status==='completed'){if(!r.result||!isSha(r.resultHash))throw Error();const b=await context.readBlob({reference:r.result});if(sha256(b)!==r.resultHash)throw Error();JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));}else if(r.result!==null||r.resultHash!==null||['failed','unknown'].includes(r.status)&&!r.error)throw Error();
-   if(r.reusedFrom!==null){const old=context.db.prepare('SELECT value,record_hash FROM invocations WHERE generation=? AND seq=?').get(r.reusedFrom.generation,r.reusedFrom.seq);if(!old||r.reusedFrom.generation>=generation)throw Error();const v=JSON.parse(old.value);if(digest(v)!==old.record_hash||v.key!==r.key||v.status!=='completed'||canonicalJSON(v.result)!==canonicalJSON(r.result))throw Error();}
+   if(r.status==='completed'){if(!r.result||!isSha(r.resultHash))throw Error();await verifyLineage(r);}else if(r.result!==null||r.resultHash!==null||r.reusedFrom!==null||['failed','unknown'].includes(r.status)&&!r.error)throw Error();
   }catch{throw fault('COMPOSITION_CORRUPT','Invocation identity, links, worker, result or reuse evidence differs');}last=r.key;
  }return{count:rows.length,lastKey:last||null};
 }

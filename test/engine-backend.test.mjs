@@ -45,6 +45,28 @@ function retained(report,expected){
   if(windows)assert.equal(report.directories.some(name=>name.startsWith('workflow-job-host-')),expected);
 }
 
+function sourceTransport(report){
+  const capability=report.workerEvidence.capabilities,trace=report.trace;
+  const turn=trace.findIndex(row=>row.method==='turn/start');
+  for(const [completion,fact] of [[false,capability.sources],[true,capability.completionSources]]){
+    assert.equal(fact.status,'passed');assert.equal(fact.start,'observed');assert.equal(fact.exitCode,0);
+    assert.equal(fact.transport.kind,'stdin-v1');assert.equal(fact.transport.readiness,'observed');
+    assert.equal(fact.transport.input,'closed');assert.equal(fact.transport.settlement,'observed');
+    const events=trace.map((row,index)=>({...row,index})).filter(row=>row.sourcePhase===(completion?'completion':'admission'));
+    const ready=events.find(row=>row.method==='fixture/sourceReady'),eof=events.find(row=>row.method==='fixture/sourceEof');
+    const writes=events.filter(row=>row.method==='fixture/sourceWriteAck'),exit=events.find(row=>row.method==='fixture/sourceExit');
+    assert.ok(ready&&eof&&exit,'real source child must reach readiness, EOF and drained exit');
+    assert.ok(Number.isInteger(exit.pid)&&exit.pid>0);assert.equal(exit.exitCode,0);
+    assert.equal(writes.length,fact.transport.chunks);assert.ok(writes.length>0);
+    assert.ok(writes.every(row=>row.index>ready.index&&row.index<eof.index));
+    assert.equal(writes.reduce((sum,row)=>sum+row.bytes,0),fact.transport.bytes);
+    assert.ok(eof.index<exit.index);assert.equal(exit.verified,true);
+    assert.ok(completion?ready.index>turn:exit.index<turn,'initial source verification precedes inference; completion follows it');
+    assert.ok(events.filter(row=>row.method==='command/exec').every(row=>row.streamStdin&&row.streamStdoutStderr&&row.argvBudget<=30000));
+  }
+  assert.equal(capability.sources.transport.sha256,capability.completionSources.transport.sha256);
+}
+
 test('parent execution reaches launch probe readiness thread and turn without disabling configured integrations',async t=>{
  const report=await construct(t,{parentAccess:true,execute:true,nativeSkills:true});
  assert.equal(report.ok,true);assert.equal(report.value,'BACKEND_OK');
@@ -160,11 +182,20 @@ test('partial required native read and disappeared source retain both observatio
  assert.equal(report.evidence.attempts.length,1);assert.equal(report.closeCalls.worker,1);
 });
 
-test('completion source transport failure stays unknown after the observed model result without a retry',async t=>{
- const report=await construct(t,{execute:true,nativeSkills:true,worker:{completionTransportFailure:true}});
- assert.equal(report.ok,false);assert.equal(report.primary.code,'CAPABILITY_SOURCE_UNVERIFIED');assert.equal(report.executionUnknown,true);
- assert.equal(report.evidence.capabilities.sources.status,'passed');assert.equal(report.evidence.capabilities.completionSources.start,'unknown');
+for(const failure of ['execution','write','binding'])test(`completion source ${failure} failure stays unverified after the observed model result without a retry`,async t=>{
+ const report=await construct(t,{execute:true,nativeSkills:true,worker:{completionTransportFailure:failure==='execution'?true:failure}});
+ assert.equal(report.ok,false);assert.equal(report.primary.code,'CAPABILITY_SOURCE_UNVERIFIED');
+ assert.equal(report.executionUnknown===true,failure!=='binding','lost transport retains unknown effects; invalid input with settled exit is known execution');
+ assert.equal(report.evidence.capabilities.sources.status,'passed');assert.equal(report.evidence.capabilities.completionSources.start,failure==='execution'?'unknown':'observed');
  assert.equal(report.evidence.capabilities.completionSources.sourceStatus,'unverified');assert.equal(report.evidence.attempts[0].status,'completed');
+ if(failure==='binding'){assert.equal(report.evidence.capabilities.completionSources.exitCode,1);assert.equal(report.evidence.capabilities.completionSources.transport.settlement,'observed');}
+ if(failure==='write'){
+   const transport=report.evidence.capabilities.completionSources.transport;
+   assert.equal(transport.input,'unknown');assert.equal(transport.chunks,0);assert.equal(transport.termination,'acknowledged');
+   const events=report.trace.filter(row=>row.sourcePhase==='completion');
+   assert.equal(events.filter(row=>row.method==='fixture/sourceWriteApplied').length,1,'one real write happened before its response was lost');
+   assert.equal(events.some(row=>['fixture/sourceWriteAck','fixture/sourceEof'].includes(row.method)),false,'no blind write repetition or EOF after uncertain effects');
+ }
  assert.notEqual(report.noInference,true);assert.notEqual(report.notStarted,true);assert.equal(report.closeCalls.worker,1);
  assert.equal(report.trace.filter(event=>event.stage==='worker'&&event.method==='command/exec').length,2);
 });
@@ -279,6 +310,24 @@ test('selected exact skill roots reach native executor tools without UserInput o
   assert.equal(report.workerEvidence.capabilities.native.readRootMatch,'observedForSelectedMainReads');
   assert.deepEqual(report.workerEvidence.capabilities.native.activation,{status:'complete',required:['native-fixture'],observed:['native-fixture'],missing:[],body:'notVerified'});
   assert.equal(report.closeCalls.worker,1);
+  sourceTransport(report);
+});
+
+test('managed backend admits and completes all four packaged skills through retained roots beyond the argv budget',async t=>{
+  const report=await construct(t,{execute:true,nativeSkills:true,packagedSkills:true,retainSources:true});
+  assert.equal(report.ok,true,JSON.stringify(report.primary));assert.equal(report.value,'BACKEND_OK');
+  const capability=report.workerEvidence.capabilities;
+  assert.equal(report.bundleFixture.skills,4);
+  assert.equal(report.bundleFixture.files,capability.skills.reduce((total,skill)=>total+1+skill.referenceCount,0));
+  assert.equal(capability.completionSources.skillCount,4);
+  assert.equal(capability.completionSources.selectionFingerprint,capability.fingerprint);
+  assert.ok(capability.sources.transport.bytes>30000);assert.ok(capability.sources.transport.chunks>1);
+  assert.ok(capability.roots.every(row=>row.location.path.includes('source-packages-v1')));
+  assert.equal(capability.native.activation.status,'complete');assert.equal(capability.native.activation.observed.length,4);
+  sourceTransport(report);
+  assert.equal(report.workerEvidence.capabilitySources.before,'passed');assert.equal(report.workerEvidence.capabilitySources.completion,'passed');
+  assert.equal(report.trace.filter(row=>row.method==='turn/start').length,1);assert.equal(report.workerEvidence.cleanup.serverExited,true);
+  assert.equal(report.workerEvidence.cleanup.nativeTerminals.inventoryEmpty,true);assert.equal(report.workerEvidence.cleanup.forced,false);
 });
 
 for(const nativeCalls of ['none','execOnly','unpaired','forgedCustom','forgedAlias','unsupportedReuse'])test(`selected skills reject ${nativeCalls} manual/CLI completion claims without paired native proof`,async t=>{
@@ -477,7 +526,8 @@ test('deadline expiry during completion source checks retains the completed mode
  const report=await construct(t,{execute:true,nativeSkills:true,activeChange:{operation:'set',valueMs:150},worker:{sourceDelayMs:350}});
  assert.equal(report.ok,false);assert.equal(report.primary.code,'TURN_TIMEOUT');assert.notEqual(report.noInference,true);
  assert.equal(report.evidence.attempts.length,1);assert.equal(report.evidence.attempts[0].status,'completed');
- assert.equal(report.evidence.capabilities.completionSources.start,'unknown');assert.equal(report.evidence.capabilities.completionSources.sourceStatus,'unverified');
+ assert.equal(report.evidence.capabilities.completionSources.start,'observed','streamed child READY remains observed when the final response is lost to the wall deadline');assert.equal(report.evidence.capabilities.completionSources.sourceStatus,'unverified');
+ assert.equal(report.evidence.capabilities.completionSources.executionUnknown,true);assert.equal(report.evidence.capabilities.completionSources.transport.settlement,'unknown');
  assert.equal(report.evidence.cleanup.serverExited,true);assert.equal(report.evidence.cleanup.nativeTerminals.inventoryEmpty,true);
  assert.equal(report.trace.filter(row=>row.method==='turn/start').length,1);
 });

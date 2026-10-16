@@ -10,10 +10,20 @@ export function restartPlan(state,request,{requireReconciliation=true}={}){
   if(state.workers.slice(0,request.position).some(worker=>worker.status!=='completed'))throw fault('RESTART_PREFIX','Restart the earliest unsuccessful worker first');
   let invocationSeq=null,firstAffectedPosition=request.position;
   if(state.compositionVersion===1){
-    invocationSeq=worker.invocation?.parentSeq??worker.invocation?.seq;
-    if(!Number.isSafeInteger(invocationSeq)||invocationSeq<1)throw fault('RESTART_DRAIN','Composed restart requires the actual invocation binding');
-    let changed=true;while(changed){changed=false;for(const item of state.workers)if(item.invocation?.seq>=invocationSeq&&item.invocation.parentSeq!==null&&item.invocation.parentSeq<invocationSeq){invocationSeq=item.invocation.parentSeq;changed=true;}}
-    firstAffectedPosition=Math.min(request.position,...state.workers.filter(item=>item.invocation?.seq>=invocationSeq).map(item=>item.position));
+    // Appended work has a physical origin, never a guest invocation. Close the
+    // physical suffix over actual guest containers and back over their workers.
+    // The controller subsequently closes the journal suffix over all ancestors,
+    // including worker-free containers. No affected guest means full reuse.
+    let changed=true;while(changed){changed=false;
+      for(const item of state.workers.filter(w=>w.position>=firstAffectedPosition&&w.origin?.kind!=='append')){
+        const seq=item.invocation?.parentSeq??item.invocation?.seq;if(!Number.isSafeInteger(seq)||seq<1)throw fault('RESTART_DRAIN','Composed guest restart requires its actual invocation binding');
+        if(invocationSeq===null||seq<invocationSeq){invocationSeq=seq;changed=true;}
+      }
+      for(const item of state.workers)if(invocationSeq!==null&&item.invocation?.seq>=invocationSeq){
+        if(item.invocation.parentSeq!==null&&item.invocation.parentSeq<invocationSeq){invocationSeq=item.invocation.parentSeq;changed=true;}
+        if(item.position<firstAffectedPosition){firstAffectedPosition=item.position;changed=true;}
+      }
+    }
   }
   const affected=state.workers.slice(firstAffectedPosition);
   for(const item of affected){
@@ -24,7 +34,7 @@ export function restartPlan(state,request,{requireReconciliation=true}={}){
     }
   }
   if(state.attempts>=state.maxAgents)throw fault('AGENT_LIMIT','No lifetime worker attempts remain for restart');
-  return{position:request.position,attempt:request.attempt,...(invocationSeq===null?{}:{invocationSeq,firstAffectedPosition}),affected:affected.map(item=>({position:item.position,status:item.status,attempts:item.attempts??0,...(item.origin?{origin:structuredClone(item.origin)}:{})})),...(requireReconciliation?{reconciliation:request.reconciliation.trim()}:{})};
+  return{position:request.position,attempt:request.attempt,...(state.compositionVersion===1?{firstAffectedPosition,...(invocationSeq===null?{}:{invocationSeq})}:{}),affected:affected.map(item=>({position:item.position,status:item.status,attempts:item.attempts??0,...(item.origin?{origin:structuredClone(item.origin)}:{})})),...(requireReconciliation?{reconciliation:request.reconciliation.trim()}:{})};
 }
 
 export function restartPreview(state){

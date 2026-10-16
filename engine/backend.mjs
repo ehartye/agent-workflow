@@ -3,7 +3,6 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir,homedir} from 'node:os';
 import {join,resolve} from 'node:path';
 import { promisify } from 'node:util';
-import {randomUUID} from 'node:crypto';
 import { AppServer, fault, diagnostic } from '../foundation/client.mjs';
 import {cleanupTerminals} from '../foundation/terminals.mjs';
 import {buildJobHost} from '../foundation/windows-job.mjs';
@@ -20,7 +19,7 @@ import {discoverParentCapabilities} from './parent-capabilities.mjs';
 import {captureCapabilitySources,loadCapabilitySources} from './capability-sources.mjs';
 import {writerPolicy,assertWriterThread} from './workspace-policy.mjs';
 import {assertWorkspaceReady} from './workspaces.mjs';
-import {freezeCapabilities,selectCapabilities,admitWorkerCapabilities,DIRECT_SKILLS,assertDirectSkills,observeNativeSkills} from './worker-capabilities.mjs';
+import {freezeCapabilities,selectCapabilities,admitWorkerCapabilities,checkCompletionSources,DIRECT_SKILLS,assertDirectSkills,observeNativeSkills} from './worker-capabilities.mjs';
 
 export function workerCleanup(ownership,nativeTerminals,requiresJob){
   const cleanup={...ownership,...(nativeTerminals?{nativeTerminals}:{})};
@@ -42,34 +41,13 @@ function commandFailureFacts(error){
     signal:signal===null?'none':['SIGTERM','SIGKILL','SIGINT'].includes(signal)?'termination':typeof signal==='string'?'other':'unknown',stdoutBytes:bytes('stdout'),stderrBytes:bytes('stderr')};
 }
 
-const completionSourceCommand=skills=>[process.execPath,'--input-type=module','-e',`try{const m=await import(${JSON.stringify(new URL('./worker-capabilities.mjs',import.meta.url).href)});await m.verifySkillSources(JSON.parse(process.argv[1]));process.stdout.write("WORKER_SKILL_COMPLETION_OK\\n");}catch(e){const changed=e?.code==="SKILL_SOURCE";process.stdout.write(changed?"WORKER_SKILL_COMPLETION_CHANGED\\n":"WORKER_SKILL_COMPLETION_UNKNOWN\\n");process.exitCode=changed?12:13;}`,JSON.stringify(skills)];
-
-async function checkCompletionSources(client,{command,cwd,sandboxPolicy,selection,deadline,signal}){
-  const fact={scope:'selected-skills',skillCount:selection.skills.length,selectionFingerprint:selection.fingerprint,status:'failed',start:'unknown',exitCode:null,sourceStatus:'unverified',outputTruncated:false};
-  try{
-    if(signal?.aborted){fact.start='notStarted';throw fault('RUN_STOPPED','Completion source check was cancelled');}
-    const remaining=deadline.remaining();
-    if(remaining<=0){fact.start='notStarted';throw fault('TURN_TIMEOUT','Worker deadline elapsed before source completion check');}
-    const timeoutMs=20000;
-    const response=await client.request('command/exec',{processId:`capability-completion-${randomUUID()}`,command,cwd,sandboxPolicy,streamStdoutStderr:false,timeoutMs,outputBytesCap:8192},{timeoutMs:timeoutMs+1000});
-    if(Number.isSafeInteger(response?.exitCode)&&response.exitCode>=-2147483648&&response.exitCode<=4294967295){fact.start='observed';fact.exitCode=response.exitCode;}
-    const valid=typeof response?.stdout==='string'&&typeof response?.stderr==='string';
-    fact.outputTruncated=!valid||Buffer.byteLength(response.stdout+response.stderr)>=8192;
-    if(valid&&!fact.outputTruncated&&response.stderr===''){
-      if(fact.exitCode===0&&response.stdout.trim()==='WORKER_SKILL_COMPLETION_OK')fact.sourceStatus='verified';
-      else if(fact.exitCode===12&&response.stdout.trim()==='WORKER_SKILL_COMPLETION_CHANGED')fact.sourceStatus='changedOrUnavailable';
-    }
-    if(deadline.remaining()<=0)throw fault('TURN_TIMEOUT','Worker deadline elapsed during source completion check');
-    if(fact.sourceStatus==='verified')fact.status='passed';
-  }catch(error){fact.error={code:['RUN_STOPPED','TURN_TIMEOUT','REQUEST_TIMEOUT'].includes(error?.code)?error.code:'COMPLETION_CHECK_FAILED'};}
-  return fact;
-}
-
 // Deadline cancellation abandons the command wait, not its ownership. The
 // execute finally block still inventories the owned thread and drains its job.
 // Native command/RPC caps are independent and cannot be extended retroactively.
 function boundedWorkerClient(client,signal,deadline){
-  return{request(method,params,options){
+  return{onNotification(listener){
+    return client.onNotification(message=>{if(message.method==='command/exec/outputDelta')listener(message);});
+  },request(method,params,options){
     const failure=()=>deadline.signal.aborted?fault('TURN_TIMEOUT','Worker exceeded its live wall deadline'):fault('RUN_STOPPED','Worker was cancelled');
     if(signal.aborted||deadline.remaining()<=0)return Promise.reject(failure());
     let cancel;
@@ -254,8 +232,6 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
           catch(error){throw Object.assign(error,{notStarted:true,noProcessStarted:true,noInference:true,evidence:{capabilitySources:{...sourceEvidence,before:'failed'}}});}
         }
         const selection=selectCapabilities(bundle?.executionManifest??bundle?.manifest,options);
-        const completionCommand=selection?.skills.length?completionSourceCommand(selection.skills):null;
-        if(completionCommand&&completionCommand.reduce((size,arg)=>size+2*arg.length+3,0)>30000)throw Object.assign(fault('CAPABILITY_SELECTION','Selected completion check exceeds the Windows command-line budget'),{notStarted:true,noProcessStarted:true});
         const rootKey=path=>process.platform==='win32'?resolve(path).toLowerCase():resolve(path);
         const rootsByPath=new Map((parentCapabilities?.roots??[]).map(root=>[rootKey(root.location.path),root]));
         // Exact role roots keep their stable declared IDs when the native
@@ -348,12 +324,12 @@ async function createBackend({executable,cwd,backend,defaults,jobHost,startup,bu
           if(capabilities){
             result.evidence.capabilities.native={...capabilities.native};
             if(selection.skills.length){
-              capabilities.completionSources=await checkCompletionSources(boundedClient,{command:completionCommand,cwd:workerCwd,sandboxPolicy:policy.turn.sandboxPolicy,selection,deadline:liveDeadline,signal});
+              capabilities.completionSources=await checkCompletionSources(boundedClient,{cwd:workerCwd,sandboxPolicy:policy.turn.sandboxPolicy,selection,deadline:liveDeadline,signal});
               result.evidence.capabilities.completionSources={...capabilities.completionSources};
               remaining();
               if(capabilities.completionSources.status!=='passed'){
                 const changed=capabilities.completionSources.sourceStatus==='changedOrUnavailable';
-                throw Object.assign(fault(changed?'CAPABILITY_SOURCE_CHANGED':'CAPABILITY_SOURCE_UNVERIFIED',changed?'Assigned skill source changed or became unavailable before completion':'Assigned skill source could not be verified before completion'),{evidence:result.evidence,terminalObserved:result.terminalObserved,...(capabilities.completionSources.start==='unknown'?{executionUnknown:true}:{})});
+                throw Object.assign(fault(changed?'CAPABILITY_SOURCE_CHANGED':'CAPABILITY_SOURCE_UNVERIFIED',changed?'Assigned skill source changed or became unavailable before completion':'Assigned skill source could not be verified before completion'),{evidence:result.evidence,terminalObserved:result.terminalObserved,...(capabilities.completionSources.start==='unknown'||capabilities.completionSources.executionUnknown?{executionUnknown:true}:{})});
               }
               const missing=[['catalog','skills.list'],['read','skills.read']].filter(([key])=>capabilities.native[key]!=='callAndOutputObserved').map(([,tool])=>tool);
               const activation=capabilities.native.activation;

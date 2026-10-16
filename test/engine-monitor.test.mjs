@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,writeFile,mkdir,readFile} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
 import {request} from 'node:http';
@@ -25,6 +25,55 @@ test('pinned steps route pages actual declarations and rejects duplicate queries
  const first=await fetch(url.origin+'/api/steps?generation=1&limit=1',{headers:{authorization}});assert.equal(first.status,200);const page=await first.json();assert.equal(page.coverage.declared,2);assert.equal(page.coverage.assigned,0);assert.equal(page.items[0].execution,'planned');assert.equal(page.hasMore,true);
  const next=await fetch(url.origin+'/api/steps?generation=1&limit=1&after='+page.nextCursor,{headers:{authorization}}).then(r=>r.json());assert.equal(next.items[0].ref.stepId,'b');assert.equal(next.hasMore,false);
  assert.equal((await fetch(url.origin+'/api/steps?generation=1&generation=1',{headers:{authorization}})).status,400);
+});
+
+test('summary stepsRevision follows validated catalogs and worker state but stays stable on activity and unchanged polls',async t=>{
+ const {monitorData}=await import('../engine/monitor-data.mjs'),{readStepsAt}=await import('../engine/steps.mjs'),{resolveAccess}=await import('../engine/access-policy.mjs'),{verifyWorkflowSources}=await import('../engine/composition.mjs');
+ const root=await mkdtemp(join(tmpdir(),'steps-revision-'));t.after(()=>rm(root,{recursive:true,force:true}));const runDir=join(root,'run'),source=join(root,'source');await mkdir(source);
+ const child='export const meta={name:"pure",description:"worker free",steps:[{id:"child",label:"Child",dependsOn:[]}]};return {ok:true};';await writeFile(join(source,'pure.mjs'),child);
+ const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}}),cleanup={serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members',nativeTerminals:{inventoryEmpty:true}};
+ const script='export const meta='+JSON.stringify({name:'revision',description:'projection',steps:[{id:'a',label:'A',dependsOn:[],worker:{id:'a'}},{id:'b',label:'B',dependsOn:[],worker:{id:'b'}}],workflows:[{alias:'pure',source:{kind:'script',path:'pure.mjs'},argsSchema:{type:'object'},resultSchema:{type:'object'},capabilities:{skills:null,tools:null},permissions:null}]})+';await agent("A",{id:"a",maxAttempts:1});await workflow("pure",{});return await agent("B",{id:"b",maxAttempts:1});';
+ let releaseA,releaseB,startedA,startedB,activity;const gateA=new Promise(r=>{releaseA=r;}),gateB=new Promise(r=>{releaseB=r;}),aStarted=new Promise(r=>{startedA=r;}),bStarted=new Promise(r=>{startedB=r;});let admitted;
+ const work=runWorkflow({runDir,sessionId:'s',script,launch:{cwd:source,accessPolicy},onReady:async()=>{admitted=await monitorData(runDir);},backend:{identity:'steps-revision',accessPolicy,parentCapabilities:{fingerprint:'a'.repeat(64),coverage:{complete:true}},close:async()=>cleanup,execute:async({prompt,onEvent})=>{if(prompt==='A'){activity=()=>onEvent({method:'item/agentMessage/delta',params:{threadId:'a',turnId:'a',itemId:'note',delta:'irrelevant activity'}});startedA();await gateA;return{value:'A',terminalObserved:true,evidence:{cleanup}};}startedB();await gateB;throw Object.assign(new Error('known failure'),{code:'FIXTURE',terminalObserved:true,evidence:{cleanup}});}}});
+ let during,afterChild;
+ try{await aStarted;during=await monitorData(runDir);assert.match(during.stepsRevision,/^[a-f0-9]{64}$/);assert.notEqual(during.stepsRevision,admitted.stepsRevision);assert.equal((await monitorData(runDir)).stepsRevision,during.stepsRevision);activity();assert.equal((await monitorData(runDir)).stepsRevision,during.stepsRevision);releaseA();await bStarted;afterChild=await monitorData(runDir);assert.notEqual(afterChild.stepsRevision,during.stepsRevision);assert.equal((await readStepsAt({runDir,run:null,generation:1})).coverage.declared,3);assert.equal((await monitorData(runDir)).stepsRevision,afterChild.stepsRevision);}finally{releaseA();releaseB();await work;}
+ const terminal=await monitorData(runDir);assert.notEqual(terminal.stepsRevision,afterChild.stepsRevision);assert.equal((await monitorData(runDir)).stepsRevision,terminal.stepsRevision);
+ const db=new DatabaseSync(join(runDir,'run.sqlite'),{readOnly:true});let state;try{state=JSON.parse(db.prepare('SELECT value FROM header WHERE id=1').get().value);}finally{db.close();}
+ const sources=await verifyWorkflowSources({runDir,descriptor:state.workflowSources}),blob=join(runDir,'workflow-sources-v1','blobs',sources.entries[0].script.sha256);await writeFile(blob,child.replace('Child','Wrong'));
+ await assert.rejects(monitorData(runDir),{code:'STEP_CORRUPT'});
+});
+
+test('worker-free child scope changes summary stepsRevision without creating workers; old runtimes omit it',async t=>{
+ const {monitorData}=await import('../engine/monitor-data.mjs'),{resolveAccess}=await import('../engine/access-policy.mjs');const root=await mkdtemp(join(tmpdir(),'steps-pure-revision-'));t.after(()=>rm(root,{recursive:true,force:true}));const runDir=join(root,'run'),source=join(root,'source');await mkdir(source);await writeFile(join(source,'pure.mjs'),'export const meta={name:"pure",description:"worker free",steps:[{id:"c",label:"C",dependsOn:[]}]};return {ok:true};');
+ const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}}),workflows=[{alias:'pure',source:{kind:'script',path:'pure.mjs'},argsSchema:{type:'object'},resultSchema:{type:'object'},capabilities:{skills:null,tools:null},permissions:null}];let before;
+ await runWorkflow({runDir,sessionId:'s',script:'export const meta='+JSON.stringify({name:'pure',description:'revision',workflows})+';return await workflow("pure",{});',launch:{cwd:source,accessPolicy},onReady:async()=>{before=await monitorData(runDir);},backend:{identity:'pure-revision',accessPolicy,parentCapabilities:{fingerprint:'a'.repeat(64),coverage:{complete:true}},execute:async()=>assert.fail('no worker'),close:async()=>({serverExited:true})}});
+ const after=await monitorData(runDir);assert.equal(after.workers.length,0);assert.match(before.stepsRevision,/^[a-f0-9]{64}$/);assert.notEqual(after.stepsRevision,before.stepsRevision);assert.equal((await monitorData(runDir)).stepsRevision,after.stepsRevision);
+ // Isolate catalog appearance from terminal/admission changes using the real
+ // retained child and an open header/ledger snapshot; there are still no workers.
+ const db=new DatabaseSync(join(runDir,'run.sqlite'));try{const state=JSON.parse(db.prepare('SELECT value FROM header WHERE id=1').get().value),admission=JSON.parse(db.prepare('SELECT value FROM admission WHERE generation=1').get().value);state.status=before.status;state.acceptingControls=before.acceptingControls;admission.accepting=before.acceptingAdditions;db.prepare('UPDATE header SET value=? WHERE id=1').run(JSON.stringify(state));db.prepare('UPDATE admission SET value=? WHERE generation=1').run(JSON.stringify(admission));const open=await monitorData(runDir);assert.notEqual(open.stepsRevision,before.stepsRevision,'Worker-free catalog itself must change the revision');assert.equal((await monitorData(runDir)).stepsRevision,open.stepsRevision);delete state.stepsVersion;db.prepare('UPDATE header SET value=? WHERE id=1').run(JSON.stringify(state));}finally{db.close();}
+ assert.equal(Object.hasOwn(await monitorData(runDir),'stepsRevision'),false,'Absent version is explicit unavailable, never a reconstructed revision');
+});
+
+test('summary stepsRevision verifies complete workers and follows assignments beyond the first step page',async t=>{
+ const {runDir}=await setup(t),{monitorData}=await import('../engine/monitor-data.mjs');const steps=Array.from({length:105},(_,i)=>({id:'s'+i,label:'Step '+i,dependsOn:[]}));
+ await runWorkflow({runDir,sessionId:'s',script:'export const meta='+JSON.stringify({name:'assignments',description:'complete projection',steps})+';return await agent("Read",{id:"reader",stepId:"s103",maxAttempts:1});',backend:backend(async()=>({value:'done',terminalObserved:true}))});
+ const before=await monitorData(runDir),db=new DatabaseSync(join(runDir,'run.sqlite'));try{const worker=JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value);worker.step.stepId='s104';worker.options.stepId='s104';db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(JSON.stringify(worker));const reassigned=await monitorData(runDir);assert.notEqual(reassigned.stepsRevision,before.stepsRevision);worker.attempts++;db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(JSON.stringify(worker));const attempt=await monitorData(runDir);assert.notEqual(attempt.stepsRevision,reassigned.stepsRevision);assert.equal((await monitorData(runDir)).stepsRevision,attempt.stepsRevision);db.exec('DELETE FROM workers WHERE generation=1');await assert.rejects(monitorData(runDir),{code:'STEP_CORRUPT'});const {readStepsAt}=await import('../engine/steps.mjs');await assert.rejects(readStepsAt({runDir,run:null,generation:1}),{code:'STEP_CORRUPT'});}finally{db.close();}
+});
+
+test('summary and page one reject a missing required binding without publishing a verified revision',async t=>{
+ const {monitorData}=await import('../engine/monitor-data.mjs'),{readStepsAt}=await import('../engine/steps.mjs');
+ for(const mutation of ['delete','null'])await t.test(mutation,async t=>{
+  const {runDir}=await setup(t);
+  const steps=Array.from({length:105},(_,i)=>({id:'s'+i,label:'Step '+i,dependsOn:[]}));let effects=0;
+  await runWorkflow({runDir,sessionId:'s',script:'export const meta='+JSON.stringify({name:'binding',description:'complete projection',steps})+';return await agent("Read",{id:"reader",stepId:"s103",maxAttempts:1});',backend:backend(async()=>({value:++effects,terminalObserved:true}))});
+  const run=null;assert.match((await monitorData(runDir)).stepsRevision,/^[a-f0-9]{64}$/);
+  const db=new DatabaseSync(join(runDir,'run.sqlite'));let corrupt;
+  try{const w=JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value);if(mutation==='delete')delete w.step;else w.step=null;corrupt=JSON.stringify(w);db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(corrupt);}finally{db.close();}
+  await t.test('summary',()=>assert.rejects(monitorData(runDir,{kind:'summary',runRef:run}),{code:'STEP_CORRUPT'}));
+  await t.test('page one',()=>assert.rejects(readStepsAt({runDir,run,generation:1,limit:1}),{code:'STEP_CORRUPT'}));
+  const saved=new DatabaseSync(join(runDir,'run.sqlite'),{readOnly:true});try{assert.equal(saved.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value,corrupt);assert.equal(JSON.parse(saved.prepare('SELECT value FROM header WHERE id=1').get().value).generation,1);}finally{saved.close();}
+  assert.equal(effects,1);
+ });
 });
 
 test('monitor preserves uncertain added dispatch across summary full-worker and saved-run reads',async t=>{
@@ -66,6 +115,7 @@ test('monitor follows retained source positions when cached workers move to new 
  try{db.exec('BEGIN IMMEDIATE;DELETE FROM workers WHERE generation=2');for(const [position,prior] of [...cached.workers].reverse().entries())db.prepare('INSERT INTO workers VALUES(2,?,?)').run(position,JSON.stringify({...prior,position,sourceGeneration:1,sourcePosition:prior.reusedFrom.position}));db.exec('COMMIT');}finally{db.close();}
  const activity=await monitorData(runDir,{kind:'activity',generation:2,position:1});assert.equal(activity.records[0].input,'A');assert.equal(activity.sourceGeneration,1);assert.equal(activity.sourcePosition,0);
  const earlier=await monitorData(runDir,{kind:'worker',generation:2,position:1,sourceGeneration:1});assert.equal(earlier.prompt,'A');assert.equal(earlier.historyPosition,0);
+ assert.match((await monitorData(runDir)).stepsRevision,/^[a-f0-9]{64}$/);
  // Mirrored coordinates agreeing with each other are insufficient: a corrupt
  // cache link must not attribute B's equally sized activity history to A.
  const corrupt=new DatabaseSync(join(runDir,'run.sqlite'));
@@ -75,6 +125,8 @@ test('monitor follows retained source positions when cached workers move to new 
   corrupt.prepare('UPDATE workers SET value=? WHERE generation=2 AND position=1').run(JSON.stringify(row));
  }finally{corrupt.close();}
  await assert.rejects(monitorData(runDir,{kind:'activity',generation:2,position:1}),{code:'ACTIVITY_CORRUPT'});
+ await assert.rejects(monitorData(runDir),{code:'STEP_CORRUPT'});
+ const {readStepsAt}=await import('../engine/steps.mjs');await assert.rejects(readStepsAt({runDir,run:null,generation:2}),{code:'STEP_CORRUPT'});
 });
 
 const reportSchema={type:'object',additionalProperties:false,properties:{
@@ -131,13 +183,14 @@ test('authenticated service health stays available when saved run reads fail and
 });
 
 test('session routes pin read identities and forward exact reviewed lifecycle previews without retargeting Stop',async t=>{
-  const {runDir,createMonitor}=await setup(t);await runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',backend:backend(async()=>{})});
-  const binding={version:1,scope:'session',dataInstanceId:'data',originatingSessionId:'s',pinnedRunId:basename(runDir),runtimeId:'original-runtime'};
+  const {runDir,createMonitor,dataInstanceId}=await setup(t);
+  const binding={version:1,scope:'session',dataInstanceId,originatingSessionId:'s',pinnedRunId:basename(runDir),runtimeId:'original-runtime'};
   await writeFile(join(runDir,'runtime.json'),JSON.stringify({schema:2,id:binding.pinnedRunId,sessionId:'s',runtime:{id:'original-runtime'}}));
-  const other={dataInstanceId:'data',runId:'replacement',runtimeId:'replacement-runtime'},calls=[];
+  await runWorkflow({runDir,sessionId:'s',script:meta+'return 1;',backend:backend(async()=>{})});
+  const other={dataInstanceId,runId:'replacement',runtimeId:'replacement-runtime'},calls=[];
   const services={
     listSessionRuns:async()=>({items:[{ref:other,title:'Replacement',createdAt:'2026-10-13',executionStatus:'running',disposition:'visible',runUrl:'https://untrusted.invalid/#token=secret'}],nextCursor:null,hiddenCount:3,unknownCount:2}),
-    readRun:async input=>{calls.push(input);if(input.runId===binding.pinnedRunId){const {monitorData}=await import('../engine/monitor-data.mjs');return monitorData(runDir,{runRef:{dataInstanceId:'data',runId:binding.pinnedRunId,runtimeId:'original-runtime'}});}return{generation:7,sessionId:'s',status:'running',workers:[],experience:{run:other}};},
+    readRun:async input=>{calls.push(input);if(input.runId===binding.pinnedRunId){const {monitorData}=await import('../engine/monitor-data.mjs');return monitorData(runDir,{runRef:{dataInstanceId,runId:binding.pinnedRunId,runtimeId:'original-runtime'}});}return{generation:7,sessionId:'s',status:'running',workers:[],experience:{run:other}};},
     controlRun:async input=>{calls.push(input);return{id:'control',status:'pending'};},
     lifecycle:async input=>{calls.push(input);return{preview:{id:'reviewed',planHash:'a'.repeat(64),candidates:[],blocked:['Pinned recovery evidence']}};},
     readLifecycleReceipt:async input=>{calls.push(input);return{receipt:{id:'reviewed',runId:input.runId,outcome:'unknown'}};},
@@ -152,7 +205,7 @@ test('session routes pin read identities and forward exact reviewed lifecycle pr
   assert.equal((await post('/api/runs/replacement/control',{target,generation:6,action:'stop'})).status,409);
   assert.equal((await post('/api/runs/replacement/control',{target,generation:7,action:'stop'})).status,202);
   assert.deepEqual(calls.find(item=>item.action==='stop').target,target);
-  const pinnedTarget={dataInstanceId:'data',runId:binding.pinnedRunId,runtimeId:binding.runtimeId,generation:1};
+  const pinnedTarget={dataInstanceId,runId:binding.pinnedRunId,runtimeId:binding.runtimeId,generation:1};
   assert.equal((await post('/api/control',{target:pinnedTarget,generation:1,action:'stop'})).status,202);assert.ok(calls.some(item=>item.action==='stop'&&item.target.runId===binding.pinnedRunId),'Pinned controls must use the retained-runtime adapter too');
   const value={action:'applyPrune',runTarget:target,target:{kind:'run'},generation:7,expectedRevision:3,requestId:'review',planId:'reviewed',approvedPlanHash:'a'.repeat(64)};
   assert.equal((await post('/api/runs/replacement/lifecycle',value)).status,202);assert.deepEqual(calls.find(item=>item.action==='applyPrune'),value);
@@ -203,11 +256,11 @@ test('patch reads are authenticated, generation-bound, hash-checked and bounded 
   await writeFile(patchPath,'corrupted');const corrupt=await get('/api/patch/0?generation=1');assert.equal(corrupt.status,500);assert.equal((await corrupt.json()).error.code,'WORKSPACE_ARTIFACT');
 });
 async function setup(t){
-  const runDir=await mkdtemp(join(tmpdir(),'workflow-monitor-'));
-  t.after(()=>rm(runDir,{recursive:true,force:true,maxRetries:10,retryDelay:50}));
+  const root=await mkdtemp(join(tmpdir(),'workflow-monitor-')),runDir=join(root,'runs-v2',randomUUID());await mkdir(runDir,{recursive:true});
+  t.after(()=>rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:50}));
   const module=await import('../engine/monitor-server.mjs').catch(()=>null);
   assert.ok(module?.createMonitor,'Monitor surface must exist');
-  return{runDir,createMonitor:module.createMonitor};
+  const {dataInstanceIdentity}=await import('../engine/composition-store.mjs');return{runDir,createMonitor:module.createMonitor,dataInstanceId:await dataInstanceIdentity(root)};
 }
 test('monitor binds loopback and protects run data and controls with host origin and bearer checks',async t=>{
   const {runDir,createMonitor}=await setup(t);
@@ -344,14 +397,15 @@ test('deadline HTTP control preserves revision nullable turn and bounded receipt
 });
 
 test('scoped deadlines bind data run runtime session and revision while unsupported controls stay inert',async t=>{
-  const {runDir,createMonitor}=await setup(t);await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',backend:backend(async()=>({value:'A',terminalObserved:true}))});
+  const {runDir,createMonitor,dataInstanceId}=await setup(t);
   const {monitorData}=await import('../engine/monitor-data.mjs'),{requestControl,readControl}=await import('../engine/controls.mjs');
-  const binding={version:1,scope:'session',dataInstanceId:'data',originatingSessionId:'s',pinnedRunId:basename(runDir),runtimeId:'retained'};
+  const binding={version:1,scope:'session',dataInstanceId,originatingSessionId:'s',pinnedRunId:basename(runDir),runtimeId:'retained'};
   await writeFile(join(runDir,'runtime.json'),JSON.stringify({schema:2,id:binding.pinnedRunId,sessionId:'s',runtime:{id:'retained'}}));
+  await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',backend:backend(async()=>({value:'A',terminalObserved:true}))});
   const db=new DatabaseSync(join(runDir,'run.sqlite'));
   const header=JSON.parse(db.prepare('SELECT value FROM header').get().value);header.status='running';header.acceptingControls=true;db.prepare('UPDATE header SET value=?').run(JSON.stringify(header));
   const saved=JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value);Object.assign(saved,{status:'running',activeTurn:{threadId:'thread',turnId:'turn'},deadline:{status:'active',revision:3,remainingMs:60000,expiresAt:100000}});db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(JSON.stringify(saved));db.close();
-  const run={dataInstanceId:'data',runId:binding.pinnedRunId,runtimeId:'retained'};let supported=true,wrongSession=false;
+  const run={dataInstanceId,runId:binding.pinnedRunId,runtimeId:'retained'};let supported=true,wrongSession=false;
   const services={readRun:async({kind,...options})=>{const result=await monitorData(runDir,{...options,kind,runRef:run});return kind&&kind!=='summary'?result:{...result,sessionId:wrongSession?'wrong':'s',deadlineControls:{available:supported,receipts:true}};},
     controlRun:({target,action,deadline})=>requestControl(runDir,{sessionId:'s',generation:target.generation,position:target.position,attempt:target.attempt,turnId:target.turnId,action,deadline}),
     readControlReceipt:({receiptId})=>readControl(runDir,receiptId)};
@@ -365,6 +419,7 @@ test('scoped deadlines bind data run runtime session and revision while unsuppor
   const check=new DatabaseSync(join(runDir,'run.sqlite'),{readOnly:true});assert.equal(check.prepare('SELECT count(*) AS n FROM controls').get().n,1);check.close();
   assert.equal((await fetch(url.origin+`/api/runs/${binding.pinnedRunId}/messages?generation=1&position=0`,{headers})).status,200);
   const advanced=new DatabaseSync(join(runDir,'run.sqlite'));header.generation=2;advanced.prepare('UPDATE header SET value=?').run(JSON.stringify(header));
+  const {digest}=await import('../engine/composition-contracts.mjs'),catalog=JSON.parse(advanced.prepare('SELECT value FROM step_catalogs WHERE generation=1 AND ordinal=0').get().value);delete catalog.catalogHash;catalog.generation=2;catalog.catalogHash=digest(catalog);advanced.prepare('INSERT INTO step_catalogs VALUES(2,0,?)').run(JSON.stringify(catalog));
   const ledger=JSON.parse(advanced.prepare('SELECT value FROM admission WHERE generation=1').get().value);Object.assign(ledger,{generation:2,nextSlot:0,consumed:0,reserved:0,accepting:false});advanced.prepare('INSERT INTO admission VALUES(2,?)').run(JSON.stringify(ledger));advanced.close();
   assert.equal((await fetch(url.origin+`/api/runs/${binding.pinnedRunId}/control/receipts/${receipt.id}?generation=1`,{headers})).status,200,'An observed ID remains readable after a later generation starts');
 });

@@ -1,5 +1,6 @@
 /** @lane merge
  * @subject scripts/package-skill-resources.mjs
+ * @subject scripts/check-plugin.mjs
  * @subject skills/agent-workflow/SKILL.md
  * @subject skills/workflow-authoring/SKILL.md
  * @subject skills/workflow-setup/SKILL.md
@@ -7,7 +8,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, mkdir, writeFile, readFile, readdir, rm, lstat, link, symlink} from 'node:fs/promises';
+import {mkdtemp, mkdir, writeFile, readFile, readdir, rm, lstat, link, symlink, cp, realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve, dirname, relative} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -90,6 +91,46 @@ test('fresh generation closes nested references, records identities, is determin
   ok(run(root)); ok(run(root, '--check'));
   await rm(join(root, 'skills/workflow-setup/resources/docs/guide.md'));
   assert.notEqual(run(root, '--check').status, 0);
+});
+
+test('public plugin check rejects stale and missing generated resources without rewriting them', async t => {
+  const root = await mkdtemp(join(repo, '.skill-public-check-'));
+  t.after(async () => {
+    assert.equal(dirname(root), repo);
+    assert.equal(await realpath(root), root);
+    assert(!(await lstat(root)).isSymbolicLink());
+    await rm(root, {recursive: true});
+    await assert.rejects(lstat(root), {code: 'ENOENT'});
+  });
+  // Independent ordinary copies; module resolution uses the test checkout's
+  // admitted dependencies through the temporary directory's ancestors.
+  for (const entry of ['bin', 'engine', 'foundation', 'workflows', 'hooks', 'skills', 'docs', 'scripts',
+    '.codex-plugin', '.agents', 'plugin.json', 'package.json', 'package-lock.json', 'LICENSE']) {
+    await cp(join(repo, entry), join(root, entry), {recursive: true, errorOnExist: true});
+  }
+  for (const name of names) {
+    const manifest = JSON.parse(await readFile(join(repo, 'skills', name, 'resources/manifest.json')));
+    for (const {source} of manifest.files) {
+      await mkdir(dirname(join(root, source)), {recursive: true});
+      await cp(join(repo, source), join(root, source));
+    }
+  }
+  const check = () => spawnSync(process.execPath, [join(root, 'scripts/check-plugin.mjs')], {
+    cwd: root, env: {...process.env}, windowsHide: true, encoding: 'utf8',
+  });
+  ok(run(root));
+  ok(check());
+  await put(root, 'docs/api.md', (await readFile(join(root, 'docs/api.md'), 'utf8')) + '\nCanonical freshness probe.\n');
+  const stale = await snapshot(root), rejected = check();
+  assert.notEqual(rejected.status, 0, 'The public check must reject canonical drift');
+  assert.match(rejected.stderr, /Stale\/missing\/extra skill resources/);
+  assert.deepEqual(await snapshot(root), stale, 'The public check must not regenerate stale resources');
+  ok(run(root)); ok(check());
+  await rm(join(root, 'skills/workflow-setup/resources/docs/api.md'));
+  const missing = await snapshot(root), absent = check();
+  assert.notEqual(absent.status, 0, 'The public check must reject a missing packaged resource');
+  assert.match(absent.stderr, /Stale\/missing\/extra skill resources/);
+  assert.deepEqual(await snapshot(root), missing, 'The public check must not repair missing resources');
 });
 
 test('generated file-directory conflicts are refused before any source or output mutation', async t => {

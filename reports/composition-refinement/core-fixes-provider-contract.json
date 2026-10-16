@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "checkpoint": "core-review-fixes",
+  "taskSha256": "3f37c063278dc61b8e0d9a6ed219368f70ef5fb718cbc34ff26eb2a19c759d53",
+  "baselineManifestSha256": "f4340d325135eebf8505688d1cafe73e19a542c0cef04690535990472fa67d27",
+  "extends": "reports/composition-refinement/provider-contract.json (frozen prerequisite; unchanged)",
+  "authority": "Host-only core corrections. No artifact provider, native asset-read adapter, stage reservation, UI repair, runtime migration, installation or shipment acceptance is enabled.",
+  "rootContext": "Existing factory, fields and unavailable providers are unchanged.",
+  "composition": {
+    "rootReuse": "Root script/args byte differences do not invalidate completed effects. Effective call identity, selected retained child source/declaration, authority, backend and settings checks govern reuse. Completed call mismatch or omission refuses COMPOSITION_REPLAY_CHANGED before additional effects; explicit source revisions/reconciled restart retain their closed suffix contract.",
+    "cosmetics": "Agent label/phase and phase/log broker messages are excluded from effect matching. New localCall values count agent/workflow invocations, without cosmetic gaps. Runtime source identity changes; no stored runtime is migrated.",
+    "settings": "Saved backend identity and worker deadline settings must remain equal. Re-resolved effective options of completed guest/child workers must equal their saved effective options before publishing a generation, including when their enclosing child would be cached. Mismatch refuses COMPOSITION_REPLAY_CHANGED; no completed effect is repeated.",
+    "admissionOrder": "Verified child programs are read before accepting broker calls. Sequence allocation, catalog publication and joining the child FIFO have no intervening source-file await.",
+    "results": "Completed agent journal blobs are canonical UTF-8 JSON and must equal the authoritative worker result value after its separate ordinary JSON.stringify hash check and applicable schema check. Equal worker/journal hash strings are not required. Complete selected history and every referenced reused lineage/result/worker are checked before reads/replay.",
+    "queuedCancellation": "Queued items observe their own AbortSignal, remove only themselves, reject immediately and never decrement an unacquired permit. Their invocation-terminal event records notStarted/noProcessStarted/noInference=true. Active permits remain held through evaluator exit and accepted native-work settlement.",
+    "appendRestart": "Append origin remains physical and has no fabricated invocation. Physical affected suffix closes over actual guest/child parent sequences and back over physical positions; composition closes the resulting journal suffix over all ancestors. With no affected guest, completed guest/worker-free history remains cached. Original reconciliation, positive drain and lifetime budgets remain required."
+  },
+  "stepValidation": {
+    "validateStepBindings": "async ({db,state,run,runDir}) -> complete validated StepCatalog[]; reloads actual persisted catalogs rather than trusting a supplied expected catalog. Compares root declarations to parseScript(state.script).meta.steps and child declarations to parsed verified retained source. Requires exactly one ordered root plus one ordered catalog per actual child invocation, exact scopes/run/generation/source IDs and complete declaration equality.",
+    "validateStepWorkerSet": "({db,state,workers}) -> void; host-only complete current worker validation against admission count, contiguous positions, supported statuses/attempt bounds and each cached source's decreasing generation/position, mirror coordinates, key/origin/attempt and verified result value. Missing/foreign/contradictory records refuse STEP_CORRUPT.",
+    "readStepsAt": "Same existing input/output shape. Header, admission, catalogs, current workers and invocation history are validated inside one read-only SQLite snapshot before slicing any page.",
+    "readStepCatalogs": "Same existing public input/output shape. Full source/scope/multiplicity/assignment/history validation precedes returning catalogs.",
+    "errors": "STEP_CORRUPT for catalog/source declaration or association drift; STEP_CONFLICT for generation/cursor changes; existing source/journal COMPOSITION_CORRUPT and authority errors remain fail-closed at their respective boundaries."
+  },
+  "stepsRevision": {
+    "surface": "monitorData(runDir,{kind:'summary',runRef?}) adds optional public stepsRevision, returned by the run's recorded monitor-data provider.",
+    "type": "64 lowercase hexadecimal SHA-256 characters, exactly 64 UTF-8 bytes when present; no counter, timestamp or optional object envelope.",
+    "availability": "Present only when saved stepsVersion===1 and complete current source/catalog/association/journal validation succeeds. Absent on older recorded providers/evidence: explicitly unavailable, not an empty plan or a stable fabricated revision. Corruption throws; no stale hash or fallback is returned.",
+    "canonicalHash": "H(C(preimage)), using engine/composition-contracts.mjs canonicalJSON/digest (recursively sorted object keys, array order preserved, compact UTF-8 JSON).",
+    "preimage": {
+      "schemaVersion": 1,
+      "run": "actual retained RunRef, or null only in unmanaged synthetic fixtures",
+      "fixtureRun": "runDir only when run===null, otherwise null",
+      "generation": "current positive generation",
+      "catalogs": "ordered complete validated catalogHash[]",
+      "workers": "ordered complete current workers mapped to {position,step:StepRef|null,attempt:attempts??0,status,failure:error?{code:error.code??'WORKER_FAILED',evidence:null}:null,cached:cached===true,reusedFrom:ref|null,sourceGeneration:number|null,sourcePosition:number|null}",
+      "admission": "{accepting:acceptingAdditions===true,acceptingControls:acceptingControls===true,status:current run status}"
+    },
+    "bindings": "runRef supplied by an adapter must equal actual retained ownership. All catalogs, including worker-free children and entries beyond page one, are source-verified; all assignments are checked before hashing. The same SQLite snapshot supplies generation/workers/admission/status.",
+    "changes": "Changes on catalog/scope/source, actual assignment, current attempt/status/failure/cached-source refs, run/generation, admission or terminal-state changes.",
+    "stability": "Unchanged polls, activity/messages/usage, cosmetic control receipts and timestamps are excluded unless they change a listed projection input.",
+    "errors": "STEP_CORRUPT for corrupt source/catalog/association or a supplied runRef mismatch; COMPOSITION_CORRUPT for journal/result/reuse drift; existing binding/append errors propagate. No revision is emitted on verification failure.",
+    "uiConsumer": "Coordinator-owned UI should retain pages on an unchanged present revision; perform a bounded refresh on changed revision. Missing revision remains explicit unavailable/legacy behavior. This assignment does not implement that UI policy."
+  },
+  "verification": {
+    "report": "reports/composition-refinement/core-review-fixes.md",
+    "evidencePrefix": "reports/composition-refinement/test-evidence/",
+    "scope": "Real separate QuickJS processes, disposable SQLite, public controls/monitor projection and synthetic native backend facts. No model/native Windows job qualification or shipment claim."
+  }
+}

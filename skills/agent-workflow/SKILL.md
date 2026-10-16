@@ -1,11 +1,15 @@
 ---
 name: agent-workflow
-description: Create, inspect or control saved workflows; preview plans, inspect usage, run durable command jobs, or record delivery checkpoints and acceptance. Use for durable parallel work, replay, pause/resume and worker steering. Ordinary questions and small direct edits stay in the normal conversation.
+description: Create, inspect or control saved workflows, declared steps and child invocations, or open their local or trusted-LAN dashboard. Use for durable parallel work, replay, pause/resume, worker steering, plan/usage inspection, command jobs and delivery checkpoints. Ordinary questions and small direct edits stay in the normal conversation.
 ---
 
 Use `node "<plugin-root>/bin/launch.mjs" <command>`. Resolve plugin-root from this installed skill (two parents above its directory). Read [the runtime API](resources/skills/agent-workflow/references/runtime-api.md) before writing scripts and [controls](resources/skills/agent-workflow/references/controls.md) before changing a run.
 
 Packaged `resources/` copies are for native instruction/reference reads. Keep CLI and recipe execution rooted at the real plugin-root resolved above; never execute a generated resource copy. Cross-skill roles require their own genuine executor `skills.list` and `skills.read` with returned package/main_resource; reference availability does not activate a role or grant permissions.
+
+Before dispatch, declare literal `meta.steps` using [step visibility and inspection](resources/docs/workflow-steps.md). Display edges do not schedule workers; unassigned steps stay Planned live and Incomplete terminal, including blocked. For `workflow(alias,args)`, first read [depth-one composition](resources/docs/workflow-composition.md) and freeze declared sources/ceilings. These are working-tree additions above released 0.5.0, with native qualification still separate. Artifact/refinement providers remain unavailable.
+
+For a phone or other trusted-LAN device, read [LAN launch and Close](resources/docs/dashboard-lan.md) before selecting `dashboard --lan-bind`. Use only the exact currently assigned private interface, return the full bearer URL privately, and name its manual Close owner. Localhost/DOM checks do not establish second-device painted acceptance.
 
 For multi-worker deliverables, read workflow authoring (activate `agent-workflow:workflow-authoring` through genuine `skills.list`/`skills.read` with the returned package and `main_resource`) to define scope/ownership, pass scout JSON into actual writers, review retained artifact handoffs, and require coordinator integration plus fresh verification. The bundled `decomposition-delivery` recipe preserves missing coverage and explicit revisions; dependency completion does not transfer worktree files.
 

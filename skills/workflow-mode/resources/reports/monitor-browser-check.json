@@ -1,0 +1,26 @@
+{
+  "checkedAt": "2026-10-13T15:06:00Z",
+  "status": "passed",
+  "fixture": "Explicit simulated workers; no Codex calls",
+  "checks": {
+    "lightTheme": true,
+    "darkTheme": true,
+    "themePersistsOnReload": true,
+    "fragmentRemovedBeforeApi": true,
+    "selectedGraphNodeShowsWorkerEvidence": true,
+    "declaredDependencyEdges": 3,
+    "workerNodes": 4,
+    "observedProgressPercent": [75, 100],
+    "phaseAggregates": ["2/2", "1/1", "1/1"],
+    "mobileViewportWidth": 390,
+    "mobileBodyWidth": 375,
+    "finalConsoleErrors": 0,
+    "previewWithoutNativeLaunchCannotResume": true
+  },
+  "limitations": [
+    "Does not establish native worker tool streaming or full parity",
+    "Graph shows declared dependencies, not inferred JavaScript data flow",
+    "Map caps at 60 nodes; complete ordered worker list remains available",
+    "Screenshots are local browser-tool artifacts outside the feature checkout"
+  ]
+}

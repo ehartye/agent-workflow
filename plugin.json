@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "agent-workflow",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Durable scripted Codex workflows with bounded workers, ordered replay and a local control desk.",
   "author": {
     "name": "ehartye"

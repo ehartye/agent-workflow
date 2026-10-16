@@ -7,6 +7,8 @@ Use the packaged CLI without a custom MCP server. Resolve plugin-root from this 
 
 Packaged `resources/` copies are for native instruction/reference reads. Execute CLI and recipes from the real plugin-root resolved above, never a generated resource copy. Activate cross-skill roles through genuine executor `skills.list` and `skills.read` using returned package/main_resource; resource availability grants no installation or other permissions.
 
+For the working-tree candidate above released 0.5.0, use [upgrade boundaries](resources/skills/workflow-setup/references/upgrades.md) before relying on declared steps, depth-one composition or LAN binding in a saved run. Follow [LAN launch/Close](resources/docs/dashboard-lan.md) for exact interface admission and manual lifecycle; setup/doctor does not establish second-device or phone painted acceptance. [Resource/source limits](resources/docs/api.md#worker-capability-bundle) distinguish generated same-package references, native activation and bounded stdin readiness from installed tool operations.
+
 The shared CLI/hook data directory is explicit --data-dir, otherwise AGENT_WORKFLOW_DATA_DIR if set, then LOCALAPPDATA/agent-workflow (home .local/share/agent-workflow without LOCALAPPDATA). PLUGIN_DATA does not implicitly select another instance. Keep explicit data selection identical across setup, doctor, runs and mode; never store managed state in plugin cache.
 
 ```text

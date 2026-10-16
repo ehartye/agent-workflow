@@ -31,6 +31,26 @@ test('reconciled composed restart includes the child container and reuses the ea
  const input={runDir:join(root,'run'),sessionId:'s',script,launch:{cwd:source,accessPolicy}};const first=await runWorkflow({...input,backend:native(true)});assert.equal(first.workers[1].status,'failed');
  const second=await runWorkflow({...input,backend:native(false),resume:true,expectedGeneration:1,restart:request});assert.equal(second.status,'completed');assert.deepEqual(calls,['A','B','B']);assert.equal(second.result.pure.cached,true);assert.equal(second.workers[0].cached,true);assert.equal(second.workers[1].attempts,2);assert.equal(second.restart.invocationSeq,3);
 });
+
+test('composed failed append restarts its reconciled physical suffix with cached guest work and refuses unknown drain',async t=>{
+ const {mkdir,writeFile}=await import('node:fs/promises'),{resolveAccess}=await import('../engine/access-policy.mjs'),{requestAppend}=await import('../engine/append.mjs'),{randomUUID}=await import('node:crypto');
+ for(const [drained,laterChild] of [[true,false],[true,true],[false,false]]){
+  const root=await mkdtemp(join(tmpdir(),'composed-append-restart-'));t.after(()=>rm(root,{recursive:true,force:true}));const source=join(root,'source');await mkdir(source);await writeFile(join(source,'pure.mjs'),'export const meta={name:"pure",description:"no effects"};return {pure:true};');
+  await writeFile(join(source,'worker.mjs'),'export const meta={name:"worker",description:"later suffix"};return {answer:await agent("C",{id:"later",maxAttempts:1})};');
+  const workflows=['pure','worker'].map(alias=>({alias,source:{kind:'script',path:alias+'.mjs'},argsSchema:{type:'object'},resultSchema:{type:'object'},capabilities:{skills:null,tools:null},permissions:null})),script='export const meta='+JSON.stringify({name:'append',description:'recovery',workflows})+';await agent("A",{id:"earlier",maxAttempts:1});return {pure:await workflow("pure",{}),later:'+(laterChild?'await workflow("worker",{})':'null')+'};';
+  const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}}),calls=[],requestId=randomUUID();let appended=false;
+  const input={runDir:join(root,'run'),sessionId:'s',script,concurrency:1,launch:{cwd:source,accessPolicy}};
+  const native=fail=>({...backend(async({prompt})=>{calls.push(prompt);if(prompt==='A'&&!appended){appended=true;await requestAppend(input.runDir,{sessionId:'s',generation:1,requestId,tasks:[{id:'late',prompt:'B'}]});}
+   if(fail&&prompt==='B')throw Object.assign(fault('FIXTURE','known appended failure'),{terminalObserved:true,evidence:{cleanup:drained?cleanup:{...cleanup,nativeTerminals:{inventoryEmpty:false}}}});
+   return{value:prompt,terminalObserved:true,evidence:{cleanup}};
+  }),accessPolicy,parentCapabilities:{fingerprint:'a'.repeat(64),coverage:{complete:true}}});
+  const first=await runWorkflow({...input,backend:native(true)});assert.equal(first.workers[1].origin.kind,'append');assert.equal(first.workers[1].invocation,undefined);assert.equal(first.workers[1].status,'failed');assert.deepEqual(calls,laterChild?['A','B','C']:['A','B']);
+  const restart={position:1,attempt:1,reconciliation:'Synthetic appended failure positively reconciled; retain earlier guest effects.'};
+  if(!drained){await assert.rejects(runWorkflow({...input,backend:native(false),resume:true,expectedGeneration:1,restart}),{code:'RESTART_DRAIN'});assert.equal((await readRun(input.runDir)).generation,1);assert.deepEqual(calls,['A','B']);continue;}
+  const second=await runWorkflow({...input,backend:native(false),resume:true,expectedGeneration:1,restart});assert.equal(second.status,'completed');assert.deepEqual(calls,laterChild?['A','B','C','B','C']:['A','B','B']);assert.equal(second.attempts,laterChild?5:3);assert.equal(second.result.pure.cached,true);assert.equal(second.workers.find(w=>w.origin.kind==='guest').cached,true);if(laterChild){assert.equal(second.result.later.cached,false);assert.equal(second.workers.find(w=>w.origin.kind==='child').attempts,2);assert.equal(second.restart.invocationSeq,3);}
+  const addition=second.workers.find(w=>w.origin.kind==='append');assert.deepEqual(addition.origin,first.workers[1].origin);assert.equal(addition.invocation,undefined);assert.equal(addition.attempts,2);assert.deepEqual(addition.priorExecutions,[{generation:1,position:1}]);assert.deepEqual(await readRun(input.runDir),second);
+ }
+});
 async function initial(input,failedCleanup=cleanup){return runWorkflow({...input,backend:backend(async({prompt,onEvent})=>{
   onEvent({method:'thread/tokenUsage/updated',params:{threadId:prompt,turnId:'turn-'+prompt,tokenUsage:{total:{inputTokens:10,cachedInputTokens:0,outputTokens:2,reasoningOutputTokens:0,totalTokens:12}}}});
   if(prompt==='B')throw Object.assign(fault('TURN_CANCELLED','Cancelled'),{evidence:{cleanup:failedCleanup,attempts:[{number:1,status:'failed'}]}});

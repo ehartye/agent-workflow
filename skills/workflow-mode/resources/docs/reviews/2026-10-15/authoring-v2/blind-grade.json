@@ -1,0 +1,1240 @@
+{
+  "schemaVersion": 2,
+  "inputIdentities": {
+    "baseline": {
+      "runtime": "0.3.6",
+      "referenceRoot": "C:/Users/ehart/.codex/plugins/cache/hartye-plugins/agent-workflow/0.3.6",
+      "basis": "Scenario-designated public baseline; not a claim of installation, publication, login or live tool readiness."
+    },
+    "instructions": {
+      "path": "AGENTS.md",
+      "bytes": 4444,
+      "sha256": "64caf2b8ccc768237934d89f9e2c401265915dbab172a52af5dc5198943a22c1"
+    },
+    "scenario": {
+      "path": "docs/reviews/2026-10-15/authoring-v2/scenario.md",
+      "bytes": 4712,
+      "sha256": "a431582dc2d4235c1d43a5491798dc0f9dfb371591c4077b19eb35df69c7bb26"
+    },
+    "rubric": {
+      "path": "docs/reviews/2026-10-15/authoring-v2/rubric.json",
+      "bytes": 5813,
+      "sha256": "99a1e705cf28ab944e4a99f52cb88bfacabe9922f5fa47bea3de95c0d8258ee1"
+    },
+    "anonymousManifest": {
+      "path": "docs/reviews/2026-10-15/authoring-v2/anonymous-artifacts.json",
+      "bytes": 454,
+      "sha256": "608318d30365ecd00bbe024be5c6a2530a4e60b669dc8b05ba4ee61f288af9c8",
+      "version": 2,
+      "strictEntryKeysVerified": true,
+      "entryKeys": [
+        "label",
+        "path",
+        "sha256",
+        "bytes"
+      ]
+    },
+    "artifacts": [
+      {
+        "label": "A",
+        "path": "docs/reviews/2026-10-15/authoring-v2/anonymous-A.md",
+        "sha256": "8318e6c286da82349b5e7a656b73d7abacace841dd3bf300794d00a6576e7d52",
+        "bytes": 53834
+      },
+      {
+        "label": "B",
+        "path": "docs/reviews/2026-10-15/authoring-v2/anonymous-B.md",
+        "sha256": "df979eb261328d5500d29ce8de495a6b50641d056b42fd4c6be797522f8490d2",
+        "bytes": 81204
+      }
+    ],
+    "graderNativeActivation": {
+      "discovery": {
+        "tool": "skills.list",
+        "authority": {
+          "kind": "executor"
+        },
+        "pages": 10,
+        "complete": true
+      },
+      "selectedSkills": [
+        {
+          "id": "yoda",
+          "name": "yoda",
+          "catalogName": "hartye-skills:yoda",
+          "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\hartye-skills\\0.4.0\\skills\\yoda",
+          "package": "skill://yoda/C:/Users/ehart/.codex/plugins/cache/hartye-plugins/hartye-skills/0.4.0/skills/yoda",
+          "mainResource": "skill://yoda/C:/Users/ehart/.codex/plugins/cache/hartye-plugins/hartye-skills/0.4.0/skills/yoda/SKILL.md",
+          "nativeMainRead": true,
+          "returnedSkillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\hartye-skills\\0.4.0\\skills\\yoda",
+          "expectedRootMatched": true,
+          "readNextCursor": null
+        },
+        {
+          "id": "test-strategy",
+          "name": "test-strategy",
+          "catalogName": "agent-tests:test-strategy",
+          "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-tests\\0.4.1\\skills\\test-strategy",
+          "package": "skill://test-strategy/C:/Users/ehart/.codex/plugins/cache/hartye-plugins/agent-tests/0.4.1/skills/test-strategy",
+          "mainResource": "skill://test-strategy/C:/Users/ehart/.codex/plugins/cache/hartye-plugins/agent-tests/0.4.1/skills/test-strategy/SKILL.md",
+          "nativeMainRead": true,
+          "returnedSkillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-tests\\0.4.1\\skills\\test-strategy",
+          "expectedRootMatched": true,
+          "readNextCursor": null
+        }
+      ],
+      "scope": "Only the selected yoda and test-strategy roots were read through native skills.read. Discovery alone was not counted as activation. No Agent Workflow skill or target-package reference was read.",
+      "application": "Applied independent paired-artifact assessment, explicit criterion ownership, behavior/API evidence and no self-score or efficacy inference. Native reads establish this grader's activation; comprehensive ongoing skill adherence is not certified by the tools."
+    }
+  },
+  "readCoverage": {
+    "rangeConvention": "Zero-based UTF-8 byte offsets; startByte inclusive, endByte exclusive.",
+    "method": "Artifact size and SHA-256 independently computed using bounded Node built-in reads before semantic reading. Every artifact byte then returned in consecutive chunks of at most 8192 bytes, fully inspected; no fixed leading sample. All tool results stayed below their output token caps; zero U+FFFD decoding replacements. Excerpts are exact bytes from the identified artifact.",
+    "inputs": [
+      {
+        "path": "AGENTS.md",
+        "ranges": [
+          {
+            "startByte": 0,
+            "endByte": 4096
+          },
+          {
+            "startByte": 4096,
+            "endByte": 4444
+          }
+        ],
+        "complete": true,
+        "gaps": [],
+        "truncation": []
+      },
+      {
+        "path": "docs/reviews/2026-10-15/authoring-v2/scenario.md",
+        "ranges": [
+          {
+            "startByte": 0,
+            "endByte": 4096
+          },
+          {
+            "startByte": 4096,
+            "endByte": 4712
+          }
+        ],
+        "complete": true,
+        "gaps": [],
+        "truncation": []
+      },
+      {
+        "path": "docs/reviews/2026-10-15/authoring-v2/rubric.json",
+        "ranges": [
+          {
+            "startByte": 0,
+            "endByte": 4096
+          },
+          {
+            "startByte": 4096,
+            "endByte": 5813
+          }
+        ],
+        "complete": true,
+        "gaps": [],
+        "truncation": []
+      },
+      {
+        "path": "docs/reviews/2026-10-15/authoring-v2/anonymous-artifacts.json",
+        "ranges": [
+          {
+            "startByte": 0,
+            "endByte": 454
+          }
+        ],
+        "complete": true,
+        "gaps": [],
+        "truncation": []
+      }
+    ],
+    "artifacts": [
+      {
+        "label": "A",
+        "path": "docs/reviews/2026-10-15/authoring-v2/anonymous-A.md",
+        "expectedBytes": 53834,
+        "verifiedBytes": 53834,
+        "expectedSha256": "8318e6c286da82349b5e7a656b73d7abacace841dd3bf300794d00a6576e7d52",
+        "verifiedSha256": "8318e6c286da82349b5e7a656b73d7abacace841dd3bf300794d00a6576e7d52",
+        "maxArtifactBytes": 81920,
+        "withinLimit": true,
+        "ranges": [
+          {
+            "startByte": 0,
+            "endByte": 8192
+          },
+          {
+            "startByte": 8192,
+            "endByte": 16384
+          },
+          {
+            "startByte": 16384,
+            "endByte": 24576
+          },
+          {
+            "startByte": 24576,
+            "endByte": 32768
+          },
+          {
+            "startByte": 32768,
+            "endByte": 40960
+          },
+          {
+            "startByte": 40960,
+            "endByte": 49152
+          },
+          {
+            "startByte": 49152,
+            "endByte": 53834
+          }
+        ],
+        "complete": true,
+        "gaps": [],
+        "truncation": [],
+        "decodingReplacementCharacters": 0
+      },
+      {
+        "label": "B",
+        "path": "docs/reviews/2026-10-15/authoring-v2/anonymous-B.md",
+        "expectedBytes": 81204,
+        "verifiedBytes": 81204,
+        "expectedSha256": "df979eb261328d5500d29ce8de495a6b50641d056b42fd4c6be797522f8490d2",
+        "verifiedSha256": "df979eb261328d5500d29ce8de495a6b50641d056b42fd4c6be797522f8490d2",
+        "maxArtifactBytes": 81920,
+        "withinLimit": true,
+        "ranges": [
+          {
+            "startByte": 0,
+            "endByte": 8192
+          },
+          {
+            "startByte": 8192,
+            "endByte": 16384
+          },
+          {
+            "startByte": 16384,
+            "endByte": 24576
+          },
+          {
+            "startByte": 24576,
+            "endByte": 32768
+          },
+          {
+            "startByte": 32768,
+            "endByte": 40960
+          },
+          {
+            "startByte": 40960,
+            "endByte": 49152
+          },
+          {
+            "startByte": 49152,
+            "endByte": 57344
+          },
+          {
+            "startByte": 57344,
+            "endByte": 65536
+          },
+          {
+            "startByte": 65536,
+            "endByte": 73728
+          },
+          {
+            "startByte": 73728,
+            "endByte": 81204
+          }
+        ],
+        "complete": true,
+        "gaps": [],
+        "truncation": [],
+        "decodingReplacementCharacters": 0
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "label": "A",
+      "criteria": [
+        {
+          "id": "complete-artifact",
+          "score": 1,
+          "reasons": [
+            "Complete 16-section numbered plan, unresolved coordinator-input table before commands, and explicit planning-only completion boundary. Exact anonymous copy is 53,834 UTF-8 bytes, below 81,920; no deferred continuation or self-score replaces the plan."
+          ],
+          "excerpts": [
+            {
+              "text": "## 2. Resolve these coordinator inputs before dependent commands",
+              "startByte": 1388,
+              "endByte": 1452
+            },
+            {
+              "text": "All commands below are proposed actions by the later coordinator. Variables are deliberately unresolved unless stated. Do not invent values from this child's context or treat placeholders as permission.",
+              "startByte": 1454,
+              "endByte": 1656
+            },
+            {
+              "text": "For supplied facts: this **plan** is complete; hypothetical UI execution/integration/checks have not occurred.",
+              "startByte": 52940,
+              "endByte": 53050
+            }
+          ]
+        },
+        {
+          "id": "literal-api",
+          "score": 1,
+          "reasons": [
+            "Literal metadata is first in the saved guest block. Actual agent calls use declared role selections, bounded schemas, maxAttempts:1, supported finite timeoutMs and parallel(arrayOfZeroArgumentThunks). Normal writer dependencies name earlier review IDs; review-only and separate verification retain nulls. No host evaluation is proposed."
+          ],
+          "excerpts": [
+            {
+              "text": "export const meta = {name:'compact-navigation-failure-reasons',description:'Two source reviews, one UI writer, separate fresh combined verification'};",
+              "startByte": 18155,
+              "endByte": 18305
+            },
+            {
+              "text": "reviews = await parallel(specs.map(spec => () => agent(",
+              "startByte": 21333,
+              "endByte": 21388
+            },
+            {
+              "text": "dependsOn:args.mode === 'author' ? ['review-ui','review-style'] : [],",
+              "startByte": 22931,
+              "endByte": 23000
+            },
+            {
+              "text": "missingTaskIds:rows.filter(row => row.result === null || row.result.outcome !== 'reported').map(row => row.taskId),",
+              "startByte": 24551,
+              "endByte": 24666
+            }
+          ]
+        },
+        {
+          "id": "cli-version",
+          "score": 1,
+          "reasons": [
+            "Explicitly selects installed 0.3.6 and respects its finite worker API. Validation/save/read/start/inspection use supported command names and PowerShell call/array forms. Recognizes checkout-scoped project definitions and uses absolute --script for the combined checkout. No unsupported command or candidate-only option was found in these paths."
+          ],
+          "excerpts": [
+            {
+              "text": "& $Node $Launch validate $Script --data-dir $Data",
+              "startByte": 26075,
+              "endByte": 26124
+            },
+            {
+              "text": "& $Node $Launch save project:compact-navigation-failure-reasons --script $Script --cwd $Project --data-dir $Data",
+              "startByte": 26125,
+              "endByte": 26237
+            },
+            {
+              "text": "A project definition saved in `$Project` is not automatically available in `$Combined`. Use absolute verified `--script`, as here, or explicitly save/read a definition in combined checkout first.",
+              "startByte": 45562,
+              "endByte": 45757
+            },
+            {
+              "text": "$startArgs = @('run','--script',$Script,'--cwd',$Combined,'--session',$Session,",
+              "startByte": 45984,
+              "endByte": 46063
+            }
+          ]
+        },
+        {
+          "id": "native-skills",
+          "score": 1,
+          "reasons": [
+            "Maps both reviewers to beautiful, writer to beautiful+tdd and fresh verifier to test-strategy. Deliberately chooses original source families, disambiguates duplicate TDD providers, and requires original native initial main-resource/root proof per worker. Availability, pagination/adherence and completion source checks are kept separate; this is a plan requirement, not observed respondent activation."
+          ],
+          "excerpts": [
+            {
+              "text": "| review-ui | beautiful | [] |\n| review-style | beautiful | [] |\n| ui-write | beautiful, tdd | [] |\n| fresh-verify | test-strategy | [] |",
+              "startByte": 9034,
+              "endByte": 9171
+            },
+            {
+              "text": "Every worker actually calls native `skills.list({authority:{kind:\"executor\"}})`, follows returned catalog cursors, resolves selected identity against original root/name/authority, then `skills.read` with returned package and main_resource.",
+              "startByte": 10896,
+              "endByte": 11135
+            },
+            {
+              "text": "Main initial read is required per selected skill; error pairs, list-only, references-only or continuation-only reads do not satisfy it.",
+              "startByte": 11230,
+              "endByte": 11365
+            }
+          ]
+        },
+        {
+          "id": "prerequisites",
+          "score": 1,
+          "reasons": [
+            "Requires genuine originating context and worker-local operation evidence rather than borrowing child authority. Explicitly separates executable discovery, command admission, browser installation and actual paint. Empty requireTools is a declared source-only scope; missing rendering does not halt independent source work or count as readiness."
+          ],
+          "excerpts": [
+            {
+              "text": "Record four observations separately under actual worker policy: executable presence; actual command start/admission/exit; browser package/binaries in selected cache; intended browser launch/communication/paint.",
+              "startByte": 12351,
+              "endByte": 12561
+            },
+            {
+              "text": "Parent readiness does not prove child readiness. Source work may proceed while rendering stays blocked.",
+              "startByte": 12562,
+              "endByte": 12665
+            },
+            {
+              "text": "An executed nonzero command may mutate; `notStarted` requires explicit no-process proof.",
+              "startByte": 12814,
+              "endByte": 12902
+            }
+          ]
+        },
+        {
+          "id": "budgets",
+          "score": 1,
+          "reasons": [
+            "States finite review/writer/verifier deadlines, one attempt, concurrency, batch/call/start ceilings, recovery-round bounds and output/input limits. Run wall timeout zero is valid and explicitly owned by the coordinator; manual dashboard retention is also valid. It correctly refuses to promise unbounded worker deadlines on 0.3.6."
+          ],
+          "excerpts": [
+            {
+              "text": "Finite supported worker deadlines: review 600000 ms each, ui-write 900000, fresh-verify 900000.",
+              "startByte": 13251,
+              "endByte": 13346
+            },
+            {
+              "text": "Run wall deadline deliberately disabled (`--run-timeout-ms 0`); named coordinator owns completion/manual Stop.",
+              "startByte": 13529,
+              "endByte": 13639
+            },
+            {
+              "text": "Permit at most two coordinator-authored recovery rounds of at most 3 source starts plus 1 fresh verifier each: **14 total starts/attempts** session ceiling, each maxAttempts:1.",
+              "startByte": 14008,
+              "endByte": 14184
+            },
+            {
+              "text": "Concurrency 2 review/author, 1 remaining writer/verify bounds simultaneous work only.",
+              "startByte": 14241,
+              "endByte": 14326
+            }
+          ]
+        },
+        {
+          "id": "ownership-checkpoint",
+          "score": 1,
+          "reasons": [
+            "Independent app/style review scopes are explicit; one writer owns their shared interface and only the two UI paths. Tests/integration stay coordinator-owned. An early persisted source/check checkpoint precedes polishing and is correctly distinguished from accepted final capture."
+          ],
+          "excerpts": [
+            {
+              "text": "Coordinator owns tests/integration and defines the shared interface contract. ui-write alone owns both JS and CSS; do not assign another writer the same interface, including Windows case-folded overlaps.",
+              "startByte": 6396,
+              "endByte": 6599
+            },
+            {
+              "text": "Early writer checkpoint: target first 180000 ms (advisory, not an invented API option) to persist the smallest useful owned navigation/failure change, run first admitted syntax/affected check, then refine within its worker budget.",
+              "startByte": 8439,
+              "endByte": 8669
+            },
+            {
+              "text": "Commentary is not an artifact; observed file-change is still not accepted capture.",
+              "startByte": 8720,
+              "endByte": 8802
+            }
+          ]
+        },
+        {
+          "id": "unknown-effects",
+          "score": 1,
+          "reasons": [
+            "Keeps historical jobEmpty:false/unverified capture unknown and forbids overlapping replacement, merge, replay or resume before real cleanup/effect reconciliation. Preserves independent accepted work. Defines an executable remaining-write/reuse closure after genuine reconciliation while retaining the old unknown row; no global permanent block or reconciliation-note bypass."
+          ],
+          "excerpts": [
+            {
+              "text": "Preserve `jobEmpty:false` and unverified capture; model output is neither termination nor no-effect evidence.",
+              "startByte": 32451,
+              "endByte": 32560
+            },
+            {
+              "text": "Closure requires actual positive job empty, root/server exit, successful native terminal/inventory cleanup without error **and** investigation/disposition of file/external effects and capture integrity.",
+              "startByte": 33076,
+              "endByte": 33278
+            },
+            {
+              "text": "Once actual coordinator/runtime evidence closes process/effect boundaries, append a reconciliation decision while retaining historical row **unknown as originally recorded**.",
+              "startByte": 33985,
+              "endByte": 34159
+            },
+            {
+              "text": "use section 7 `remaining-write` mode, with `$RemainingArgs.priorReviews` the two actual reviewed reports",
+              "startByte": 35488,
+              "endByte": 35592
+            }
+          ]
+        },
+        {
+          "id": "recovery-cases",
+          "score": 1,
+          "reasons": [
+            "Both package-loss and changed-parent-catalog branches retain original outcomes, effects and immutable bindings. New genuine source/context admission precedes safe unfinished scope or accepted-byte reuse. The existing remaining-write/review/verify modes and exact commands close the branches without a placeholder future script, hot grants, silent substitution or automatic retry."
+          ],
+          "excerpts": [
+            {
+              "text": "Lost tdd during ui-write prevents accepting/integrating that capture and its verification; completed reviews/accepted B persist.",
+              "startByte": 37492,
+              "endByte": 37620
+            },
+            {
+              "text": "After actual admission, new immutable `$CurrentBundle` plus section 10 remaining-write start covers safe unfinished UI scope.",
+              "startByte": 38465,
+              "endByte": 38590
+            },
+            {
+              "text": "Retain actual PARENT_CAPABILITIES_CHANGED refusal when parent catalog is missing/incomplete/different.",
+              "startByte": 39094,
+              "endByte": 39196
+            },
+            {
+              "text": "Execute section 10 new remaining-write run for safe unfinished UI only after genuine admission. Missing reviews use section 8 fresh safe review-only mode first.",
+              "startByte": 40006,
+              "endByte": 40166
+            }
+          ]
+        },
+        {
+          "id": "capture-handoff",
+          "score": 1,
+          "reasons": [
+            "Requires exact authoritative producer run/runtime/data-instance/generation/position/cumulative attempt and original outcomes, complete manifest/patch/blob/path integrity, actual effect disposition and positive job/root/native cleanup before deliberate integration. Public verifyWorkspace is used only as an integrity helper, not objective acceptance. Explicitly rejects file transfer by dependsOn."
+          ],
+          "excerpts": [
+            {
+              "text": "{dataInstanceId,runId,runtimeId,generation,position,attempt,",
+              "startByte": 40742,
+              "endByte": 40802
+            },
+            {
+              "text": "Independently hash raw manifest/patch/blob bytes, every name/mode/size/hash and content-addressed blob path; confirm complete inventory, no links/traversal/case collision.",
+              "startByte": 42162,
+              "endByte": 42333
+            },
+            {
+              "text": "Changed paths must be subset of two allowed UI paths; every required claimed artifact must exist.",
+              "startByte": 42380,
+              "endByte": 42477
+            },
+            {
+              "text": "dependsOn carries no edits; any worker requiring predecessor bytes waits for a new verified launch snapshot.",
+              "startByte": 43381,
+              "endByte": 43489
+            }
+          ]
+        },
+        {
+          "id": "fresh-verification",
+          "score": 1,
+          "reasons": [
+            "Coordinator integrates reviewed bytes/tests into a frozen complete combined snapshot, then launches a separate fresh verifier using correctly resolved absolute --script. Requires before/after identities and full test/check/smoke gates. Missing paint remains unaccepted and neither cached replay nor writer/check totals substitutes for fresh verification."
+          ],
+          "excerpts": [
+            {
+              "text": "Reverify script and entire combined manifest/file set immediately before start.",
+              "startByte": 45482,
+              "endByte": 45561
+            },
+            {
+              "text": "No resume/cached replay as freshness substitute.",
+              "startByte": 46881,
+              "endByte": 46929
+            },
+            {
+              "text": "& $NpmCmd test\n  if ($LASTEXITCODE -ne 0) { throw 'Full tests failed' }\n  & $NpmCmd run check\n  if ($LASTEXITCODE -ne 0) { throw 'Package checks failed' }\n  & $NpmCmd run smoke",
+              "startByte": 47965,
+              "endByte": 48141
+            },
+            {
+              "text": "Supplied browser readiness is missing: rendering checks remain **notRun/unaccepted**.",
+              "startByte": 50063,
+              "endByte": 50148
+            }
+          ]
+        },
+        {
+          "id": "observation-lifecycle",
+          "score": 1,
+          "reasons": [
+            "Pre-arms named OriginWatch; consumes returned watch argv and matching attachment, retains only processed durable cursors, relays failure/unknown/idle/terminal and preserves reconnect gaps. Observing never retries execution. Explicit owner/manual Close and generation-bound Stop have separate lifecycles."
+          ],
+          "excerpts": [
+            {
+              "text": "Before every detached start name **OriginWatch**, owned/consumed by the originating coordinator itself, with ready live JSONL consumer and identity.",
+              "startByte": 27328,
+              "endByte": 27476
+            },
+            {
+              "text": "A ready live consumer parses complete JSONL records and confirms consumed `attached`; startup required:true/attached:false is not attachment proof.",
+              "startByte": 29686,
+              "endByte": 29833
+            },
+            {
+              "text": "Persist last **processed durable seq** after handling, not receipt's default or buffered/partial output.",
+              "startByte": 29899,
+              "endByte": 30003
+            },
+            {
+              "text": "**Close** ends that monitor only, valid manual retention policy; retain actual close/shutdown evidence. **Stop** closes run admission/interrupts active turns but neither rolls back effects nor closes monitor.",
+              "startByte": 51488,
+              "endByte": 51696
+            }
+          ]
+        }
+      ],
+      "total": 12,
+      "fullPlanAccepted": true,
+      "missing": []
+    },
+    {
+      "label": "B",
+      "criteria": [
+        {
+          "id": "complete-artifact",
+          "score": 1,
+          "reasons": [
+            "Complete 17-section numbered plan with unresolved coordinator-input records before dependent operations, no continuation, no self-score and no actual product-completion claim. Exact anonymous copy is 81,204 UTF-8 bytes, 716 bytes below the 81,920-byte bound."
+          ],
+          "excerpts": [
+            {
+              "text": "Planning only; nothing below has been run.",
+              "startByte": 52,
+              "endByte": 94
+            },
+            {
+              "text": "Every angle-bracket value below is UNRESOLVED, not a sample real ID. A child cannot manufacture parent authority.",
+              "startByte": 2937,
+              "endByte": 3050
+            },
+            {
+              "text": "This file is the completed planning deliverable, including recovery continuations; it is not evidence the hypothetical product work happened.",
+              "startByte": 79983,
+              "endByte": 80124
+            }
+          ]
+        },
+        {
+          "id": "literal-api",
+          "score": 1,
+          "reasons": [
+            "Literal exported metadata precedes supported guest code; actual agent calls use zero-argument thunk batches, schemas, role IDs, one attempt and supported deadlines. Writer depends on both earlier IDs in author mode; skipped/prior roles remain null in separate stages. No fake guest API or host workflow evaluation is proposed."
+          ],
+          "excerpts": [
+            {
+              "text": "export const meta = {\n  name: 'dashboard-authoring',",
+              "startByte": 22767,
+              "endByte": 22819
+            },
+            {
+              "text": "reviews = await parallel([\n    () => !selectedReviews.includes('review-ui') ? null : agent(rules +",
+              "startByte": 28414,
+              "endByte": 28512
+            },
+            {
+              "text": "dependsOn: cfg.stage === 'author' ? ['review-ui', 'review-style'] : [],",
+              "startByte": 31996,
+              "endByte": 32067
+            },
+            {
+              "text": "missingTaskIds: rows.filter(r => r.result === null).map(r => r.taskId),",
+              "startByte": 34128,
+              "endByte": 34199
+            }
+          ]
+        },
+        {
+          "id": "cli-version",
+          "score": 1,
+          "reasons": [
+            "Explicit 0.3.6 decision respects worker limits and supported CLI/capture/args-file flags. PowerShell uses call operator and argument arrays. Project definition scope is correctly limited to Project; combined verification uses absolute --script. The checked executable forms contain no unsupported command."
+          ],
+          "excerpts": [
+            {
+              "text": "Use installed **0.3.6**, confirmed by the coordinator before dispatch, not candidate recipes or flags.",
+              "startByte": 6908,
+              "endByte": 7010
+            },
+            {
+              "text": "& $Node $Launcher @CommandArgs '--data-dir' $Data",
+              "startByte": 36714,
+              "endByte": 36763
+            },
+            {
+              "text": "'save','project:dashboard-authoring','--script',$Script,'--cwd',$Project",
+              "startByte": 37361,
+              "endByte": 37433
+            },
+            {
+              "text": "The project: definition saved under Project is checkout-scoped and is NOT assumed available under Combined. Use the absolute verified Script explicitly:",
+              "startByte": 69894,
+              "endByte": 70046
+            }
+          ]
+        },
+        {
+          "id": "native-skills",
+          "score": 1,
+          "reasons": [
+            "Maps reviewer beautiful, writer beautiful+tdd and fresh verifier test-strategy. Original root/name/hash selection and duplicate-source disambiguation must be completed before admission. Requires genuine executor list plus original initial main read, returned root and native resources/cursors; separates discovery, activation, adherence and completion recheck. Future requirements are not treated as observed respondent calls."
+          ],
+          "excerpts": [
+            {
+              "text": "| review-ui | engine/monitor/app.mjs; navigation, diagnostics, focus, selection/control identity | None | beautiful |",
+              "startByte": 883,
+              "endByte": 1000
+            },
+            {
+              "text": "| review-style | engine/monitor/style.css; compact layout, responsive overflow, themes, focus visibility | None | beautiful |",
+              "startByte": 1001,
+              "endByte": 1126
+            },
+            {
+              "text": "| ui-write | Both source files; incorporate both reviews and coordinator's failing tests | Only engine/monitor/app.mjs and engine/monitor/style.css, less any preserved accepted paths | beautiful, tdd |",
+              "startByte": 1127,
+              "endByte": 1328
+            },
+            {
+              "text": "| fresh-verify | Exact integrated source, coordinator tests and bounded check evidence | None; coordinator owns test files and evidence storage | test-strategy |",
+              "startByte": 1329,
+              "endByte": 1490
+            },
+            {
+              "text": "Verify returned skill_root/original main identity; an initial successful main read is required per selected ID.",
+              "startByte": 13785,
+              "endByte": 13896
+            }
+          ]
+        },
+        {
+          "id": "prerequisites",
+          "score": 1,
+          "reasons": [
+            "Requires actual parent/session authority, verified executable/runtime and worker-local admission. Distinguishes discovery/version from operation readiness and exact-byte painted acceptance. Declares source-only requireTools:[] without downgrading a failed browser gate; independent source work proceeds while rendering remains null."
+          ],
+          "excerpts": [
+            {
+              "text": "Each worker independently checks relevant source hashes and operations under its actual native policy.",
+              "startByte": 14947,
+              "endByte": 15049
+            },
+            {
+              "text": "A --version/capabilities result or installed browser directory is only discovery.",
+              "startByte": 16350,
+              "endByte": 16431
+            },
+            {
+              "text": "Known missing browser blocks **rendering acceptance only**. Continue safe source reviews, source authoring after its other gates, coordinator tests, capture review and fresh source verification.",
+              "startByte": 17266,
+              "endByte": 17460
+            },
+            {
+              "text": "An executed nonzero command may have changed files. Label notStarted only with explicit no-process evidence.",
+              "startByte": 15476,
+              "endByte": 15584
+            }
+          ]
+        },
+        {
+          "id": "budgets",
+          "score": 1,
+          "reasons": [
+            "Explicit normal/recovery start ceiling, one attempt, fixed batches, concurrency and finite role deadlines. Owns run lifetime with manual Stop and no artificial dashboard expiry; correctly distinguishes disabled run wall timeout from unsupported unbounded worker timeout. Admission/output limits and startup/cleanup exclusions are described honestly."
+          ],
+          "excerpts": [
+            {
+              "text": "| Per-worker deadline | 600000 ms reviews; 1200000 ms writer; 1800000 ms verifier; all within 1..1800000 |",
+              "startByte": 8350,
+              "endByte": 8456
+            },
+            {
+              "text": "| Application lifetime budget | 4 starts/attempts in the normal path; one explicitly reviewed recovery revision may admit each unfinished ID once, at most 4 additional starts = 8 across this plan |",
+              "startByte": 8577,
+              "endByte": 8774
+            },
+            {
+              "text": "| Run lifetime | --run-timeout-ms 0: completion or coordinator manual Stop, no arbitrary retention/expiry requirement |",
+              "startByte": 8457,
+              "endByte": 8576
+            },
+            {
+              "text": "A requirement for workers with timeoutMs:0, null, or an unbounded worker deadline cannot be met by 0.3.6.",
+              "startByte": 10501,
+              "endByte": 10606
+            }
+          ]
+        },
+        {
+          "id": "ownership-checkpoint",
+          "score": 1,
+          "reasons": [
+            "Independent review scopes and sole two-path JS/CSS ownership are clear, with coordinator-owned tests and preserved accepted paths excluded from new ownership. Requires inspectable source/hash/check progress before polish, while refusing to treat a live checkpoint as final capture."
+          ],
+          "excerpts": [
+            {
+              "text": "The writer alone owns the JS/CSS interface: existing DOM IDs, dynamic classes, diagnostic text placement and responsive states. Reviewers suggest changes without editing.",
+              "startByte": 1492,
+              "endByte": 1662
+            },
+            {
+              "text": "The coordinator owns test inputs, fixtures, integration, capture acceptance, and final acceptance.",
+              "startByte": 1663,
+              "endByte": 1761
+            },
+            {
+              "text": "Writer's early checkpoint is an actual minimal coherent implementation in its two owned files:",
+              "startByte": 20139,
+              "endByte": 20233
+            },
+            {
+              "text": "Early hashes are inspectable intermediate evidence, not a finalized capture while the job is live.",
+              "startByte": 20497,
+              "endByte": 20595
+            }
+          ]
+        },
+        {
+          "id": "unknown-effects",
+          "score": 1,
+          "reasons": [
+            "Initial negative drain stays unknown and prevents overlapping replacement/integration/replay. Real owned/native cleanup and local/external effect reconciliation are required; accepted independent bytes are preserved. New stage:write or direct accepted-byte integration supplies executable closure once genuine evidence exists, keeping old unknown history visible without a permanent global block."
+          ],
+          "excerpts": [
+            {
+              "text": "Classify its original task outcome/effects **unknown**, retain its original tuple and workspace, and leave its coverage null.",
+              "startByte": 46095,
+              "endByte": 46220
+            },
+            {
+              "text": "Actual reconciliation requires coordinator/runtime-owned evidence of the owned server/root exit, job becoming empty with windows-job-members scope, successful native terminal inventory cleanup, and an inspection of local/external effects under the original authority.",
+              "startByte": 47130,
+              "endByte": 47397
+            },
+            {
+              "text": "If unfinished UI scope remains safe to admit, new stage:\"write\" starts only that role from this reviewed snapshot, using section 11's command.",
+              "startByte": 48854,
+              "endByte": 48996
+            },
+            {
+              "text": "This is a local dependency block, not a permanent global ban once genuine reconciliation later arrives.",
+              "startByte": 49498,
+              "endByte": 49601
+            }
+          ]
+        },
+        {
+          "id": "recovery-cases",
+          "score": 1,
+          "reasons": [
+            "Distinct package-loss and changed-parent-fingerprint branches preserve original failed/unknown effects and bindings. Requires authentic current sources/context and new immutable bundle/run. Selective review recovery, write-only and fresh verify commands are already supplied; accepted work is reused rather than redispatched. No hot grant, widening or silent replacement is proposed."
+          ],
+          "excerpts": [
+            {
+              "text": "Do not alter the old bundle path/hash, copy a replacement body into the old root, widen roots, or steer a missing skill into the existing worker: live native root grants are unsupported.",
+              "startByte": 50796,
+              "endByte": 50982
+            },
+            {
+              "text": "for a missing review use the same literal script with stage:\"reviews\" and reviewTaskIds containing only its fixed ID.",
+              "startByte": 52360,
+              "endByte": 52477
+            },
+            {
+              "text": "Expect PARENT_CAPABILITIES_CHANGED before generation mutation or dispatch on resume/restart.",
+              "startByte": 54033,
+              "endByte": 54125
+            },
+            {
+              "text": "Start a **new current-catalog** run only for that admitted unfinished scope from a stable reviewed input, using absolute --script below.",
+              "startByte": 55125,
+              "endByte": 55261
+            }
+          ]
+        },
+        {
+          "id": "capture-handoff",
+          "score": 1,
+          "reasons": [
+            "Exact original producer tuple/outcome and linked generation are resolved from authentic evidence. Requires positive worker/aggregate owned cleanup plus separate native inventory, original input and finalized output manifests/patches/blobs/path integrity and live captured bytes. Public verifyWorkspace helper is consistent with source and not treated as authenticated acceptance or automatic integration."
+          ],
+          "excerpts": [
+            {
+              "text": "(dataInstanceId, runId, runtimeId, producerGeneration, position, cumulativeAttempt).",
+              "startByte": 57597,
+              "endByte": 57681
+            },
+            {
+              "text": "Independently require the worker's nativeTerminals.inventoryEmpty:true with no native terminal error; aggregate receipts do not promise that field.",
+              "startByte": 59732,
+              "endByte": 59879
+            },
+            {
+              "text": "Verify **every included blob** regular-file identity, normalized path, mode, byte length/hash; reject links, traversal, case collisions, missing/changed blobs, unrelated metadata changes and source drift.",
+              "startByte": 60331,
+              "endByte": 60535
+            },
+            {
+              "text": "Dependencies carry only scheduling/report context; they never transplant writer worktrees.",
+              "startByte": 57308,
+              "endByte": 57398
+            }
+          ]
+        },
+        {
+          "id": "fresh-verification",
+          "score": 1,
+          "reasons": [
+            "Reviewed copying checks combined preimage/output identity and protects accepted bytes. Freezes complete combined source/tests, launches independent fresh verifier through absolute --script, rechecks identities before/after and requires full tests/check/smoke. Cached results and source-only checks do not accept missing rendering; even installed dashboard assets must be tied to edited bytes."
+          ],
+          "excerpts": [
+            {
+              "text": "Coordinator's exact integration operation is a reviewed copy of the verified full source blobs for approved paths, checked against the expected combined preimage,",
+              "startByte": 66422,
+              "endByte": 66584
+            },
+            {
+              "text": "'run','--script',$Script,'--cwd',$Combined,'--session',$OriginSession,",
+              "startByte": 70145,
+              "endByte": 70215
+            },
+            {
+              "text": "& $Npm 'test'\n  if ($LASTEXITCODE -ne 0) { throw 'npm test failed; preserve outputs and investigate effects.' }\n  & $Npm 'run' 'check'",
+              "startByte": 73180,
+              "endByte": 73314
+            },
+            {
+              "text": "& $Npm 'run' 'smoke'",
+              "startByte": 73420,
+              "endByte": 73440
+            },
+            {
+              "text": "Rendering remains a separate required missing check.",
+              "startByte": 74649,
+              "endByte": 74701
+            }
+          ]
+        },
+        {
+          "id": "observation-lifecycle",
+          "score": 1,
+          "reasons": [
+            "Named DashboardDeliveryObserver is pre-armed and consumes exact returned watch argv plus attached record. Persists fully processed durable seq, relays failure/unknown/idle/terminal, preserves reconnect loss, and avoids execution retry on observation failure. Stop and manual Close are correctly separate and remain owned."
+          ],
+          "excerpts": [
+            {
+              "text": "Before dispatch, coordinator names **DashboardDeliveryObserver**, assigns its live consuming process/host channel and a durable sanitized ledger sink, and confirms it can relay to the originating conversation.",
+              "startByte": 41192,
+              "endByte": 41401
+            },
+            {
+              "text": "The observer must actually read and retain the matching kind:\"attached\" record before saying attached.",
+              "startByte": 42197,
+              "endByte": 42299
+            },
+            {
+              "text": "For every fully processed durable event, retain its real seq as lastProcessedSeq after writing/relaying it successfully.",
+              "startByte": 42464,
+              "endByte": 42584
+            },
+            {
+              "text": "**Close** ends the monitor service;",
+              "startByte": 76269,
+              "endByte": 76304
+            },
+            {
+              "text": "**Stop** is an originating-session, generation-bound workflow control that stops admission and interrupts active work;",
+              "startByte": 76571,
+              "endByte": 76689
+            }
+          ]
+        }
+      ],
+      "total": 12,
+      "fullPlanAccepted": true,
+      "missing": []
+    }
+  ],
+  "limitations": [
+    "Totals: A 12/12; B 12/12. No material omission or unsupported command was found against the 12 stated criteria in either fully read plan. fullPlanAccepted means semantic acceptance of the hypothetical plan only; missing arrays describe rubric omissions, not actual execution coverage.",
+    "All originating-session/project/data/runtime/bundle/catalog/producer identities and actual prerequisite observations remain coordinator inputs. Neither plan nor this grade authenticates those future values. Original author-file exclusivity and early-write timing cannot be independently established from anonymous copies; their statements are not treated as receipts.",
+    "Historical jobEmpty:false/unverified capture remains originally unknown. Neither later positive cleanup alone nor this grade reconciles its local/external effects. Independent accepted work is preserved as a scenario fact, not re-inspected execution evidence.",
+    "Actual role-worker skill activation/adherence, command readiness, finalized capture integrity, coordinator integration and fresh tests/check/smoke have not occurred in this grading task. Rendering remains missing/unaccepted. Neither a successful plan, schema-valid result, hash nor CLI version establishes delivery.",
+    "Grader native activation is independently observed only for the selected original Yoda and test-strategy packages. Respondent activation conditions/adherence are separately owned by the coordinator and were not inspected or inferred. No mappings, source run/worker receipts, condition checks or respondent outputs outside the anonymous manifest were read.",
+    "One pair cannot establish general effectiveness, per-skill causality or automatic triggering. Equal semantic scores neither prove a skill helped nor prove it had no effect.",
+    "The v2 scenario states no follow-up checkpoint steer is planned. No v1 steer was assumed and no historical exposure was imported. Actual differential steering, if any, requires separate coordinator evidence.",
+    "Static semantic/source inspection only: no workflow body was evaluated in the host, no launcher validation/run/control/test/build/render was executed, and no runtime was installed. Public source checks support callable shapes but are not a formal execution or proof for every possible argument/result.",
+    "One read-only rg command executed and exited 1 because C:/Users/ehart/.codex/plugins/cache/hartye-plugins/agent-workflow/0.3.6/engine/evaluator.mjs does not exist (os error 2). No process-start uncertainty or mutations occurred. Allowed public source inventory located engine/evaluator-child.mjs and engine/evaluate.mjs; only the former was subsequently read for actual parallel semantics. The failed lookup remains failed, not relabeled notStarted.",
+    "No wiki reads/writes, target-skill reads, services/browser, external messages, Git mutations, product changes, tests, nested workers or orchestration were performed. Public document references were not followed into forbidden skills, linked private receipts or historical review artifacts."
+  ],
+  "publicReferences": [
+    {
+      "path": "README.md",
+      "sha256": "6eb08542640420d92fcb6bacafdd95bd04fe622c8f4d1f95d3ffe7fe0cc59df9",
+      "bytes": 11802,
+      "purpose": "Read-only scope and saved-definition resolution",
+      "excerpts": [
+        {
+          "text": "Discovery searches project .agents/workflows from cwd to the nearest Git root, then personal .agents/workflows, then bundled definitions.",
+          "startByte": 8034,
+          "endByte": 8171
+        },
+        {
+          "text": "Unknown outcomes or failed cleanup block ordinary replay.",
+          "startByte": 10180,
+          "endByte": 10237
+        }
+      ]
+    },
+    {
+      "path": "docs/api.md",
+      "sha256": "061bd88b30629991e4b16aefe705bc93a036df07ab019097aee38a1a291bb620",
+      "bytes": 30407,
+      "purpose": "Released CLI, finite deadlines, parent authority, observer and immutable bundle contracts",
+      "excerpts": [
+        {
+          "text": "Worker deadlines default to 600,000 ms, with an explicit range of 1–1,800,000 ms.",
+          "startByte": 6074,
+          "endByte": 6157
+        },
+        {
+          "text": "Parent `--writable` defaults workers to `workspace:'isolated'` while retaining full parent execution permissions.",
+          "startByte": 4630,
+          "endByte": 4743
+        },
+        {
+          "text": "Resume/restart reject a missing or changed catalog with `PARENT_CAPABILITIES_CHANGED` before generation mutation or dispatch;",
+          "startByte": 5675,
+          "endByte": 5800
+        },
+        {
+          "text": "returning that receipt does not attach an observer.",
+          "startByte": 10213,
+          "endByte": 10264
+        }
+      ]
+    },
+    {
+      "path": "docs/worker-capabilities.md",
+      "sha256": "37be95765efdc759e6303786d8822a4b99dc7f638d8fbc6cc0c487f54a506496",
+      "bytes": 13582,
+      "purpose": "Native activation, completion drift, readiness and scope boundaries",
+      "excerpts": [
+        {
+          "text": "Every explicitly selected skill requires an observed initial native read of its original main resource.",
+          "startByte": 2950,
+          "endByte": 3053
+        },
+        {
+          "text": "Removed or changed cache resources reject completion, retaining the model attempt and cleanup evidence.",
+          "startByte": 3415,
+          "endByte": 3518
+        },
+        {
+          "text": "A version/capabilities command cannot prove builds, loopback rendering, output artifacts or audible results.",
+          "startByte": 8391,
+          "endByte": 8499
+        }
+      ]
+    },
+    {
+      "path": "docs/limitations.md",
+      "sha256": "9d76b7412cf38383e1a95b485277fea6450e0384fdcc66029b2134bbc909cd90",
+      "bytes": 9746,
+      "purpose": "Independent worktree/capture/recovery and cleanup limits",
+      "excerpts": [
+        {
+          "text": "Dependencies schedule workers but do not transfer edits.",
+          "startByte": 2709,
+          "endByte": 2765
+        },
+        {
+          "text": "Unknown work blocks ordinary resume.",
+          "startByte": 3058,
+          "endByte": 3094
+        },
+        {
+          "text": "Native terminal cleanup errors block replay even when the job is empty.",
+          "startByte": 8009,
+          "endByte": 8080
+        }
+      ]
+    },
+    {
+      "path": "docs/verification.md",
+      "sha256": "4ec7e1d17e6d08d419324ed6d152d9df180dfea5ae5428f095e7d94fd92d5a75",
+      "bytes": 15870,
+      "purpose": "Historical public observations do not establish present product/release acceptance",
+      "excerpts": [
+        {
+          "text": "The earlier verification records below retain their historical scope.",
+          "startByte": 404,
+          "endByte": 473
+        },
+        {
+          "text": "Before claiming release complete, record the final full suite/check/smoke, clean package installation, production audit, required CI, published tag/version and installation of that exact version.",
+          "startByte": 12987,
+          "endByte": 13182
+        }
+      ]
+    },
+    {
+      "path": "engine/script.mjs",
+      "sha256": "5e66006441d00574781d521be5d3c15c023282fe75cb8aa7fe37d9c0e1976161",
+      "bytes": 2744,
+      "purpose": "Literal first metadata and no imports/additional exports",
+      "excerpts": [
+        {
+          "text": "The first statement must export a literal const meta",
+          "startByte": 1796,
+          "endByte": 1848
+        },
+        {
+          "text": "Workflow module loading and additional exports are unavailable",
+          "startByte": 2407,
+          "endByte": 2469
+        }
+      ]
+    },
+    {
+      "path": "engine/evaluator-child.mjs",
+      "sha256": "cef049ded349f7b34b7d103e4a5e97f223c080f7679e57d87674ea67ee902285",
+      "bytes": 5697,
+      "purpose": "Separate guest API parallel(thunks), JSON, resource constraints",
+      "excerpts": [
+        {
+          "text": "parallel: tasks => Promise.all(bounded(tasks).map(async task => { try { return await task(); } catch { return null; } })),",
+          "startByte": 3463,
+          "endByte": 3585
+        },
+        {
+          "text": "runtime.setMemoryLimit(32 * 1024 * 1024);",
+          "startByte": 1675,
+          "endByte": 1716
+        }
+      ]
+    },
+    {
+      "path": "engine/schema.mjs",
+      "sha256": "0ea133f1e5b1318e70787e889ed31254ab84ddd867cedd99bca37ec59cb3ed68",
+      "bytes": 6868,
+      "purpose": "Supported bounded schemas including const and union types",
+      "excerpts": [
+        {
+          "text": "if(!schema||Array.isArray(schema)||schema.type!=='object')throw invalid('Structured results require an object root');",
+          "startByte": 2780,
+          "endByte": 2897
+        },
+        {
+          "text": "const types=new Set(['object','array','string','number','integer','boolean','null']);",
+          "startByte": 371,
+          "endByte": 456
+        }
+      ]
+    },
+    {
+      "path": "engine/deadlines.mjs",
+      "sha256": "edeb75f29274e580a603c319d9b8b51ba3362e5d75897aae64ecc64b69561373",
+      "bytes": 944,
+      "purpose": "Finite worker deadline / separately optional run wall deadline",
+      "excerpts": [
+        {
+          "text": "export const MAX_WORKER_TIMEOUT_MS=1800000;",
+          "startByte": 180,
+          "endByte": 223
+        },
+        {
+          "text": "export const DEFAULT_RUN_TIMEOUT_MS=null;",
+          "startByte": 49,
+          "endByte": 90
+        }
+      ]
+    },
+    {
+      "path": "bin/arguments.mjs",
+      "sha256": "73fabac7a5ee52c95812c209a75b91c20224d1ea5baeccb0229a7eeb1db8d1e4",
+      "bytes": 9272,
+      "purpose": "Exact commands/flags and public help, including doctor authority and args-file",
+      "excerpts": [
+        {
+          "text": "commands.run.push('access','parent-access','args-file');",
+          "startByte": 1676,
+          "endByte": 1732
+        },
+        {
+          "text": "commands.doctor.push('access','parent-access','session');",
+          "startByte": 1733,
+          "endByte": 1790
+        },
+        {
+          "text": "Run/resume deadlines: --worker-timeout-ms 1..1800000 (default 600000); --run-timeout-ms 0..86400000 (default 0, completion/manual Stop). Saved deadlines persist on resume.",
+          "startByte": 8755,
+          "endByte": 8926
+        }
+      ]
+    },
+    {
+      "path": "engine/controller.mjs",
+      "sha256": "ce909b5b3c1efaf2a12bf76726da18e08965457a2e60489e224c3b9218609db2",
+      "bytes": 42054,
+      "purpose": "Agent option/dependency contract and changed-parent guard",
+      "excerpts": [
+        {
+          "text": "Dependencies must name distinct earlier workers",
+          "startByte": 27937,
+          "endByte": 27984
+        },
+        {
+          "text": "Parent native catalog identity is missing, incomplete or changed; start a new admitted run",
+          "startByte": 14378,
+          "endByte": 14468
+        }
+      ]
+    },
+    {
+      "path": "engine/workspaces.mjs",
+      "sha256": "3f3c299ac8d1bddd39f11f5a075801af5c9172cd5a251a828d58e0e4613d1546",
+      "bytes": 36715,
+      "purpose": "Authoritative manifest/blob paths, whole workspace integrity and live retained bytes",
+      "excerpts": [
+        {
+          "text": "files.push({name,mode:mode??(process.platform!=='win32'&&entry.mode&0o111?'100755':'100644'),size:bytes.length,sha256,blobPath});",
+          "startByte": 15657,
+          "endByte": 15786
+        },
+        {
+          "text": "export async function verifyWorkspace(workspace){",
+          "startByte": 30602,
+          "endByte": 30651
+        },
+        {
+          "text": "if(expected.size)throw Error('missing workspace files');",
+          "startByte": 32927,
+          "endByte": 32983
+        }
+      ]
+    },
+    {
+      "path": "engine/backend.mjs",
+      "sha256": "04ac8148c897573074d22fa79e9807b34c34ec2ee61b9cb49a8a3d4a196d7975",
+      "bytes": 31346,
+      "purpose": "Independent native inventory and owned cleanup; restricted writer support",
+      "excerpts": [
+        {
+          "text": "else if(nativeTerminals?.error)cleanup.error=nativeTerminals.error;",
+          "startByte": 1695,
+          "endByte": 1762
+        },
+        {
+          "text": "const effective=settings.resolve(options),restrictedWriter=effective.permissions.sandbox==='workspace-write',writing=restrictedWriter||effective.workspace==='isolated';",
+          "startByte": 16046,
+          "endByte": 16214
+        }
+      ]
+    }
+  ]
+}

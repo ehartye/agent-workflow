@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-10-13T17:03:22Z",
+  "status": "passed",
+  "source": "Real local managed-ChatGPT worker and its cached second generation; activity-local-acceptance.json",
+  "checks": {
+    "lightTheme": true,
+    "darkTheme": true,
+    "fragmentRemoved": true,
+    "cachedSourceGenerationDisclosed": 1,
+    "firstPageRecords": 50,
+    "retainedRecords": 59,
+    "toolFilterMatchingRecords": 4,
+    "expandedCommandInputOutputAndExitCode": true,
+    "mobileViewportWidth": 390,
+    "mobileBodyWidth": 375,
+    "boundedHistoryHeight": 440,
+    "consoleErrors": 0
+  },
+  "limitations": [
+    "Browser inspected retained native evidence after completion; the separate native check verifies persistence during execution",
+    "Individual worker controls and safe restart are not yet exposed",
+    "Arbitrary descendant termination remains unverified",
+    "Screenshots are local browser-tool artifacts outside the feature checkout"
+  ]
+}

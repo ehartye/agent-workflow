@@ -4,6 +4,7 @@
  * @subject engine/monitor/style.css
  * @subject engine/steps.mjs
  * @subject engine/controller.mjs
+ * @subject engine/monitor-data.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -108,20 +109,27 @@ const stepSnapshot=(extra={})=>({workers:[],coverage:{requested:0,completed:0},m
 const isSteps=path=>/^\/api\/(?:runs\/[^/]+\/)?steps\?/.test(path);
 
 test('persisted provider displays declarations before admission and replaces only the assigned step',async t=>{
-  const {runWorkflow,readRun}=await import('../engine/controller.mjs');
+ for(const terminal of ['completed','blocked'])await t.test(terminal,async t=>{
+  const {runWorkflow,readRun,requestControl}=await import('../engine/controller.mjs');
   const {readStepsAt}=await import('../engine/steps.mjs');
+  const {monitorData}=await import('../engine/monitor-data.mjs');
   const {contextRunRef}=await import('../engine/composition-store.mjs');
   const temp=await mkdtemp(join(tmpdir(),'steps-dom-')),runId=randomUUID(),runDir=join(temp,'runs-v2',runId);
   await mkdir(runDir,{recursive:true});
   // A scoped identity fixture; no managed installation or native worker is claimed.
   await writeFile(join(runDir,'runtime.json'),JSON.stringify({schema:2,id:runId,sessionId:'steps-dom',runtime:{id:'identity-fixture'}}));
-  let ready,release;
+  let ready,release,started,finishWorker,cleaning=false;
+  const admitted=new Promise(resolve=>{started=resolve;});
   const retained=new Promise(resolve=>{ready=resolve;}),gate=new Promise(resolve=>{release=resolve;});
-  const work=runWorkflow({runDir,sessionId:'steps-dom',script:'export const meta={name:"Persisted plan",description:"real provider and DOM",steps:[{id:"build",label:"Build",dependsOn:[],worker:{id:"builder"}},{id:"verify",label:"Verify",dependsOn:["build"]}]};return await agent("Synthetic",{id:"builder",maxAttempts:1});',onReady:async()=>{ready();await gate;},backend:{identity:'steps-dom-fixture',execute:async()=>({value:'done',terminalObserved:true}),close:async()=>({serverExited:true,descendants:'notVerified'})}});
-  t.after(async()=>{release();await work.catch(()=>{});await rm(temp,{recursive:true,force:true});});
+  const work=runWorkflow({runDir,sessionId:'steps-dom',script:'export const meta={name:"Persisted plan",description:"real provider and DOM",steps:[{id:"build",label:"Build",dependsOn:[],worker:{id:"builder"}},{id:"verify",label:"Verify",dependsOn:["build"]}]};return await agent("Synthetic",{id:"builder",maxAttempts:1});',onReady:async()=>{ready();await gate;},backend:{identity:'steps-dom-fixture',execute:async({signal})=>{
+    if(terminal==='completed'||cleaning)return{value:'done',terminalObserved:!cleaning};
+    return await new Promise((resolve,reject)=>{finishWorker=()=>resolve({value:'cleanup release',terminalObserved:false});signal.addEventListener('abort',()=>reject(Object.assign(new Error('interrupted'),{interruption:{terminalObserved:true,terminalStatus:'interrupted',descendants:'notVerified'}})),{once:true});started();});
+  },close:async()=>({serverExited:true,descendants:'notVerified'})}});
+  t.after(async()=>{cleaning=true;release();finishWorker?.();await work.catch(()=>{});await rm(temp,{recursive:true,force:true});});
   await Promise.race([retained,work.then(()=>{throw Error('Catalog was not observed before execution');})]);
-  const run=await contextRunRef({runDir,sessionId:'steps-dom'}),before=await readRun(runDir);
-  assert.equal(before.workers.length,0);
+  const run=await contextRunRef({runDir,sessionId:'steps-dom'}),before=await monitorData(runDir,{kind:'summary',runRef:run});
+  assert.equal((await readRun(runDir)).workers.length,0);
+  assert.match(before.stepsRevision,/^[a-f0-9]{64}$/);
   let pageObserved;
   const nextPage=()=>new Promise(resolve=>{pageObserved=resolve;});
   const initialPage=nextPage();
@@ -132,15 +140,31 @@ test('persisted provider displays declarations before admission and replaces onl
   await initialPage;await view.flush();
   assert.equal(view.document.querySelectorAll('.map-step').length,2,view.get('step-read-status').textContent);
   assert.equal(view.document.querySelectorAll('.map-worker').length,0);
+  const firstReads=view.calls.filter(call=>isSteps(call.path)).length;
+  view.update(await monitorData(runDir,{kind:'summary',runRef:run}));await view.tick(2000);
+  assert.equal(view.calls.filter(call=>isSteps(call.path)).length,firstReads,'An unchanged verified provider revision does not reload its pages');
   const planned=view.document.querySelector('.map-step');planned.focus();
-  release();const completed=await work;assert.equal(completed.status,'completed');
-  const assignedPage=nextPage();view.update(completed);await view.refresh();await assignedPage;await view.flush();
+  release();if(terminal==='blocked'){await admitted;await requestControl(runDir,{sessionId:'steps-dom',generation:1,action:'stop'});}
+  const completed=await work;assert.equal(completed.status,terminal);
+  const after=await monitorData(runDir,{kind:'summary',runRef:run});assert.notEqual(after.stepsRevision,before.stepsRevision);
+  const assignedPage=nextPage();view.update(after);await view.tick(2000);await assignedPage;await view.flush();
   assert.equal(view.document.querySelectorAll('.map-worker').length,1);
   assert.equal(view.document.querySelectorAll('.map-step').length,1);
   assert.match(view.document.querySelector('.map-step').textContent,/Verify/);
   assert.match(view.document.querySelector('.map-step').textContent,/Incomplete/i);
+  assert.match(view.document.querySelector('.map-step').getAttribute('aria-label'),/Incomplete/);
+  assert.match(view.get('declared-step-list').textContent,/Verify · Incomplete/);
+  await view.click(view.document.querySelector('.map-step'));assert.equal(view.get('detail-status').textContent,'Incomplete');
+  assert.equal(view.get('detail').querySelector('.worker-menu-toggle, #steer-text, #worker-deadline'),null);
+  if(terminal==='blocked'){
+    assert.equal(after.acceptingAdditions,false);assert.equal(after.acceptingControls,false);assert.equal(after.workers[0].status,'unknown');assert.equal(after.coverage.complete,false);
+    assert.match(view.document.querySelector('.map-worker').textContent,/unknown/i);
+    assert.deepEqual(await readRun(runDir),completed,'Rendering preserves the unknown worker and interruption evidence');
+  }
   assert.match(view.get('step-coverage').textContent,/1.*unassigned/i);
+  assert.equal(view.calls.filter(call=>isSteps(call.path)).length,firstReads+1,'A real provider assignment revision refreshes one bounded head');
   assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+ });
 });
 
 test('declared steps appear before workers and open plan evidence without worker controls',async()=>{
@@ -160,8 +184,14 @@ test('declared steps appear before workers and open plan evidence without worker
   assert.equal(view.document.querySelector('.worker-menu-toggle'),null);
   assert.equal(view.get('steer-text'),null);assert.equal(view.get('worker-deadline'),null);
   assert.equal(view.calls.some(call=>call.path.includes('/worker/')),false);
-  view.update({status:'completed'});await view.tick(2000);
-  assert.match(view.document.querySelector('.map-step').textContent,/Incomplete/);
+  for(const status of ['running','paused','completed','failed','stopped','unknown','blocked']){
+    view.update({status,acceptingAdditions:status==='running',acceptingControls:status==='running'});await view.tick(2000);
+    const expected=['running','paused'].includes(status)?'Planned':'Incomplete';
+    assert.match(view.document.querySelector('.map-step').textContent,new RegExp(expected),status);
+    assert.match(view.document.querySelector('.map-step').getAttribute('aria-label'),new RegExp(expected),status);
+    assert.match(view.get('declared-step-list').textContent,new RegExp(expected),status);
+    assert.equal(view.get('detail-status').textContent,expected,status);
+  }
   assert.doesNotMatch(view.get('detail-status').textContent,/completed|pass/i);
   assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
 });

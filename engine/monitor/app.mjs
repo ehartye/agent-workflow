@@ -495,7 +495,7 @@ const stepItems=()=>stepState?.items??[];
 const stepWorker=item=>item?.worker&&sameRun(item.worker.run,stepRun())&&item.worker.generation===snapshot.generation?snapshot.workers.find(worker=>worker.position===item.worker.position&&(worker.attempts??0)===item.worker.attempt):null;
 const selectedStepNode=()=>stepItems().find(item=>stepIdentity(item.ref)===selectedStep);
 const stepName=ref=>stepItems().find(item=>stepIdentity(item.ref)===stepIdentity(ref))?.label??`${ref.stepId} (not loaded)`;
-const stepStatus=item=>stepState?.stale?'Unknown':item.binding==='assigned'?item.execution:['completed','failed','stopped','unknown'].includes(snapshot.status)?'Incomplete':'Planned';
+const stepStatus=item=>stepState?.stale?'Unknown':item.binding==='assigned'?item.execution:['completed','failed','stopped','unknown','blocked'].includes(snapshot.status)?'Incomplete':'Planned';
 function resetSteps(){stepState?.abort?.abort();stepState=null;}
 function orderSteps(items,complete=false){
   const keyed=new Map(items.map((item,index)=>[stepIdentity(item.ref),{item,index,pending:0,next:[]}]));

@@ -1,5 +1,7 @@
 # Codex rebuild acceptance ledger
 
+The 0.6.0 candidate adds declared-step projection, depth-one reusable child execution, exact private-IPv4 dashboard binding and complete native skill-local resources. Source contracts and deterministic tests are separate from final installed qualification and publication; see [0.6.0 release evidence](https://github.com/ehartye/agent-workflow/releases/tag/v0.6.0). This source baseline explicitly refuses artifact/refinement providers. Strict packet read isolation, native media review and broader Ultracode parity are not claimed. Earlier acceptance entries below are historical evidence, not an assertion that all later obligations passed.
+
 The owner's requirement is full Ultracode/dynamic-workflow feature parity with no API-key billing. Existing architecture may be discarded. This ledger describes the fresh rebuild, not features inherited from release 0.1.1. That release's host-UI and budget exceptions do not waive rebuild requirements.
 
 Behavioral reference: [Claude dynamic workflows](https://code.claude.com/docs/en/workflows), captured in the wiki as `raw/clippings/Orchestrate subagents at scale with dynamic workflows.md`, hash `4bd52a60ff58213b6cfbe28ed0d2fb34df32d8f9fa8c24dd506909a24679b0ef`. Codex protocol reference: locally generated 0.162.1 App Server schema, plus the wiki's `codex-orchestration-best-practices` research. Research comparisons of PabloNAX/ultracode-skill, just-every/plugin-ultracode and YuanpingSong/ultracodex remain on the research branch; they are not copied into the new transport.
