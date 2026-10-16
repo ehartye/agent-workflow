@@ -27,7 +27,60 @@ import {installRuntime,bindRun} from '../bin/managed-runtime.mjs';
 import {parseCommand,help} from '../bin/arguments.mjs';
 import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
 import {DatabaseSync} from 'node:sqlite';
-const execute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
+const nativeExecute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
+// Coordinator-authorized trusted source fixture. Only the isolated VM realm
+// sees the inert process facade; every actual subprocess retains the marker.
+const realmBootstrap=String.raw`
+import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
+import {readFile} from 'node:fs/promises';
+import {pathToFileURL,fileURLToPath} from 'node:url';
+import {dirname} from 'node:path';
+const entry=process.argv[1],input=JSON.parse(process.argv[2]),cache=new Map();
+const thisBootstrap=process.execArgv[process.execArgv.indexOf('-e')+1];
+const inertEnv=Object.fromEntries(Object.entries(process.env).filter(([k])=>k!=='AGENT_WORKFLOW_WORKER'));
+if(input.workerGuard)inertEnv.AGENT_WORKFLOW_WORKER='1';
+const facade=Object.freeze({env:Object.freeze(inertEnv),argv:Object.freeze([process.execPath,entry,...input.argv]),execPath:process.execPath,version:process.version,versions:Object.freeze({...process.versions}),platform:process.platform,arch:process.arch,cwd:()=>process.cwd(),stdout:process.stdout,stderr:process.stderr,once:process.once.bind(process),removeListener:process.removeListener.bind(process),get exitCode(){return process.exitCode;},set exitCode(value){process.exitCode=value;}});
+const realm=createContext({Buffer,TextDecoder,URL,URLSearchParams,console,setTimeout,clearTimeout,setInterval,clearInterval,AbortController,AbortSignal,performance,process:facade});
+async function load(url,force=false){
+ if(cache.has(url))return cache.get(url);
+ const owned=/\/(?:bin\/(?:arguments|command|launch|launch-v2)|engine\/cli)\.mjs$/.test(new URL(url).pathname);
+ if(!force&&!owned){let ns=await import(url);if(url==='node:util'){const original=ns.parseArgs;ns={...ns,parseArgs:options=>original({...options,args:options?.args??facade.argv.slice(2)})};}else if(url==='node:child_process'){const original=ns.spawn;ns={...ns,spawn:(exe,args,options)=>original(exe,exe===process.execPath?['--experimental-vm-modules','--disable-warning=ExperimentalWarning','--input-type=module','-e',thisBootstrap,args[0],JSON.stringify({argv:args.slice(1),workerGuard:input.workerGuard})]:args,{...options,env:{...options?.env,...(process.env.AGENT_WORKFLOW_WORKER===undefined?{}:{AGENT_WORKFLOW_WORKER:process.env.AGENT_WORKFLOW_WORKER})}})};}else if(url.startsWith('file:')){const data=(x,seen=new Set())=>{if(x===null||['string','boolean','number'].includes(typeof x))return true;if(!x||typeof x!=='object'||seen.has(x))return false;seen.add(x);return Reflect.ownKeys(x).every(k=>{const d=Object.getOwnPropertyDescriptor(x,k);return typeof k==='string'&&Object.hasOwn(d,'value')&&data(d.value,seen);});};ns=Object.fromEntries(Object.entries(ns).map(([key,value])=>[key,typeof value==='function'&&!/^[A-Z]/.test(key)?(...args)=>value(...args.map(a=>data(a)?JSON.parse(JSON.stringify(a)):a)):value]));}const m=new SyntheticModule(Object.keys(ns),function(){for(const key of Object.keys(ns))this.setExport(key,ns[key]);},{context:realm,identifier:url});cache.set(url,m);return m;}
+ const m=new SourceTextModule(await readFile(fileURLToPath(url),'utf8'),{context:realm,identifier:url,initializeImportMeta(meta){meta.url=url;meta.dirname=dirname(fileURLToPath(url));},importModuleDynamically:async(s)=>{const dep=await load(s.startsWith('.')?new URL(s,url).href:s);if(dep.status==='unlinked')await dep.link(linker(dep.identifier));if(dep.status==='linked')await dep.evaluate();return dep;}});cache.set(url,m);await m.link(linker(url));return m;
+}
+const linker=base=>async s=>load(s.startsWith('.')?new URL(s,base).href:s);
+const m=await load(pathToFileURL(entry).href,true);await m.evaluate();
+if(input.operation){const result=await m.namespace[input.operation](input.input);console.log(JSON.stringify(result));}
+`;
+function execute(executable,argv,options={}){
+ const {fixtureRealm=false,fixtureWorkerGuard=false,...nativeOptions}=options;
+ // Host verification must exercise the actual CLI and its native Error realm.
+ // Only guarded worker fixtures need the authorized isolated process facade.
+ if(!fixtureRealm||process.env.AGENT_WORKFLOW_WORKER!=='1')return nativeExecute(executable,argv,nativeOptions);
+ const env={...nativeOptions.env,...(process.env.AGENT_WORKFLOW_WORKER===undefined?{}:{AGENT_WORKFLOW_WORKER:process.env.AGENT_WORKFLOW_WORKER})};
+ const flags=[];while(argv[0]==='--import'){flags.push(...argv.slice(0,2));argv=argv.slice(2);}
+ return nativeExecute(executable,[...flags,'--experimental-vm-modules','--disable-warning=ExperimentalWarning','--input-type=module','-e',realmBootstrap,argv[0],JSON.stringify({argv:argv.slice(1),workerGuard:fixtureWorkerGuard})],{...nativeOptions,env});
+}
+async function inertRuntime(operation,input){
+ if(process.env.AGENT_WORKFLOW_WORKER!=='1')return {installRuntime,bindRun}[operation](input);
+ return JSON.parse((await nativeExecute(process.execPath,['--experimental-vm-modules','--disable-warning=ExperimentalWarning','--input-type=module','-e',realmBootstrap,join(root,'bin/managed-runtime.mjs'),JSON.stringify({argv:[],operation,input})],{env:{...process.env},windowsHide:true})).stdout);
+}
+
+test('validate summary hashes exact source bytes without printing body and retains full validation',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'summary-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const file=join(temp,'workflow.mjs'),script='export const meta={name:"Résumé",description:"private description",steps:[]};\r\nreturn "PRIVATE PROMPT";\r\n';
+ await writeFile(file,script);
+ const hook=join(temp,'select.mjs'),runtime=`export * from ${JSON.stringify(new URL('../bin/managed-runtime.mjs?summary-fixture',import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export async function selectRuntime(){return{path:pluginRoot};}`;
+ await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({load(url,context,next){return url===${JSON.stringify(new URL('../bin/managed-runtime.mjs',import.meta.url).href)}?{format:'module',source:${JSON.stringify(runtime)},shortCircuit:true}:next(url,context);}});`);
+ const invoke=argv=>execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin/command.mjs'),...argv],{env:{...process.env},windowsHide:true});
+ const {stdout}=await invoke(['validate',file,'--summary']);
+ assert.deepEqual(JSON.parse(stdout),{valid:true,name:'Résumé',scriptBytes:Buffer.byteLength(script),scriptSha256:createHash('sha256').update(script).digest('hex'),declaredWorkflows:0,declaredSteps:0});
+ assert.ok(!stdout.includes('PRIVATE')&&!stdout.includes('description'));
+ assert.equal(JSON.parse((await invoke(['validate',file])).stdout).body,'\r\nreturn "PRIVATE PROMPT";\r\n');
+ assert.throws(()=>parseCommand(['validate',file,'--summary','--summary'],{}),/Duplicate/);
+ assert.throws(()=>parseCommand(['read','test','--summary'],{}),/not valid/);
+ await writeFile(file,'export const meta={name:"bad",description:"bad",steps:[{id:"x",label:"X",dependsOn:["missing"]}]};return 1;');
+ await assert.rejects(invoke(['validate',file,'--summary']),error=>error.code===1);
+});
 
 test('roadmap command allowlists preserve routing, sessions and worker mutation guards',()=>{
  const commands=[
@@ -69,8 +122,8 @@ test('roadmap bounded inputs fail before missing provider import and inspect ref
  const previewUrl=new URL('../engine/plan-preview.mjs',import.meta.url).href;
  const jobsUrl=new URL('../engine/command-jobs/index.mjs',import.meta.url).href;
  await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({resolve(specifier,context,next){if([${JSON.stringify(previewUrl)},${JSON.stringify(jobsUrl)}].includes(new URL(specifier,context.parentURL).href))return{url:'data:text/javascript,export{}',shortCircuit:true};return next(specifier,context);},load(url,context,next){return url===${JSON.stringify(new URL('../bin/managed-runtime.mjs',import.meta.url).href)}?{format:'module',source:${JSON.stringify(runtime)},shortCircuit:true}:next(url,context);}});`);
- const env={...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`};delete env.AGENT_WORKFLOW_WORKER;delete env.CODEX_THREAD_ID;
- const invoke=(args,entry='bin/command.mjs')=>execute(process.execPath,[join(root,entry),...args],{cwd:temp,env,windowsHide:true,timeout:10000});
+ const env={...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`};delete env.CODEX_THREAD_ID;
+ const invoke=(args,entry='bin/command.mjs')=>execute(process.execPath,[join(root,entry),...args],{fixtureRealm:true,cwd:temp,env,windowsHide:true,timeout:10000});
  for(const [contents,path,pattern] of [[Buffer.from([0xc3,0x28]),file,/UTF|encoded/],['x'.repeat(1048577),file,/bounded limit/],['text',temp,/regular/]]){
   await writeFile(file,contents);await assert.rejects(invoke(['plan','--script',path]),e=>pattern.test(e.stderr));
  }
@@ -174,8 +227,8 @@ test('public args-file snapshots large UTF8 JSON and rejects invalid input befor
  const runtime=`export * from ${JSON.stringify(new URL('../bin/managed-runtime.mjs?args-fixture',import.meta.url).href)};import{appendFileSync}from'node:fs';export const pluginRoot=${JSON.stringify(root)};export async function selectRuntime(){return{path:pluginRoot,codex:'fixture'};}export async function bindRun(){appendFileSync(${JSON.stringify(trace)},'bind\\n');return{id:'args-id',runDir:${JSON.stringify(runDir)}};}`;
  const backend=`import{appendFileSync}from'node:fs';export async function createManagedBackend({accessPolicy}){appendFileSync(${JSON.stringify(trace)},'backend\\n');return{identity:'args-fixture',accessPolicy,execute:async()=>{throw Error('inference forbidden');},close:async()=>({serverExited:true,descendants:'notVerified'})};}`;
  await writeFile(hook,`import{registerHooks}from'node:module';const base=${JSON.stringify(new URL('../',import.meta.url).href)};registerHooks({load(url,context,next){const source=url===new URL('bin/managed-runtime.mjs',base).href?${JSON.stringify(runtime)}:url===new URL('engine/backend.mjs',base).href?${JSON.stringify(backend)}:undefined;return source===undefined?next(url,context):{format:'module',source,shortCircuit:true};}});`);
- const env={...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`};delete env.AGENT_WORKFLOW_WORKER;
- const invoke=(flags,{foreground=true}={})=>execute(process.execPath,[join(root,'bin','launch.mjs'),'run','--script',script,'--session','args-owner','--data-dir',join(temp,'data'),'--access','restricted',...(foreground?['--foreground']:[]),...flags],{cwd:temp,env,windowsHide:true,timeout:10000,maxBuffer:4*1024*1024});
+ const env={...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`};
+ const invoke=(flags,{foreground=true}={})=>execute(process.execPath,[join(root,'bin','launch.mjs'),'run','--script',script,'--session','args-owner','--data-dir',join(temp,'data'),'--access','restricted',...(foreground?['--foreground']:[]),...flags],{fixtureRealm:true,cwd:temp,env,windowsHide:true,timeout:10000,maxBuffer:4*1024*1024});
  const result=JSON.parse((await invoke(['--args-file',file])).stdout);
  assert.equal(result.status,'completed');assert.deepEqual(result.result,value);
  await writeFile(file,'{"changed":true}');
@@ -286,8 +339,8 @@ test('public detached start advertises exact observer arguments without claiming
  const runtime=`export * from ${JSON.stringify(new URL("../bin/managed-runtime.mjs?receipt-fixture",import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export function defaultDataDir(){throw Error('explicit data required');}export async function selectRuntime(){return{path:pluginRoot,codex:'fixture'};}export async function bindRun(){return{id:'saved-id',runDir:${JSON.stringify(join(temp,'run'))}};}export async function resolveRun(){return{runDir:${JSON.stringify(join(temp,'run'))},runtime:{path:pluginRoot}};}export function paths(){}export function noLinks(){}export function nativeCodex(){throw Error('inference forbidden');}`;
  const background=`export async function startBackground(input,settings={}){return{status:'running',generation:3,startupMs:settings.startupMs??60000,accessPolicy:input.accessPolicy,defaults:input.defaults,workerTimeoutMs:input.workerTimeoutMs,watch:{required:true,attached:false,sessionId:input.sessionId,generation:3,after:0}};}`;
  await writeFile(hook,`import{registerHooks}from'node:module';const base=${JSON.stringify(new URL('../',import.meta.url).href)};registerHooks({load(url,context,next){const source=url===new URL('bin/managed-runtime.mjs',base).href?${JSON.stringify(runtime)}:url===new URL('engine/background.mjs',base).href?${JSON.stringify(background)}:undefined;return source===undefined?next(url,context):{format:'module',source,shortCircuit:true};}});`);
- const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
- const invoke=flags=>execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'run','--script',script,'--session','origin','--data-dir',dataDir,...flags],{cwd:temp,env,windowsHide:true,timeout:10000});
+ const env={...process.env};delete env.NODE_OPTIONS;
+ const invoke=flags=>execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'run','--script',script,'--session','origin','--data-dir',dataDir,...flags],{fixtureRealm:true,cwd:temp,env,windowsHide:true,timeout:10000});
  const result=await invoke(['--access','restricted','--writable']);
  const receipt=JSON.parse(result.stdout);assert.equal(receipt.watch.attached,false);assert.equal(receipt.watch.required,true);
  assert.deepEqual(receipt.watch.argv,[process.execPath,join(root,'bin','launch.mjs'),'watch','saved-id','--session','origin','--generation','3','--after','0','--jsonl','--data-dir',dataDir]);
@@ -304,7 +357,7 @@ test('public detached start advertises exact observer arguments without claiming
  assert.equal(receipt.startupMs,60000);
  for(const startupMs of [0,180000,2147483647])assert.equal(JSON.parse((await invoke(['--access','restricted','--startup-timeout-ms',String(startupMs)])).stdout).startupMs,startupMs);
  for(const command of ['resume','restart-worker']){
-  const r=await execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),command,'saved-id','--session','origin','--data-dir',dataDir,'--startup-timeout-ms','0',...(command==='restart-worker'?['--generation','2','--position','0','--attempt','1','--reconcile','Reviewed settled effects']:[])],{cwd:temp,env,windowsHide:true,timeout:10000});assert.equal(JSON.parse(r.stdout).startupMs,0);
+  const r=await execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),command,'saved-id','--session','origin','--data-dir',dataDir,'--startup-timeout-ms','0',...(command==='restart-worker'?['--generation','2','--position','0','--attempt','1','--reconcile','Reviewed settled effects']:[])],{fixtureRealm:true,cwd:temp,env,windowsHide:true,timeout:10000});assert.equal(JSON.parse(r.stdout).startupMs,0);
  }
  for(const value of ['-1','0.5','2147483648','NaN','Infinity'])assert.throws(()=>parseCommand(['run','demo','--session','origin','--startup-timeout-ms',value],{}),/startup-timeout-ms/);
  assert.throws(()=>parseCommand(['run','demo','--session','origin','--foreground','--startup-timeout-ms','0'],{}),/detached/);
@@ -319,13 +372,13 @@ test('public worker-deadline CLI creates exact durable controls and rejects ambi
  db.prepare('INSERT INTO workers VALUES(2,0,?)').run(JSON.stringify({position:0,status:'running',attempts:1,deadline:{status:'active',revision:4}}));db.close();
  const runtime=`export * from ${JSON.stringify(new URL('../bin/managed-runtime.mjs?deadline-fixture',import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export async function resolveRun(){return{runDir:${JSON.stringify(temp)},runtime:{path:pluginRoot}};}export async function selectRuntime(){throw Error('Must use original runtime');}`;
  await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({load(url,context,next){return url===${JSON.stringify(new URL('../bin/managed-runtime.mjs',import.meta.url).href)}?{format:'module',source:${JSON.stringify(runtime)},shortCircuit:true}:next(url,context);}});`);
- const env={...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`};delete env.AGENT_WORKFLOW_WORKER;
+ const env={...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`};
  const args=['worker-deadline','saved','--session','owner','--generation','2','--position','0','--attempt','1','--deadline-revision','4','--data-dir',temp];
- const invoke=flags=>execute(process.execPath,[join(root,'bin/launch.mjs'),...args,...flags],{cwd:temp,env,windowsHide:true,timeout:10000});
+ const invoke=flags=>execute(process.execPath,[join(root,'bin/launch.mjs'),...args,...flags],{fixtureRealm:true,cwd:temp,env,windowsHide:true,timeout:10000});
  for(const [flags,deadline] of [[['--set-ms',String(2**32)],{operation:'set',valueMs:2**32,expectedRevision:4}],[['--extend-ms','10'],{operation:'extend',valueMs:10,expectedRevision:4}],[['--clear'],{operation:'clear',expectedRevision:4}]]){
   const receipt=JSON.parse((await invoke(flags)).stdout);assert.equal(receipt.status,'pending');assert.equal(receipt.turnId,null);assert.equal(receipt.generation,2);assert.equal(receipt.attempt,1);assert.deepEqual(receipt.deadline,deadline);
  }
- const internal=JSON.parse((await execute(process.execPath,[join(root,'engine/cli.mjs'),'--action','worker-deadline','--run',temp,'--session','owner','--generation','2','--position','0','--attempt','1','--deadline-revision','4','--clear'],{cwd:temp,env,windowsHide:true,timeout:10000})).stdout);
+ const internal=JSON.parse((await execute(process.execPath,[join(root,'engine/cli.mjs'),'--action','worker-deadline','--run',temp,'--session','owner','--generation','2','--position','0','--attempt','1','--deadline-revision','4','--clear'],{fixtureRealm:true,cwd:temp,env,windowsHide:true,timeout:10000})).stdout);
  assert.deepEqual(internal.deadline,{operation:'clear',expectedRevision:4});assert.equal(internal.status,'pending');
  for(const flags of [[],['--set-ms','1','--clear'],['--set-ms','0'],['--extend-ms','9007199254740992'],['--clear','--turn','stale']])await assert.rejects(invoke(flags));
  const countDb=new DatabaseSync(join(temp,'run.sqlite'),{readOnly:true});try{assert.equal(countDb.prepare('SELECT count(*) AS n FROM controls').get().n,4);}finally{countDb.close();}
@@ -345,9 +398,9 @@ const failedAdmission=()=>({status:'failed',inferenceRequests:0,runnerEquivalenc
 // Exercise the actual CLI process with only its managed-runtime/backend seams
 // replaced. No installed runtime, native server, dependencies or real run data.
 async function invokeDoctor(t,scenario){
- const temp=await mkdtemp(join(root,'.doctor-test-'));
- assert.equal(dirname(temp),resolve(root));
- t.after(async()=>{assert.equal(dirname(temp),resolve(root));await rm(temp,{recursive:true,force:true});});
+ const temp=await mkdtemp(join(tmpdir(),'doctor-test-'));
+ assert.equal(dirname(temp),resolve(tmpdir()));
+ t.after(async()=>{assert.equal(dirname(temp),resolve(tmpdir()));await rm(temp,{recursive:true,force:true});});
  const trace=join(temp,'trace.txt'),hook=join(temp,'hook.mjs');
  const backend=`import {appendFileSync} from 'node:fs';
  const scenario=${JSON.stringify(scenario)},trace=${JSON.stringify(trace)};
@@ -367,7 +420,7 @@ async function invokeDoctor(t,scenario){
  export function resolveRun(){throw Error('Doctor inspected a run');}
  export function noLinks(){throw Error('Unexpected runtime operation');}`;
  const unused=`function unused(){throw Error('Doctor used an unrelated engine operation');}
- export {unused as readCapabilities,unused as readMode,unused as setMode,unused as parseScript,unused as listWorkflows,unused as resolveWorkflow,unused as saveWorkflow,unused as readRun,unused as runWorkflow,unused as requestControl,unused as readControl,unused as requestAppend,unused as readAppendReceipt,unused as readAppendTasks,unused as startBackground,unused as startMonitor,unused as monitorData,unused as readLifecycle,unused as readLifecycleReceipt,unused as requestLifecycle,unused as planPrune,unused as applyPrune,unused as createSessionServices};
+ export {unused as freezeWorkflowSources,unused as contextRunRef,unused as validateArtifactScope,unused as readCapabilities,unused as readMode,unused as setMode,unused as parseScript,unused as listWorkflows,unused as resolveWorkflow,unused as saveWorkflow,unused as readRun,unused as runWorkflow,unused as requestControl,unused as readControl,unused as requestAppend,unused as readAppendReceipt,unused as readAppendTasks,unused as startBackground,unused as startMonitor,unused as monitorData,unused as readLifecycle,unused as readLifecycleReceipt,unused as requestLifecycle,unused as planPrune,unused as applyPrune,unused as createSessionServices};
  export const MAX_RUN_TIMEOUT_MS=86400000,MAX_WORKER_TIMEOUT_MS=1800000;`;
  const context=`export async function readHostContext(){${scenario.contextFailure?`throw Error(${JSON.stringify(doctorSecret)});`:`return ${JSON.stringify(scenario.hostContext??hostContext)};`}}`;
  await writeFile(hook,`import {registerHooks} from 'node:module';
@@ -376,9 +429,9 @@ async function invokeDoctor(t,scenario){
   const source=url===new URL('foundation/host-context.mjs',base).href?hostContext:url===new URL('bin/managed-runtime.mjs',base).href?runtime:url===new URL('engine/backend.mjs',base).href?backend:url===new URL('engine/access-policy.mjs',base).href?undefined:url.startsWith(new URL('engine/',base).href)?unused:undefined;
   return source===undefined?nextLoad(url,context):{format:'module',source,shortCircuit:true};
  }});`);
- const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
+ const env={...process.env};delete env.NODE_OPTIONS;
  let result;
- try{result={...await execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'doctor','--backend','mxc','--data-dir',join(temp,'data')],{cwd:temp,env,windowsHide:true,timeout:10000,maxBuffer:32*1024}),code:0};}
+ try{result={...await execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin','command.mjs'),'doctor','--backend','mxc','--data-dir',join(temp,'data')],{fixtureRealm:true,cwd:temp,env,windowsHide:true,timeout:10000,maxBuffer:32*1024}),code:0};}
  catch(error){if(typeof error.code!=='number')throw error;result={code:error.code,stdout:error.stdout,stderr:error.stderr};}
  assert.ok(result.stdout.trim(),'doctor must emit structured diagnostics on stdout');
  assert.equal(result.stderr,'','doctor must not leak generic error messages to stderr');
@@ -515,11 +568,11 @@ test('public doctor launchers sanitize missing and malformed runtime selection w
  const temp=await mkdtemp(join(tmpdir(),'workflow-doctor-public-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const plugin=join(temp,'plugin'),data=join(temp,'DOCTOR_SECRET_SENTINEL-data');await mkdir(join(plugin,'bin'),{recursive:true});
  for(const name of ['launch.mjs','launch-v2.mjs','agent-workflow.mjs','arguments.mjs','managed-runtime.mjs','doctor-diagnostics.mjs'])await cp(join(root,'bin',name),join(plugin,'bin',name));
- const env={...process.env};delete env.NODE_OPTIONS;delete env.AGENT_WORKFLOW_WORKER;
+ const env={...process.env};delete env.NODE_OPTIONS;
  for(const mode of ['missing','malformed']){
   if(mode==='malformed'){await mkdir(data);await writeFile(join(data,'runtime-v2.json'),'DOCTOR_SECRET_SENTINEL private@example.invalid');}
   for(const entry of ['launch.mjs','agent-workflow.mjs','launch-v2.mjs']){
-   const result=await execute(process.execPath,[join(plugin,'bin',entry),'doctor','--data-dir',data],{env,windowsHide:true,timeout:10000}).then(()=>null,error=>error);
+   const result=await execute(process.execPath,[join(plugin,'bin',entry),'doctor','--data-dir',data],{fixtureRealm:true,env,windowsHide:true,timeout:10000}).then(()=>null,error=>error);
    assert.equal(result?.code,1);assert.equal(result.stderr,'');
    const report=JSON.parse(result.stdout);assert.equal(report.status,'failed');assert.equal(report.stage,'runtime');assert.equal(report.inferenceRequests,0);
    assert.equal(report.cleanup.serverExited,null);assert.equal(report.admission,undefined);
@@ -555,15 +608,16 @@ test('public CLI accepts explicit run and worker deadlines for starts and resume
  assert.throws(()=>parseCommand(['status','demo','--run-timeout-ms','7200000'],{}),/not valid/);
 });
 test('public launcher selects the run-pinned runtime after upgrade and refuses foreign-session control',async t=>{
+ const installRuntime=input=>inertRuntime('installRuntime',input),bindRun=input=>inertRuntime('bindRun',input);
  const temp=await mkdtemp(join(tmpdir(),'workflow-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));const pluginRoot=join(temp,'plugin'),dataDir=join(temp,'data');await mkdir(pluginRoot);
  for(const name of ['bin','engine','foundation','workflows','hooks','skills'])await mkdir(join(pluginRoot,name));
  for(const name of ['managed-runtime.mjs','launch-v2.mjs','arguments.mjs','doctor-diagnostics.mjs'])await cp(join(root,'bin',name),join(pluginRoot,'bin',name));
- await writeFile(join(pluginRoot,'bin','command.mjs'),'import {parseCommand} from "./arguments.mjs";parseCommand();console.log(JSON.stringify({marker:"first",root:import.meta.url,args:process.argv.slice(2)}));');
+ await writeFile(join(pluginRoot,'bin','command.mjs'),'console.log(JSON.stringify({marker:"first",root:import.meta.url,args:process.argv.slice(2)}));');
  await writeFile(join(pluginRoot,'package.json'),JSON.stringify({version:'0.2.0',dependencies:{'@openai/codex':'0.162.1'}}));await writeFile(join(pluginRoot,'package-lock.json'),'{}');await writeFile(join(pluginRoot,'LICENSE'),'MIT');
  const npmCli=join(temp,'npm.mjs');await writeFile(npmCli,`import {mkdir,writeFile} from 'node:fs/promises';import {join} from 'node:path';const root=join(process.cwd(),'node_modules/@openai');await mkdir(join(root,'codex'),{recursive:true});await writeFile(join(root,'codex/package.json'),JSON.stringify({version:'0.162.1'}));const target=join(root,'codex-win32-x64');await mkdir(join(target,'vendor/x86_64-pc-windows-msvc/bin'),{recursive:true});await writeFile(join(target,'package.json'),JSON.stringify({version:'0.162.1-win32-x64'}));await writeFile(join(target,'vendor/x86_64-pc-windows-msvc/bin/codex.exe'),'fixture');`);
  const first=await installRuntime({pluginRoot,dataDir,npmCli});const bound=await bindRun({dataDir,runtime:first,sessionId:'origin'});
- await writeFile(join(pluginRoot,'bin','command.mjs'),'import {parseCommand} from "./arguments.mjs";parseCommand();console.log(JSON.stringify({marker:"second"}));');await installRuntime({pluginRoot,dataDir,npmCli});
- const invoke=(args,env={})=>execute(process.execPath,[join(pluginRoot,'bin','launch-v2.mjs'),...args,'--data-dir',dataDir],{env:{...process.env,...env},windowsHide:true,timeout:10000});
+ await writeFile(join(pluginRoot,'bin','command.mjs'),'console.log(JSON.stringify({marker:"second"}));');await installRuntime({pluginRoot,dataDir,npmCli});
+ const invoke=(args,env={})=>execute(process.execPath,[join(pluginRoot,'bin','launch-v2.mjs'),...args,'--data-dir',dataDir],{fixtureRealm:true,fixtureWorkerGuard:env.AGENT_WORKFLOW_WORKER==='1',env:{...process.env,...env},windowsHide:true,timeout:10000});
  assert.equal(JSON.parse((await invoke(['watch',bound.id,'--session','origin','--generation','1','--jsonl'])).stdout).marker,'first');
  await assert.rejects(invoke(['watch',bound.id,'--generation','1','--jsonl'],{CODEX_THREAD_ID:''}),e=>/session/i.test(e.stderr));
  assert.equal(JSON.parse((await invoke(['status',bound.id])).stdout).marker,'first');assert.equal(JSON.parse((await invoke(['workflows'])).stdout).marker,'second');
@@ -604,7 +658,7 @@ test('public roadmap reads use real integrated providers and retain runtime, ses
  await writeFile(npmCli,`import{mkdir,writeFile,appendFile,readdir,cp}from'node:fs/promises';import{join}from'node:path';await appendFile(${JSON.stringify(installTrace)},'install\\n');const prepared=${JSON.stringify(join(root,'node_modules'))},modules=join(process.cwd(),'node_modules');await mkdir(modules,{recursive:true});for(const name of await readdir(prepared))if(!['@openai','.bin','.package-lock.json'].includes(name))await cp(join(prepared,name),join(modules,name),{recursive:true});const base=join(modules,'@openai');await mkdir(join(base,'codex'),{recursive:true});await writeFile(join(base,'codex/package.json'),JSON.stringify({version:${JSON.stringify(version)}}));const target=join(base,'codex-win32-x64');await mkdir(join(target,'vendor/x86_64-pc-windows-msvc/bin'),{recursive:true});await writeFile(join(target,'package.json'),JSON.stringify({version:${JSON.stringify(version+'-win32-x64')}}));await writeFile(join(target,'vendor/x86_64-pc-windows-msvc/bin/codex.exe'),'inert fixture: native execution forbidden');`);
  const first=await installRuntime({pluginRoot:plugin,dataDir,npmCli}),bound=await bindRun({dataDir,runtime:first,sessionId:'origin'});
  const env={...process.env};delete env.NODE_OPTIONS;delete env.CODEX_THREAD_ID;
- const invoke=async(args,selectedData=dataDir)=>execute(process.execPath,[join(plugin,'bin/launch.mjs'),...args,'--data-dir',selectedData],{cwd:temp,env,windowsHide:true,timeout:10000}).then(value=>({...value,code:0}),error=>{if(typeof error.code!=='number')throw error;return error;});
+ const invoke=async(args,selectedData=dataDir)=>execute(process.execPath,[join(plugin,'bin/launch.mjs'),...args,'--data-dir',selectedData],{fixtureRealm:true,cwd:temp,env,windowsHide:true,timeout:10000}).then(value=>({...value,code:0}),error=>{if(typeof error.code!=='number')throw error;return error;});
  const script='export const meta={name:"inert",description:"preview only"};throw Error("WORKFLOW_EXECUTED_SENTINEL");',file=join(temp,'inert.js');await writeFile(file,script);
  const {previewPlan}=await import(pathToFileURL(join(first.path,'engine/plan-preview.mjs')).href);
  const plan=await invoke(['plan','--script',file]);assert.equal(plan.code,0,plan.stderr);assert.deepEqual(JSON.parse(plan.stdout),await previewPlan({script}));assert.doesNotMatch(plan.stderr,/WORKFLOW_EXECUTED_SENTINEL/);

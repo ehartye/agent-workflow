@@ -35,7 +35,9 @@ async function boundedRead(path,limit=maxBytes){
 function git(cwd,args,{input,index,maxBuffer=maxMetadata,raw=false}={}){
   return new Promise((done,reject)=>{
     const fail=(code,message,category)=>reject(gitFault(code,message,category));
-    const child=execFile('git',['--no-pager','--no-replace-objects','-c',`core.hooksPath=${noHooks}`,'-c','core.fsmonitor=false',...args],
+    // Retained blobs and private indexes can exceed MAX_PATH. Scope support to
+    // each Windows command without changing repository or machine configuration.
+    const child=execFile('git',['--no-pager','--no-replace-objects',...(process.platform==='win32'?['-c','core.longpaths=true']:[]),'-c',`core.hooksPath=${noHooks}`,'-c','core.fsmonitor=false',...args],
       {cwd,env:{...gitEnv,GIT_OPTIONAL_LOCKS:'0',...(index?{GIT_INDEX_FILE:index}:{})},windowsHide:true,timeout:20000,maxBuffer,encoding:'buffer'},
       (error,stdout)=>{
         if(error){

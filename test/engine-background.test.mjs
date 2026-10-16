@@ -16,6 +16,20 @@ import {readRun,requestControl,readControl} from '../engine/controller.mjs';
 
 const exec=promisify(execFile);
 
+test('synthetic detached runner retains the actual worker marker in its real process environment',async t=>{
+ const {startBackground}=await import('../engine/background.mjs');const base=await mkdtemp(join(tmpdir(),'background-marker-'));t.after(()=>rm(base,{recursive:true,force:true}));const marker=join(base,'environment.json'),runner=join(base,'runner.mjs');
+ await writeFile(runner,`import{writeFileSync}from'node:fs';writeFileSync(${JSON.stringify(marker)},JSON.stringify({worker:process.env.AGENT_WORKFLOW_WORKER??null}));process.on('message',m=>{if(m.kind==='commit')process.send({kind:'started',generation:1},()=>process.disconnect());});process.send({kind:'ready',generation:1});`);
+ const receipt=await startBackground({runDir:join(base,'run'),sessionId:'s',codex:process.execPath,cwd:base,script:'export const meta={name:"marker",description:"synthetic fixture only"};return null;'}, {runnerPath:runner});let exited=false;for(let i=0;i<100;i++){try{process.kill(receipt.pid,0);}catch(error){if(error.code!=='ESRCH')throw error;exited=true;break;}await new Promise(resolve=>setTimeout(resolve,20));}assert.equal(exited,true,'synthetic runner must exit before fixture teardown');assert.deepEqual(JSON.parse(await readFile(marker,'utf8')),{worker:process.env.AGENT_WORKFLOW_WORKER??null});
+});
+
+test('missing declared source rejects detached admission before any runner process starts',async t=>{
+ const {startBackground}=await import('../engine/background.mjs');const base=await mkdtemp(join(tmpdir(),'composition-admission-'));t.after(()=>rm(base,{recursive:true,force:true}));
+ const marker=join(base,'forked.txt'),runner=join(base,'runner.mjs');await writeFile(runner,`import{writeFileSync}from'node:fs';writeFileSync(${JSON.stringify(marker)},'forked');process.send({kind:'failed'},()=>process.disconnect());`);
+ const declaration={alias:'missing',source:{kind:'script',path:'missing.mjs'},argsSchema:{type:'object'},resultSchema:{type:'object'},capabilities:{skills:null,tools:null},permissions:null};
+ await assert.rejects(startBackground({runDir:join(base,'run'),sessionId:'s',codex:process.execPath,cwd:base,script:'export const meta='+JSON.stringify({name:'missing',description:'preflight',workflows:[declaration]})+';return null;'}, {runnerPath:runner}),{code:'COMPOSITION_SOURCE'});
+ await assert.rejects(stat(marker),{code:'ENOENT'});
+});
+
 test('detached admission honors an explicit unbounded or finite launcher budget',async t=>{
  const {startBackground}=await import('../engine/background.mjs');
  const base=await mkdtemp(join(tmpdir(),'workflow-startup-budget-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
@@ -110,7 +124,9 @@ test('detached retained-source replay survives cache deletion and never redispat
  const base=await mkdtemp(join(tmpdir(),'workflow-retained-replay-'));t.after(()=>rm(base,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
  const cwd=join(base,'retention'),source=join(base,'cache','plugin'),selected=join(source,'skills','native'),runDir=join(base,'run');
  await mkdir(cwd);await mkdir(selected,{recursive:true});await writeFile(join(cwd,'owned.txt'),'original\n');
- for(const args of [['init','-q'],['add','owned.txt'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']])await exec('git',args,{cwd,windowsHide:true});
+ // This disposable fixture is nested below the worker-owned temporary root;
+ // retained blob paths exceed Git for Windows' default short-path boundary.
+ for(const args of [['init','-q'],['config','core.longpaths','true'],['add','owned.txt'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']])await exec('git',args,{cwd,windowsHide:true});
  const path=join(selected,'SKILL.md'),body='native fixture source';await writeFile(path,body);
  const workerCapabilities={version:1,skills:[{id:'native',name:'native',root:source,path,sha256:createHash('sha256').update(body).digest('hex'),references:[]}],tools:[]};
  const settings={runnerPath:fileURLToPath(new URL('./fixtures/engine-background.mjs',import.meta.url))};
@@ -184,7 +200,7 @@ test('detached restart forwards reconciliation and preserves its original failed
 });
 async function until(read,predicate){
   const deadline=Date.now()+6000;let lastState=null,lastReadError=null;
-  while(Date.now()<deadline){const value=await read().catch(error=>{lastReadError={code:String(error.code??'').slice(0,80),message:String(error.message??'').slice(0,300)};return null;});if(value&&typeof value==='object'&&typeof value.status==='string')lastState={status:value.status,generation:value.generation,error:value.error??null,coverage:value.coverage??null};if(value&&predicate(value))return value;await new Promise(resolve=>setTimeout(resolve,20));}
+  while(Date.now()<deadline){const value=await read().catch(error=>{lastReadError={code:String(error.code??'').slice(0,80),message:String(error.message??'').slice(0,300)};return null;});if(value&&typeof value==='object'&&typeof value.status==='string')lastState={status:value.status,generation:value.generation,error:value.error??null,coverage:value.coverage??null,workers:(value.workers??[]).map(w=>({position:w.position,status:w.status,error:w.error??null,workspaceError:w.workspaceError??null}))};if(value&&predicate(value))return value;await new Promise(resolve=>setTimeout(resolve,20));}
   throw new Error('Background outcome not observed: '+JSON.stringify({lastState,lastReadError}));
 }
 

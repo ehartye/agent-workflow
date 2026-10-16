@@ -8,7 +8,24 @@ export function restartPlan(state,request,{requireReconciliation=true}={}){
   if(!worker||!['failed','unknown'].includes(worker.status))throw fault('RESTART_WORKER','Restart requires a failed or cancelled worker');
   if((worker.attempts??0)!==request.attempt)throw fault('CONTROL_ATTEMPT','Restart targets an outdated worker attempt');
   if(state.workers.slice(0,request.position).some(worker=>worker.status!=='completed'))throw fault('RESTART_PREFIX','Restart the earliest unsuccessful worker first');
-  const affected=state.workers.slice(request.position);
+  let invocationSeq=null,firstAffectedPosition=request.position;
+  if(state.compositionVersion===1){
+    // Appended work has a physical origin, never a guest invocation. Close the
+    // physical suffix over actual guest containers and back over their workers.
+    // The controller subsequently closes the journal suffix over all ancestors,
+    // including worker-free containers. No affected guest means full reuse.
+    let changed=true;while(changed){changed=false;
+      for(const item of state.workers.filter(w=>w.position>=firstAffectedPosition&&w.origin?.kind!=='append')){
+        const seq=item.invocation?.parentSeq??item.invocation?.seq;if(!Number.isSafeInteger(seq)||seq<1)throw fault('RESTART_DRAIN','Composed guest restart requires its actual invocation binding');
+        if(invocationSeq===null||seq<invocationSeq){invocationSeq=seq;changed=true;}
+      }
+      for(const item of state.workers)if(invocationSeq!==null&&item.invocation?.seq>=invocationSeq){
+        if(item.invocation.parentSeq!==null&&item.invocation.parentSeq<invocationSeq){invocationSeq=item.invocation.parentSeq;changed=true;}
+        if(item.position<firstAffectedPosition){firstAffectedPosition=item.position;changed=true;}
+      }
+    }
+  }
+  const affected=state.workers.slice(firstAffectedPosition);
   for(const item of affected){
     if(['running','unknown'].includes(item.status)&&!(item.attempts>(item.attemptOffset??0)))throw fault('RESTART_DRAIN','Unknown execution has no owned termination evidence');
     if((item.attempts??0)>(item.attemptOffset??0)){
@@ -17,7 +34,7 @@ export function restartPlan(state,request,{requireReconciliation=true}={}){
     }
   }
   if(state.attempts>=state.maxAgents)throw fault('AGENT_LIMIT','No lifetime worker attempts remain for restart');
-  return{position:request.position,attempt:request.attempt,affected:affected.map(item=>({position:item.position,status:item.status,attempts:item.attempts??0,...(item.origin?{origin:structuredClone(item.origin)}:{})})),...(requireReconciliation?{reconciliation:request.reconciliation.trim()}:{})};
+  return{position:request.position,attempt:request.attempt,...(state.compositionVersion===1?{firstAffectedPosition,...(invocationSeq===null?{}:{invocationSeq})}:{}),affected:affected.map(item=>({position:item.position,status:item.status,attempts:item.attempts??0,...(item.origin?{origin:structuredClone(item.origin)}:{})})),...(requireReconciliation?{reconciliation:request.reconciliation.trim()}:{})};
 }
 
 export function restartPreview(state){

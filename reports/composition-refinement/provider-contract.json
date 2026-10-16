@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "checkpoint": "core-foundation",
+  "status": "as-built provisional foundation; artifact/native/UI integration remains unavailable",
+  "taskSha256": "7da2090b08d821d91d425c96534f15fdc860f3987e39588b534cfddbcab0a0b5",
+  "authority": "Host-only interfaces below grant no guest, network, installation, native launch or delegation authority.",
+  "units": {
+    "bytes": "UTF-8 octets unless the value is a Buffer, then exact buffer octets",
+    "hash": "lowercase 64-hex SHA-256",
+    "generation": "positive safe integer; current generation is required by the new scoped reads",
+    "position": "zero-based physical worker slot, 0..999",
+    "attempt": "nonnegative cumulative native attempt count, not an attempt-local ordinal",
+    "seq": "one-based global invocation arrival sequence within a generation",
+    "localCall": "zero-based broker call ordinal within one evaluator scope; phase/log calls leave gaps in the invocation journal",
+    "childId": "c_ plus one-based child-only ordinal; independent of global seq (agents can interleave)",
+    "timestamp": "ISO 8601 UTC string"
+  },
+  "sharedValidation": {
+    "module": "engine/composition-contracts.mjs",
+    "exports": {
+      "strictJSON": "strictJSON(value,{code='COMPOSITION_INPUT',maxBytes=1048576,maxDepth=32}={}) -> detached JSON data; descriptor-first, rejects proxies/accessors/custom prototypes/sparse or named arrays/cycles/nonfinite numbers/functions/symbols/bigints/undefined; 200000 visited-node bound",
+      "canonicalJSON": "canonicalJSON(value) -> compact recursively key-sorted JSON string; array order retained; strict traversal, 32 MiB bound",
+      "digest": "digest(JSONValue) -> sha256(canonicalJSON(value))",
+      "sha256": "sha256(string|Buffer) -> exact input hash",
+      "exact": "exact(value,requiredKeys,optionalKeys=[],code='COMPOSITION_INPUT') -> value or fault; use strictJSON first at host input boundaries",
+      "isSha": "lowercase 64-hex predicate",
+      "isCount": "nonnegative safe-integer predicate",
+      "isId": "1..100 ASCII letters/digits/underscore/hyphen; case-insensitive prototype/constructor/__proto__ names refused",
+      "isText": "isText(value,maxUTF16Units) -> nonempty bounded string without NUL",
+      "isUuid": "lowercase UUID v4 predicate",
+      "validateRunRef": "strict exact RunRef -> copied RunRef",
+      "validateChildRef": "strict exact ChildRef -> copied ChildRef",
+      "validateWorkerRef": "strict exact WorkerRef -> copied WorkerRef",
+      "validateBlobRef": "strict exact BlobRef -> copied BlobRef; store-specific byte limit is separate",
+      "validatePath": "portable NFC relative literal path, <=1000 UTF-8 bytes and UTF-16 units; no backslash, dot traversal, .git, Windows devices, shell metacharacters or ambiguous components",
+      "validateWorkflowDeclarations": "strict complete declaration array -> copied array; <=32 aliases, case aliases refused; schemas use existing compileSchema",
+      "validateArtifactScope": "strict <=65536-byte {schemaVersion:1,ownedPaths:string[1..256]} -> {scope,scopeHash}; disjoint portable files or terminal-slash prefixes, case aliases refused"
+    },
+    "refs": {
+      "RunRef": {"dataInstanceId":"string 1..200; factory emits filesystem-identity hash","runId":"UUIDv4","runtimeId":"string 1..200"},
+      "ChildRef": {"run":"RunRef","generation":"positive safe integer","invocationId":"Id"},
+      "WorkerRef": {"run":"RunRef","generation":"positive safe integer","position":"0..999","attempt":"nonnegative cumulative attempt"},
+      "BlobRef": {"kind":"blob","sha256":"Sha256","bytes":"nonnegative safe integer"},
+      "fixtureBoundary": "Only unmanaged synthetic host fixtures have run:null. Public managed entrypoints resolve an actual RunRef; null is not accepted by validateRunRef/ChildRef/WorkerRef."
+    },
+    "guestBoundary": "Separate QuickJS process only. Captured intrinsic descriptor-first serialization rejects getters/toJSON/custom arrays before execution of user serializers; guest Proxy construction is unavailable. No host guest evaluation."
+  },
+  "rootContext": {
+    "factory": "engine/composition-store.mjs:createRootContext({db,runDir,run,generation,sessionId,state,sources,signal,assertOwner,transaction,workspaceInputs,resolveWorker,resolveAuthority})",
+    "factoryOwner": "engine/controller.mjs creates the live context after lease, authority, source and generation admission. Read helpers create separate read-only contexts. A module-private WeakSet brands contexts; assertRootContext(context) checks brand and assertOwner(). JSON and broker inputs cannot mint one.",
+    "serialization": "Never serialize, persist, pass to a guest, or construct from worker-provided JSON. Frozen host object; contained SQLite handle/state are controller-owned and mutable.",
+    "fields": {
+      "db": "node:sqlite DatabaseSync; controller-owned writable handle, or read-helper-owned readOnly handle",
+      "runDir": "absolute retained run directory string",
+      "run": "RunRef; null only for unmanaged synthetic fixtures",
+      "generation": "positive safe integer",
+      "sessionId": "originating session string",
+      "state": "controller-owned current durable header object; includes script/meta/args/launch/authority/deadlines/admission projection; not a guest API",
+      "sources": "verified SourceCatalog, or null when composition is not enabled",
+      "signal": "AbortSignal for evaluator admission/children; Pause aborts evaluators while accepted native work drains; Stop also aborts native work",
+      "assertOwner": "() -> void; live controller verifies exact lease token and refuses retired writes",
+      "transaction": "(synchronousBody:()=>T) -> T; controller-owned SQLite transaction, nests by joining existing synchronous transaction; never return a Promise",
+      "accessPolicyHash": "Sha256|null = state.accessPolicy?.fingerprint",
+      "capturePolicyHash": "Sha256|null",
+      "artifactScopeHash": "Sha256|null = state.launch?.artifactScope?.scopeHash",
+      "policyHash": "Sha256|null; H(C({accessPolicyHash,capturePolicyHash,artifactScopeHash})); null only without saved access identity",
+      "catalogHash": "Sha256|null; admitted parent native capability catalog fingerprint, else explicit worker capability bundle fingerprint; distinct from SourceCatalog.catalogHash",
+      "capabilitiesHash": "Sha256|null = explicit worker capability bundle fingerprint",
+      "authorityOwnedPaths": "string[]|null; saved artifact scope ownership paths, not filesystem security isolation",
+      "artifactProviders": "null at this checkpoint; no passing artifact provider is installed",
+      "resolveAuthority": "() -> {accessPolicy:validated policy|null,capturePolicy:validated policy|null,workerCapabilities:manifest|null}",
+      "resolveSession": "() -> {run:RunRef|null,sessionId:string,generation:positive integer}",
+      "resolveOriginalInput": "async () -> {descriptor:InputDescriptor,record:LoadedInputs}; lazily obtains existing workspace-run original immutable capture, persists before writer creation, verifies loadInputs; ARTIFACT_UNAVAILABLE if none admitted",
+      "resolveCapture": "async ({worker:WorkerRef}) -> {worker:WorkerRef,record:full authoritative WorkerRecord,workspace:retained WorkspaceRecord}; checks current run/generation/attempt and verifyWorkspace; ARTIFACT_UNAVAILABLE without captured writer output",
+      "readBlob": "async ({reference:BlobRef}) -> Buffer; composition private store only, verifies regular single-link immutable content/size/hash",
+      "writeBlob": "async ({bytes:Buffer|Buffer-convertible}) -> BlobRef; synced content-addressed private composition store, <=32 MiB",
+      "resolveNativeAssetReads": "async (input) -> rejects ARTIFACT_UNAVAILABLE; native asset observation wiring is deliberately absent"
+    },
+    "captureTypes": {
+      "InputDescriptor": {"manifestPath":"absolute inputs.json path","manifestHash":"exact manifest byte Sha256","source":"absolute canonical captured repository root","base":"40- or 64-hex Git commit","inputTree":"40- or 64-hex Git tree","version?":"2 for explicit policy capture; omitted by legacy describeInputs","policyHash?":"Sha256; present only with version2","excludedInventory?":"ExcludedInventoryDescriptor; present only with version2"},
+      "LoadedInputs": {"version":"1|2","source":"absolute canonical repository root","common":"absolute Git common directory","base":"Git commit hash","parent":"absolute authorized sibling worktree directory","artifactsDir":"absolute immutable input capture directory","inputTree":"Git tree hash","inputIndex":"absolute private-index path","inputIndexHash":"exact index byte Sha256","files":"CapturedFile[]; <=20000","bytes":"included file byte total <=536870912","manifestPath":"absolute inputs.json path","manifestHash":"exact manifest byte Sha256","policy?":"version2 CapturePolicy from engine/workspace-policy.mjs; absent for legacy version1","policyHash?":"Sha256; version2 only","excludedInventory?":"ExcludedInventoryDescriptor; version2 only"},
+      "CapturedFile": {"name":"portable repository-relative file path","mode":"100644|100755","size":"nonnegative file byte count","sha256":"exact file byte Sha256","blobPath":"absolute artifactsDir/blobs/sha256 path"},
+      "ExcludedInventoryDescriptor": {"path":"absolute exclusions.json path","sha256":"exact inventory byte Sha256","entryCount":"nonnegative complete directory+file count","fileCount":"nonnegative excluded file count <=entryCount","bytes":"nonnegative total excluded file bytes"},
+      "WorkerRecord": "full retained current worker row, including position/origin/key/prompt/options/status/cached and when observed attempts/workspace/evidence/result/resultHash/usage/activity. Do not infer a capture from filename or model prose.",
+      "WorkspaceRecord": {"version":"1|2","cwd":"absolute assigned worktree root","source":"absolute captured source root","common":"absolute Git common directory","base":"Git commit hash","inputTree":"Git tree hash","artifactsDir":"absolute worker capture directory","inputIndex":"absolute original private input index","inputIndexHash":"Sha256","gitPointerHash":"exact assigned .git pointer byte Sha256","inputs?":"InputDescriptor; version2 only","policyHash?":"Sha256; version2 only","resultTree?":"Git tree hash; collected output only","changedFiles?":"relative path[]; collected output only","patchPath?":"absolute changes.patch; collected output only","basePatchPath?":"absolute from-base.patch; collected output only","patchHash?":"exact patch Sha256","basePatchHash?":"exact base patch Sha256","bytes?":"complete included result byte total <=536870912","fileCount?":"complete included result file count <=20000","excludedInventory?":"ExcludedInventoryDescriptor for explicit collected capture","missingProtectedPaths?":"relative path[] for explicit collected capture","manifestPath?":"absolute collected result manifest path","manifestHash?":"exact result manifest byte Sha256","verification":"Use engine/workspaces.mjs verifyWorkspace(record), never infer collection from optional field presence. No artifact Candidate/Stage/Snapshot schema is claimed."}
+    },
+    "transactionOwnership": [
+      "One root SQLite connection, root lease and shared admission ledger own agent slots/starts/attempts. Children have no independent backend or budget authority.",
+      "Agent invocation intent + link + reserved physical slot + queued worker row publish in one synchronous transaction.",
+      "Terminal result bytes are synced first; worker terminal + invocation terminal + invocation-terminal event publish in one synchronous transaction.",
+      "Child invocation intent and instantiated step catalog publish before its evaluator process starts.",
+      "Later artifact providers must use context.transaction for their own domain rows and coordinate an integrated transaction with the core owner; they must not independently commit core invocations or hold SQLite transactions across await. No artifact stage transaction has been implemented."
+    ]
+  },
+  "composition": {
+    "hostExports": {
+      "engine/composition.mjs:invokeChild": "async ({context:RootContext,alias:string,args:JSONObject,parentSeq:null=default,origin:{kind:'guest'}=default}) -> {invocation:ChildRef,source:Sha256,value:JSONValue,cached:boolean}; only a registered live context works. Non-null parentSeq and artifact origin explicitly reject REFINEMENT_UNSUPPORTED.",
+      "engine/composition.mjs:resolveChildWorker": "async ({context:RootContext,child:ChildRef,localId:string}) -> {worker:WorkerRef,record:full WorkerRecord}; validates full invocation history and exact child/run/generation, resolves one actual child-local options.id, never a prompt citation",
+      "engine/composition.mjs:createRefinementServices": "({context:RootContext}) -> frozen host service object with exactly invokeChild,resolveChildWorker,resolveNativeAssetReads,reserveStage,releaseStage. First two accept the same input objects including the identical context; resolveNativeAssetReads delegates context; reserveStage/releaseStage currently reject REFINEMENT_UNSUPPORTED.",
+      "engine/composition-store.mjs:contextRunRef": "async ({runDir,sessionId}) -> RunRef|null; validates managed runtime.json and filesystem data identity; null only when runtime.json is absent for unmanaged fixtures",
+      "engine/composition-store.mjs:resolveCompositionRun": "async ({dataDir,run:RunRef,sessionId}) -> verified saved owner; exact data/runtime/session binding",
+      "engine/composition-store.mjs:readChild": "async ({context,child}) -> ChildState",
+      "engine/composition-store.mjs:listChildren": "async ({context,after:null|Id=null,limit:1..100=50}) -> ChildPage",
+      "engine/composition-store.mjs:readChildrenAt": "async ({runDir,run,generation,after=null,limit=50,child=null}) -> ChildPage or exact ChildState; recorded current generation required",
+      "engine/composition-store.mjs:validateInvocationHistory": "async ({context,generation=context.generation}) -> {count,lastKey:Sha256|null}; validates complete selected history, links, source/ancestor/scope/worker identities, result blobs and reused record hash/result links before paging/replay"
+    },
+    "artifactIntegrationHook": "createRefinementServices({context}) and the branded RootContext are the concrete host seam for an artifact module authored with a context parameter. The live controller currently routes refineArtifact/inputSnapshot/reviewPacket to explicit unavailable faults, and artifactProviders is null. There is no enabled callback registration or absent-module import. Wiring a reviewed artifact factory into controller/context and its broker branch requires a subsequent core-owned integration change; artifact authors must not reach private closures or claim this hook already runs refinement.",
+    "guestAPI": {
+      "workflow": "await workflow(alias,argsObject) -> {invocation:ChildRef,source:Sha256,value:JSONValue,cached:boolean}; exact two arguments, alias must be retained declaration, args/result validated with existing engine/schema.mjs compileSchema",
+      "depth": "depth1 child evaluators reject workflow and refineArtifact; root refineArtifact rejects REFINEMENT_UNSUPPORTED",
+      "agentOptions": "stepId selects a declared local step; inputSnapshot/reviewPacket reject ARTIFACT_UNAVAILABLE before native dispatch; normal existing agent options/settings remain validated"
+    },
+    "declaration": {"alias":"Id; case-distinct unique aliases","source":"{kind:'script',path:portable .js|.mjs relative path} | {kind:'registry',name:saved qualified name}","argsSchema":"existing supported JSON schema","resultSchema":"existing supported JSON schema","capabilities":{"skills":"null|Id[<=32]","tools":"null|Id[<=16]"},"permissions":"null|{sandbox:'read-only'|'workspace-write',networkAccess:false,approvalPolicy:'never'}"},
+    "scheduling": "One native backend and FIFO native permit pool C; separate FIFO child evaluator lifetime pool C, root excluded. Waiting live children retain permits until actual child process exit and accepted child-native promises settle. Both pools use saved concurrency 1..256; no native permit held merely to wait for a child. Root/children/append share existing lifetime slot/start/attempt ledger (maxAgents<=1000). Root aggregate composition broker limit 10000 calls/4096 pending per generation; <=1000 child invocations; <=2000 journal agent+child records. These are independent caps, not additions to native capacity.",
+    "sourceRetention": {
+      "exports": "engine/composition.mjs:freezeWorkflowSources({runDir,cwd,declarations,previousCatalog=null,revisions=null}), verifyWorkflowSources({runDir,descriptor}), readCompositionFile(path,maxBytes=1048576,code='COMPOSITION_SOURCE'), putCompositionBlob({runDir,bytes}), readCompositionBlob({runDir,reference})",
+      "descriptor": {"schemaVersion":1,"catalog":"BlobRef","catalogHash":"Sha256"},
+      "catalog": {"schemaVersion":1,"entries":"SourceEntry[] sorted by alias; <=32","catalogHash":"H(C({schemaVersion:1,entries}))"},
+      "entry": {"schemaVersion":1,"alias":"Id","declaration":"complete retained WorkflowDeclaration","provenance":"{kind:'script',originalPath:absolute string} | {kind:'registry',qualifiedName:string,originalPath:absolute string}","script":"BlobRef of exact UTF-8 source bytes","metaHash":"H(C(parsed meta))","argsSchemaHash":"H(C(declared schema))","resultSchemaHash":"H(C(declared schema))","sourceId":"H(C(entry excluding sourceId))"},
+      "bounds": "source <=1 MiB, aggregate source <=32 MiB, catalog <=4 MiB; regular single-link files and ancestors checked, no source links/case aliases; all declarations frozen before backend/fork on public starts; saved resume never rereads original source locations",
+      "revisionRequest": {"schemaVersion":1,"expectedGeneration":"positive integer, must match observed saved generation","expectedCatalogHash":"Sha256","reconciliation":"nonempty string <=2000 UTF-16 units","replacements":"1..32 exact {alias,expectedSourceId,source}; replacement locator must agree with edited root declaration"},
+      "replay": "Read/validate complete saved journal before new admission. Copy verified closed prefix in original global order without evaluator/native starts. A changed/failed invocation cuts the suffix, then repeatedly closes over interleaved ancestors; all later calls rerun. Explicit reconciled restart maps physical worker back to its parent invocation and invalidates that container and later effects. No-agent sources use the same invocation path. Root cached calls must consume exact links; changed/omitted prefix rejects COMPOSITION_REPLAY_CHANGED. New effects never bypass unconsumed root prefix.",
+      "revisionAudit": "source_revisions stores generation/request/new descriptor with monotonically allocated revision; it does not yet expose a reviewed affected-child preview API"
+    },
+    "invocationRecord": {"schemaVersion":1,"seq":"positive integer","parentSeq":"null|earlier workflow seq","scopeId":"root|child invocationId","localCall":"nonnegative integer","kind":"agent|workflow (refineArtifact reserved but unavailable)","key":"Sha256 hash chain including source/args/authority/catalog/effective settings","previousKey":"empty string for first, else prior global key","status":"intent|running|completed|failed|unknown|cancelled","sourceId":"Sha256 for workflow, null for agent","argsHash":"Sha256","policyHash":"Sha256|null","catalogHash":"Sha256|null","capabilitiesHash":"Sha256|null","workerPosition":"0..999 for agent, null for workflow","child":"ChildRef for workflow, null for agent","result":"BlobRef|null","resultHash":"exact result byte Sha256|null","error":"null|{code:string,evidence:null}","reusedFrom":"null|{generation:positive integer,seq:positive integer}"},
+    "ChildState": {"child":"ChildRef","alias":"string|null","sourceId":"Sha256","revision":"0 while admitted/live, 1 at terminal","execution":"queued|running|waiting|completed|failed|unknown|cancelled","invocationSeq":"positive integer","workerPositions":"actual descendant physical positions[]","result":"BlobRef|null","error":"null|{code,evidence:null}","reusedFrom":"ChildRef|null"},
+    "ChildPage": {"items":"ChildState[]","nextCursor":"Id|null; opaque p_offset_hash binds run/generation/source catalog/complete child identities","hasMore":"boolean"},
+    "readIntegrityBoundary": "Full selected-generation invocation/source/ancestor/link/worker/result integrity is validated beyond the requested page. Reused-from rows are hash/key/status/result-linked; the reader does not recursively revalidate every unrelated prior-generation invocation. Context catalogHash can be null for a restricted run without an explicit bundle; no native catalog evidence is invented."
+  },
+  "steps": {
+    "exports": {
+      "module": "engine/steps.mjs",
+      "validateStepCatalog": "({steps}) -> copied complete declarations",
+      "readStepsAt": "async ({runDir,run,generation,after=null,limit=50}) -> StepProjection; full retained source/catalog/worker associations validated before slicing",
+      "readStepCatalogs": "async ({dataDir,run,sessionId,generation}) -> full verified StepCatalog[]; one read-only SQLite snapshot, current generation, full source bindings/associations validated",
+      "projectSteps": "pure host projection from complete verified catalogs/workers/run/generation/available/accepting plus bounded after/limit; not a scheduling API"
+    },
+    "declaration": {"id":"Id","label":"nonempty string <=500 UTF-16 units","dependsOn":"distinct exact earlier-or-later declared IDs in same acyclic scope","phase?":"nonempty string <=500 units","worker?":{"id":"Id; unique preset child/root-local agent id"}},
+    "limits": "<=256 declarations and <=262144 UTF-8 bytes per scope; <=4096 instantiated declarations per generation; IDs and worker presets reject case aliases. Display edges do not schedule agents; explicit agent dependsOn remains the independent execution graph.",
+    "StepCatalog": {"schemaVersion":1,"run":"RunRef|null fixture only","generation":"positive integer","scope":"{kind:'root'}|{kind:'child',invocation:ChildRef}","sourceId":"exact root source hash or retained child sourceId","steps":"StepDeclaration[]","catalogHash":"H(C(all preceding fields))"},
+    "StepRef": {"run":"RunRef","generation":"positive integer","scope":"{kind:'root'}|{kind:'child',invocation:ChildRef}","stepId":"Id"},
+    "StepProjection": {"schemaVersion":1,"run":"RunRef|null fixture only","generation":"positive integer","available":"boolean; legacy missing capability remains false/unsupported","items":"StepNode[]","nextCursor":"null|opaque canonical base64url cursor <=200 chars binding run/generation/full catalogs","hasMore":"boolean","coverage":{"declared":"complete catalog count","assigned":"actual logical assignments count","unassigned":"declared minus assigned","dynamicWorkers":"actual workers without a declared assignment","futureWorkers":"unknown|executionClosed (only when available and additions closed)"}},
+    "StepNode": {"ref":"StepRef","label":"declared label","phase":"declared string|null","dependencies":"StepRef[] display-only","binding":"assigned|unassigned","worker":"WorkerRef|null; actual associated worker only","sourceWorker":"WorkerRef|null; cached execution source only","execution":"planned or actual worker status","displayBlockedBy":"dependency StepRefs whose execution is not completed; does not schedule","failure":"null|{code:string,evidence:null}","acceptance":"unverified"},
+    "paging": "default50, 1..100 items, whole response <=1 MiB; cursor conflicts require restart. Unassigned terminal declarations remain planned. No artifact acceptance or future dynamic completeness is inferred."
+  },
+  "controls": {
+    "exports": "engine/controls.mjs:validateDomainControl(request), requestDomainControl({dataDir,run,sessionId,request}), readDomainControl({dataDir,run,sessionId,requestId})",
+    "DomainControlRequest": {"schemaVersion":1,"requestId":"preallocated lowercase UUIDv4","expectedGeneration":"positive integer","action":"pause|stop|cancel-child","payload":"pause/stop:{expectedAdmissionRevision:nonnegative integer}; cancel-child:{child:ChildRef,expectedRevision:0}"},
+    "receipt": {"schemaVersion":1,"requestId":"UUIDv4","requestHash":"H(C({run,sessionId,request}))","run":"RunRef","generation":"positive integer","action":"same supported action","status":"pending|applying|applied|rejected|unknown","targetRevision":"nonnegative integer","appliedRevision":"null|targetRevision+1","requestedAt":"timestamp","settledAt":"timestamp|null","error":"null|{code:string,evidence:null}"},
+    "admission": "<=16384 request bytes; session/runtime/data binding before mutation. Same UUID/body lookup precedes generation/revision CAS; altered domain payload conflicts. <=256 outstanding controls shared with legacy mailbox; <=10000 retained domain receipts per run. Pause/Stop close shared append/guest admission in receipt transaction. Controller applies cancellation to exact active child and its actual workers; queued cancelled child never forks.",
+    "legacy": "Existing requestControl(runDir,{sessionId,generation,action,...,requestId?}) retains legacy receipt shape. Optional preallocated requestId now supports identical lost-response lookup before stale-generation checks and rejects changed payload. Legacy controls and new domain receipts use separate public shapes; no claim that all older controls were migrated into one new ledger.",
+    "unavailable": "refinement-limits and refinement-stop-after reject REFINEMENT_UNSUPPORTED; no stage/refinement state or effects are fabricated"
+  },
+  "monitor": {
+    "networkModule": "engine/monitor-network.mjs exports LOOPBACK_NETWORK,selectMonitorNetwork({request,interfaces}),validateMonitorSelection(selection),verifyMonitorNetwork({selection,interfaces}),sameMonitorNetwork({expected,actual})",
+    "NetworkRequest": {"schemaVersion":1,"mode":"loopback|lan","address":"127.0.0.1 for loopback, exact canonical RFC1918 local noninternal IPv4 for lan"},
+    "NetworkSelection": {"schemaVersion":1,"mode":"loopback|lan","family":"IPv4","address":"canonical literal IPv4","interfaceName":"string|null (null for loopback)","interfaceMac":"lowercase six-octet MAC|null","prefixLength":"1..32|null","networkKey":"H(C(all preceding fields))"},
+    "validation": "Inventory <=256 interfaces/4096 entries/4 MiB; unique matching address, noninternal, contiguous canonical netmask; reject network/broadcast endpoints for prefixes<=30. Pure validator, parent selection, child revalidation and server pre-listen revalidation. Interface drift fails without fallback/reuse. Port0; exact actual chosen address+port advertised.",
+    "launcher": "engine/monitor-launch.mjs:startMonitor(runDir,{binding=null,network=LOOPBACK_NETWORK}={}) -> {url,sessionUrl:string|null,network:{selection,port:1..65535,origin},serviceInstanceId:32 lowercase hex,pid:positive integer}",
+    "handshake": "ready and started must have identical URL/sessionURL/selection/origin/port/serviceInstanceId. URL has exact selected origin, authenticated #token=43 base64url chars and / or pinned /runs/runId path. No query/userinfo/hostname fallback.",
+    "health": "authenticated GET /api/health -> {serviceInstanceId,status:'available',network:{selection,port,origin}}",
+    "securityLifetime": "Exact Host and supplied Origin checks, bearer authorization on data/control APIs, restrictive existing CSP, no firewall/configuration mutation. Manual Close remains default; authenticated POST /api/close {} shuts server/process down. LAN URL is bearer capability HTTP on the explicitly selected private interface; no TLS or second-device/browser acceptance claim.",
+    "routes": [
+      "GET /api/steps?generation=N[&after=cursor&limit=N] -> StepProjection",
+      "GET /api/children?generation=N[&after=cursor&limit=N] -> ChildPage",
+      "GET /api/runs/:runId/steps?generation=N[&after=cursor&limit=N] -> StepProjection",
+      "GET /api/runs/:runId/children?generation=N[&after=cursor&limit=N] -> ChildPage",
+      "POST /api/domain-controls or /api/runs/:runId/domain-controls with DomainControlRequest -> receipt, HTTP202",
+      "GET /api/domain-controls/:requestId or /api/runs/:runId/domain-controls/:requestId -> receipt; no query"
+    ],
+    "routing": "engine/monitor/services.mjs routes; engine/monitor-adapters.mjs:createSessionServices({dataDir,sessionId,pinnedRunId}) returns {binding,services}. readSteps/readChildren/domainControl/readDomainControl resolve exact selected run and import the module from its retained runtime, not current UI source. Missing old-runtime exports explicitly unsupported. No UI/app/style/experience renderer edited by this owner.",
+    "errors": "new unsupported capability ->503, step/domain CAS conflict ->409, invalid input ->400, session binding ->403, missing receipt ->404; integrity faults remain500"
+  },
+  "cli": {
+    "validateSummary": "validate file --summary; only validate admits boolean --summary, duplicates/values/other commands refused. Reads exact source bytes once, full current parseScript/schema validation, emits only {valid:true,name:meta.name,scriptBytes:exact UTF8 bytes,scriptSha256:exact bytes hash,declaredWorkflows:count,declaredSteps:count}. Default validate retains {valid:true,meta,body}. No cap increase or summary-only parser.",
+    "newFlagsAndCommands": ["dashboard --lan-bind privateIPv4", "resume --workflow-revisions-file file (<=65536 bytes)", "run --writable --artifact-scope-file file (<=65536 bytes; ownership only)", "steps|children ID --generation N [--after cursor] [--limit N]", "domain-control ID --session ID --request-file file", "domain-control-receipt ID --session ID --request-id UUID"],
+    "workerBoundary": "Actual AGENT_WORKFLOW_WORKER=1 stays in real owned Node evaluator/background/monitor subprocess environments and managed-entry test subprocesses. Production worker mutation/install guards remain enabled. Only the coordinator-authorized isolated VM test realm has a frozen inert process facade."
+  },
+  "verification": {
+    "evidencePrefix": "reports/composition-refinement/test-evidence/",
+    "meaningfulRed": ["red-metadata-summary", "red-composition-network", "red-control-steps-routes", "red-source-admission", "red-integrity-boundaries", "red-guest-json", "red-composed-restart", "red-preview-composition", "red-child-cursor-ancestor", "red-background-marker"],
+    "green": ["green-interleaved-persistence:135 passed", "green-child-cursor-ancestor:88 passed", "green-process-marker-fixtures:27 passed", "green-public-processes:summary, owned managed launcher, same-host LAN and worker-session passed; original full receipt retains unrelated fixture failures resolved by green-process-marker-fixtures"],
+    "remaining": ["Native test-strategy craft reference callback failed; exact resource identity in core-foundation.md", "Existing host-only integrated managed-roadmap fixture and physical hardlink subtest were explicitly skipped under worker guard; coordinator runs actual host suite", "New domain-control managed-runtime mutation/receipt round trip and artifact host-service capture integration need coordinator integration coverage; legacy Pause, scoped steps HTTP, child persistence and guarded launchers are covered", "No real Codex/native model launch, artifact/refinement execution, native asset observation, UI/browser/second-device LAN acceptance, full combined npm/check/smoke/install/audit/release gates at this checkpoint"]
+  }
+}

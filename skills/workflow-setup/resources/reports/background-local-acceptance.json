@@ -1,0 +1,77 @@
+{
+  "status": "passed",
+  "backend": "mxc",
+  "checks": [
+    {
+      "status": "paused",
+      "generation": 1,
+      "attempts": 1,
+      "coverage": {
+        "requested": 2,
+        "completed": 1,
+        "cached": 0,
+        "failed": 0,
+        "unknown": 0,
+        "complete": false
+      },
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified"
+      },
+      "commands": [
+        {
+          "status": "completed",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "status": "completed",
+      "generation": 2,
+      "attempts": 2,
+      "coverage": {
+        "requested": 2,
+        "completed": 2,
+        "cached": 1,
+        "failed": 0,
+        "unknown": 0,
+        "complete": true
+      },
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified"
+      },
+      "commands": [
+        {
+          "status": "completed",
+          "exitCode": 0
+        }
+      ],
+      "markersMatched": true
+    },
+    {
+      "status": "completed",
+      "generation": 3,
+      "attempts": 2,
+      "coverage": {
+        "requested": 2,
+        "completed": 2,
+        "cached": 2,
+        "failed": 0,
+        "unknown": 0,
+        "complete": true
+      },
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified"
+      },
+      "commands": [],
+      "markersMatched": true
+    }
+  ],
+  "checkedAt": "2026-10-13T14:38:52.891Z",
+  "descendants": "notVerified"
+}

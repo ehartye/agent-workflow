@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-15T04:48:27.884Z",
+  "version": "0.3.6",
+  "published": true,
+  "release": {
+    "url": "https://github.com/ehartye/agent-workflow/releases/tag/v0.3.6",
+    "publishedAt": "2026-10-15T04:33:08Z",
+    "tag": "v0.3.6",
+    "commit": "09bd25527fc50c17663daec50a00aa259e7facbe",
+    "pullRequest": "https://github.com/ehartye/agent-workflow/pull/11"
+  },
+  "marketplace": {
+    "commit": "ffe177a6fbbfcfb8ed163cb08419b4bf519092fd",
+    "pullRequest": "https://github.com/ehartye/hartye-claude-plugins/pull/173",
+    "version": "0.3.6",
+    "enabled": true,
+    "exactPublishedSource": true
+  },
+  "localVerification": {
+    "runtimeDigest": "d38c52e87c8ac6d4dc575ee32cc7e8478855af103c76d5dc59f2b4abf6818038",
+    "node": "v24.18.0",
+    "tests": {
+      "tests": 544,
+      "suites": 0,
+      "pass": 544,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "duration_ms": 133195.8061
+    },
+    "gates": [
+      {
+        "stage": "ci",
+        "exitCode": 0
+      },
+      {
+        "stage": "test",
+        "exitCode": 0
+      },
+      {
+        "stage": "check",
+        "exitCode": 0
+      },
+      {
+        "stage": "smoke",
+        "exitCode": 0
+      },
+      {
+        "stage": "clean-install",
+        "exitCode": 0
+      },
+      {
+        "stage": "audit",
+        "exitCode": 0
+      }
+    ],
+    "audit": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    }
+  },
+  "releaseException": {
+    "authorization": "Owner explicitly selected Local verification exception for PR #11 / 0.3.6",
+    "hostedCIPassClaimed": false,
+    "actionsEnabled": false,
+    "requiredStatusChecksRestored": {
+      "strict": true,
+      "checks": [
+        {
+          "context": "verify",
+          "app_id": 15368
+        }
+      ]
+    },
+    "enforceAdmins": true,
+    "linearHistory": true,
+    "operationalRecovery": "Initial PATCH after removing required checks returned404; PUT with both contexts and checks returned422. Checks-only PUT restored the exact required check and unchanged other flags; historical failed receipts remain retained."
+  },
+  "ownerInstallation": {
+    "verifiedAt": "2026-10-15T04:38:13.310Z",
+    "version": "0.3.6",
+    "runtimeId": "0.3.6-d38c52e87c8ac6d4-node24.18.0",
+    "runtimeDigest": "d38c52e87c8ac6d4dc575ee32cc7e8478855af103c76d5dc59f2b4abf6818038",
+    "codexDigest": "dd13bdb162a184fa04039488b234a8258ef9b76f84e926c505d5742b19249a6a",
+    "dependenciesDigest": "0549ecd45aec192e05a28e5345e73dec421aa8b37c399ac5d4cbfd768d70c8dd",
+    "doctor": {
+      "status": "passed",
+      "inferenceRequests": 0,
+      "serverExited": true,
+      "jobEmpty": true
+    },
+    "previousRuntimePreserved": true,
+    "servedUIAssets": [
+      {
+        "path": "engine/monitor/index.html",
+        "sha256": "331e9b10b3c3cae84f9e8e2d388bb8c650a1f04ea8d2b67d832ce7e15209f83f"
+      },
+      {
+        "path": "engine/monitor/app.mjs",
+        "sha256": "22d6501af8f7ab923da2d65a3d78d4995d420236d822127729ce6aacf48bd031"
+      },
+      {
+        "path": "engine/monitor/style.css",
+        "sha256": "fe83f3b4d95f7bc2494cf7e019c575f6d7bd41c1463c4e09d66e919defb4a82f"
+      }
+    ],
+    "retainedRunRead": {
+      "generation": 1,
+      "status": "completed",
+      "healthStatus": "available"
+    },
+    "readOnlyVerification": true
+  },
+  "limitations": [
+    "The installed UI check verifies served exact HTML/JS/CSS bytes and authenticated health/retained-run reads; it is not a new painted-browser acceptance matrix.",
+    "Phone browser evidence remains emulated, with the focused final picker checks and earlier matrix separately scoped.",
+    "No live append, new deadline controls, command-fact storage or consumer observer receipts are included in0.3.6.",
+    "The sharedSession0 doctor option was rejected before inference on the measured interactiveSession1 host; default/inherit admission then passed. This is not evidence about the other computer."
+  ]
+}

@@ -62,15 +62,37 @@ process.on('message', async message => {
       const dispatch = globalThis.__dispatch;
       const args = JSON.parse(globalThis.__args);
       delete globalThis.__dispatch; delete globalThis.__args;
-      const stringify = value => JSON.stringify(value, (_, item) => {
-        if (['undefined','function','symbol','bigint'].includes(typeof item) || typeof item === 'number' && !Number.isFinite(item)) throw new Error('JSON values only');
-        return item;
-      });
-      const call = async (method, params) => JSON.parse(await dispatch(method, stringify(params)));
+      const getDescriptors=Object.getOwnPropertyDescriptors,getPrototype=Object.getPrototypeOf,ownKeys=Reflect.ownKeys,arrayIsArray=Array.isArray,create=Object.create,setPrototype=Object.setPrototypeOf;
+      const objectPrototype=Object.prototype,arrayPrototype=Array.prototype,jsonStringify=JSON.stringify,jsonParse=JSON.parse;
+      const hasOwn=Function.prototype.call.bind(Object.prototype.hasOwnProperty),finite=Number.isFinite;
+      const Seen=Set,seenHas=Function.prototype.call.bind(Set.prototype.has),seenAdd=Function.prototype.call.bind(Set.prototype.add),seenDelete=Function.prototype.call.bind(Set.prototype.delete);
+      // JSON args cannot contain proxies. Do not expose a proxy constructor
+      // whose traps could execute while validating original broker inputs.
+      globalThis.Proxy=undefined;
+      const stringify = value => {
+        const seen=new Seen();let nodes=0;
+        const copy=(item,depth)=>{
+          if(++nodes>200000||depth>32)throw new Error('JSON structure limit');
+          if(item===null||typeof item==='string'||typeof item==='boolean'||typeof item==='number'&&finite(item))return item;
+          if(typeof item!=='object'||seenHas(seen,item))throw new Error('JSON values only');
+          const array=arrayIsArray(item),proto=getPrototype(item);
+          if(array?proto!==arrayPrototype:proto!==objectPrototype&&proto!==null)throw new Error('Plain JSON values only');
+          seenAdd(seen,item);const descriptors=getDescriptors(item),keys=ownKeys(descriptors);
+          for(let i=0;i<keys.length;i++){const key=keys[i];if(typeof key!=='string'||!hasOwn(descriptors[key],'value')||key!=='length'&&!descriptors[key].enumerable)throw new Error('Own JSON data properties only');}
+          let out;
+          if(array){const length=descriptors.length.value;if(keys.length!==length+1)throw new Error('Dense JSON arrays only');out=[];setPrototype(out,null);for(let i=0;i<length;i++){if(!hasOwn(descriptors,String(i)))throw new Error('Dense JSON arrays only');out[i]=copy(descriptors[i].value,depth+1);}}
+          else{out=create(null);for(let i=0;i<keys.length;i++){const key=keys[i];out[key]=copy(descriptors[key].value,depth+1);}}
+          seenDelete(seen,item);return out;
+        };
+        return jsonStringify(copy(value,0));
+      };
+      const call = async (method, params) => jsonParse(await dispatch(method, stringify(params)));
       const bounded = list => { if (!Array.isArray(list) || list.length > 4096) throw new Error('Batch limit'); return list; };
       const api = {
         args,
         agent: (prompt, options = {}) => call('agent', {prompt, options}),
+        workflow: (...values) => {if(values.length!==2)throw new Error('workflow requires alias and args');return call('workflow',{alias:values[0],args:values[1]});},
+        refineArtifact: request => call('refineArtifact',{request}),
         phase: title => call('phase', {title}),
         log: message => call('log', {message}),
         parallel: tasks => Promise.all(bounded(tasks).map(async task => { try { return await task(); } catch { return null; } })),

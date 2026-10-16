@@ -1,0 +1,89 @@
+import {DatabaseSync} from 'node:sqlite';
+import {join,dirname,basename,resolve} from 'node:path';
+import {lstat,realpath} from 'node:fs/promises';
+import {fault} from '../foundation/client.mjs';
+import {strictJSON,exact,digest,canonicalJSON,sha256,isSha,isCount,isId,validateRunRef,validateChildRef} from './composition-contracts.mjs';
+import {readCompositionBlob,readCompositionFile,putCompositionBlob,verifyWorkflowSources} from './composition.mjs';
+import {loadInputs,verifyWorkspace} from './workspaces.mjs';
+import {compileSchema} from './schema.mjs';
+
+const contexts=new WeakSet();
+export function assertRootContext(context){if(!context||!contexts.has(context))throw fault('COMPOSITION_INPUT','A controller-owned host context is required');context.assertOwner();return context;}
+export async function dataInstanceIdentity(dataDir){const p=await realpath(dataDir),s=await lstat(dataDir,{bigint:true});return sha256(JSON.stringify([process.platform==='win32'?p.toLowerCase():p,String(s.dev),String(s.ino),String(s.birthtimeNs)]));}
+export async function contextRunRef({runDir,sessionId}){
+ let bytes;try{bytes=await readCompositionFile(join(runDir,'runtime.json'),65536);}catch(e){try{await lstat(join(runDir,'runtime.json'));}catch(x){if(x.code==='ENOENT')return null;}throw e;}
+ const r=JSON.parse(bytes);if(r.schema!==2||r.id!==basename(runDir)||r.sessionId!==sessionId||typeof r.runtime?.id!=='string')throw fault('COMPOSITION_INPUT','Run ownership differs from the originating session');return validateRunRef({dataInstanceId:await dataInstanceIdentity(dirname(dirname(runDir))),runId:r.id,runtimeId:r.runtime.id});
+}
+export async function resolveCompositionRun({dataDir,run,sessionId}){validateRunRef(run);const {resolveRun}=await import('../bin/managed-runtime.mjs');const owner=await resolveRun({dataDir,id:run.runId,sessionId});if(run.dataInstanceId!==await dataInstanceIdentity(dataDir)||run.runtimeId!==owner.runtime.id)throw fault('COMPOSITION_INPUT','Run/runtime/data binding differs');return owner;}
+// Host construction only. Never serialize this object or accept it through a broker.
+export function createRootContext({db,runDir,run,generation,sessionId,state,sources,signal,assertOwner,transaction,workspaceInputs,resolveWorker,resolveAuthority}){
+ const context=Object.freeze({db,runDir,run,generation,sessionId,state,sources,signal,assertOwner,transaction,
+  accessPolicyHash:state.accessPolicy?.fingerprint??null,capturePolicyHash:state.capturePolicyHash??null,artifactScopeHash:state.launch?.artifactScope?.scopeHash??null,
+  policyHash:state.accessPolicy?digest({accessPolicyHash:state.accessPolicy.fingerprint,capturePolicyHash:state.capturePolicyHash??null,artifactScopeHash:state.launch?.artifactScope?.scopeHash??null}):null,
+  catalogHash:state.parentCapabilitiesHash??state.workerCapabilitiesHash??null,capabilitiesHash:state.workerCapabilitiesHash??null,
+  authorityOwnedPaths:state.launch?.artifactScope?.scope?.ownedPaths??null,artifactProviders:null,
+  resolveAuthority:()=>{assertOwner();return resolveAuthority();},
+  resolveSession:()=>{assertOwner();return{run,sessionId,generation};},
+  async resolveOriginalInput(){assertOwner();const descriptor=await workspaceInputs();if(!descriptor)throw fault('ARTIFACT_UNAVAILABLE','No original immutable capture has been admitted');return{descriptor,record:await loadInputs(descriptor)};},
+  async resolveCapture({worker}){assertOwner();const record=await resolveWorker(worker);if(!record.workspace)throw fault('ARTIFACT_UNAVAILABLE','Worker has no captured writer output');await verifyWorkspace(record.workspace);return{worker,record,workspace:record.workspace};},
+  readBlob:({reference})=>{assertOwner();return readCompositionBlob({runDir,reference});},
+  writeBlob:({bytes})=>{assertOwner();return putCompositionBlob({runDir,bytes});},
+  async resolveNativeAssetReads(){throw fault('ARTIFACT_UNAVAILABLE','Native asset observation provider has not been reviewed and integrated');},
+ });contexts.add(context);return context;
+}
+export function createCompositionTables(db){db.exec('CREATE TABLE IF NOT EXISTS invocations(generation INTEGER NOT NULL,seq INTEGER NOT NULL,value TEXT NOT NULL,record_hash TEXT NOT NULL,PRIMARY KEY(generation,seq));CREATE TABLE IF NOT EXISTS invocation_links(generation INTEGER NOT NULL,scope_id TEXT NOT NULL,local_call INTEGER NOT NULL,seq INTEGER NOT NULL,PRIMARY KEY(generation,scope_id,local_call));CREATE TABLE IF NOT EXISTS source_revisions(revision INTEGER PRIMARY KEY,catalog_hash TEXT NOT NULL,value TEXT NOT NULL);CREATE TABLE IF NOT EXISTS domain_controls(request_id TEXT PRIMARY KEY,request_hash TEXT NOT NULL,value TEXT NOT NULL);');}
+export function writeInvocation(context,record,{insert=false}={}){assertRootContext(context);const text=canonicalJSON(record),hash=digest(record);if(insert){context.db.prepare('INSERT INTO invocations VALUES(?,?,?,?)').run(context.generation,record.seq,text,hash);context.db.prepare('INSERT INTO invocation_links VALUES(?,?,?,?)').run(context.generation,record.scopeId,record.localCall,record.seq);}else context.db.prepare('UPDATE invocations SET value=?,record_hash=? WHERE generation=? AND seq=?').run(text,hash,context.generation,record.seq);}
+export function invocationRows(db,generation){if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='invocations'").get())return[];const rows=db.prepare('SELECT seq,value,record_hash FROM invocations WHERE generation=? ORDER BY seq LIMIT 2002').all(generation);if(rows.length>2000)throw fault('COMPOSITION_CORRUPT','Invocation count exceeds complete bounded history');return rows.map(r=>{let v;try{v=JSON.parse(r.value);}catch{}if(!v||v.seq!==r.seq||digest(v)!==r.record_hash)throw fault('COMPOSITION_CORRUPT','Invocation record hash differs');return v;});}
+export async function validateInvocationHistory({context,generation=context.generation}){
+ assertRootContext(context);const rows=invocationRows(context.db,generation),map=new Map(rows.map(r=>[r.seq,r]));let last='';const links=context.db.prepare('SELECT scope_id,local_call,seq FROM invocation_links WHERE generation=? ORDER BY seq').all(generation);if(links.length!==rows.length)throw fault('COMPOSITION_CORRUPT','Invocation links differ from complete history');
+ const checked=new Set(),histories=new Map([[generation,map]]);
+ async function verifyResult(record,selectedGeneration){
+  const b=await context.readBlob({reference:record.result}),value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));
+  if(!isSha(record.resultHash)||sha256(b)!==record.resultHash||!b.equals(Buffer.from(canonicalJSON(value))))throw Error();
+  if(record.kind==='agent'){
+   const row=context.db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(selectedGeneration,record.workerPosition),worker=row?JSON.parse(row.value):null;
+   if(!worker||worker.key!==record.key||worker.status!=='completed'||sha256(JSON.stringify(worker.result))!==worker.resultHash||canonicalJSON(worker.result)!==canonicalJSON(value)||canonicalJSON(worker.invocation)!==canonicalJSON({seq:record.seq,parentSeq:record.parentSeq,scopeId:record.scopeId,localCall:record.localCall})||worker.options.schema&&!compileSchema(worker.options.schema).validate(value))throw Error();
+   // The worker serialization hash and canonical journal hash intentionally
+   // differ. Compare their verified values, including the retained execution.
+   if(worker.cached){exact(worker.reusedFrom,['generation','position']);const ref=worker.reusedFrom;if(!Number.isSafeInteger(ref.generation)||ref.generation<1||ref.generation>=selectedGeneration||!isCount(ref.position)||ref.position>=1000)throw Error();const sourceRow=context.db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(ref.generation,ref.position),source=sourceRow?JSON.parse(sourceRow.value):null;if(!source||source.key!==worker.key||source.status!=='completed'||sha256(JSON.stringify(source.result))!==source.resultHash||canonicalJSON(source.result)!==canonicalJSON(value)||canonicalJSON(source.origin)!==canonicalJSON(worker.origin))throw Error();}
+  }else if(record.kind==='workflow'){const source=context.sources.entries.find(e=>e.sourceId===record.sourceId);if(source&&!compileSchema(source.declaration.resultSchema).validate(value))throw Error();}
+ }
+ async function verifyLineage(record){
+  let current=record,g=generation;
+  while(!checked.has(g+':'+current.seq)){
+   if(current.status!=='completed')throw Error();await verifyResult(current,g);checked.add(g+':'+current.seq);
+   if(current.reusedFrom===null)break;
+   exact(current.reusedFrom,['generation','seq']);const ref=current.reusedFrom;
+   if(!Number.isSafeInteger(ref.generation)||ref.generation<1||ref.generation>=g||!Number.isSafeInteger(ref.seq)||ref.seq<1)throw Error();
+   if(!histories.has(ref.generation)){const all=invocationRows(context.db,ref.generation),allLinks=context.db.prepare('SELECT scope_id,local_call,seq FROM invocation_links WHERE generation=? ORDER BY seq').all(ref.generation);if(all.length!==allLinks.length)throw Error();let previousKey='';for(let i=0;i<all.length;i++){const row=all[i],link=allLinks[i];if(row.seq!==i+1||row.previousKey!==previousKey||link.seq!==row.seq||link.scope_id!==row.scopeId||link.local_call!==row.localCall)throw Error();previousKey=row.key;}histories.set(ref.generation,new Map(all.map(r=>[r.seq,r])));}
+   const prior=histories.get(ref.generation).get(ref.seq);
+   if(prior)exact(prior,Object.keys(record));
+   if(!prior||prior.status!=='completed'||['kind','key','previousKey','sourceId','argsHash','policyHash','catalogHash','capabilitiesHash','scopeId','localCall','parentSeq','resultHash'].some(key=>canonicalJSON(prior[key])!==canonicalJSON(current[key]))||canonicalJSON(prior.result)!==canonicalJSON(current.result))throw Error();
+   current=prior;g=ref.generation;
+  }
+ }
+ let childOrdinal=0;const localCalls=new Map();
+ for(let i=0;i<rows.length;i++){
+  const r=rows[i];try{exact(r,['schemaVersion','seq','parentSeq','scopeId','localCall','kind','key','previousKey','status','sourceId','argsHash','policyHash','catalogHash','capabilitiesHash','workerPosition','child','result','resultHash','error','reusedFrom']);const link=links[i];if(r.schemaVersion!==1||r.seq!==i+1||!isId(r.scopeId)||!isCount(r.localCall)||!['agent','workflow','refineArtifact'].includes(r.kind)||!['intent','running','completed','failed','unknown','cancelled'].includes(r.status)||!isSha(r.key)||r.previousKey!==last||!isSha(r.argsHash)||r.policyHash!==context.policyHash||r.catalogHash!==context.catalogHash||r.capabilitiesHash!==context.capabilitiesHash||link.seq!==r.seq||link.scope_id!==r.scopeId||link.local_call!==r.localCall||r.parentSeq!==null&&(!map.has(r.parentSeq)||r.parentSeq>=r.seq))throw Error();
+   const parent=r.parentSeq===null?null:map.get(r.parentSeq);if(parent===null?r.scopeId!=='root':parent.kind!=='workflow'||r.kind!=='agent'||r.scopeId!==parent.child?.invocationId)throw Error();if(localCalls.has(r.scopeId)&&localCalls.get(r.scopeId)>=r.localCall)throw Error();localCalls.set(r.scopeId,r.localCall);
+   if(r.kind==='agent'){if(!isCount(r.workerPosition)||r.workerPosition>=1000||r.child!==null||r.sourceId!==null)throw Error();const row=context.db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(generation,r.workerPosition),w=row?JSON.parse(row.value):null;if(!w||w.key!==r.key||canonicalJSON(w.invocation)!==canonicalJSON({seq:r.seq,parentSeq:r.parentSeq,scopeId:r.scopeId,localCall:r.localCall})||(parent?w.origin?.kind!=='child'||w.origin.invocationId!==r.scopeId:w.origin?.kind!=='guest')||r.status==='completed'&&(w.status!=='completed'||sha256(JSON.stringify(w.result))!==w.resultHash))throw Error();}
+   if(r.kind==='workflow'){exact(r.child,['run','generation','invocationId']);if(r.parentSeq!==null||r.scopeId!=='root'||r.workerPosition!==null||!isSha(r.sourceId)||!context.sources.entries.some(e=>e.sourceId===r.sourceId)||r.child.generation!==generation||r.child.invocationId!==`c_${++childOrdinal}`||canonicalJSON(r.child.run)!==canonicalJSON(context.run))throw Error();}
+   if(r.status==='completed'){if(!r.result||!isSha(r.resultHash))throw Error();await verifyLineage(r);}else if(r.result!==null||r.resultHash!==null||r.reusedFrom!==null||['failed','unknown'].includes(r.status)&&!r.error)throw Error();
+  }catch{throw fault('COMPOSITION_CORRUPT','Invocation identity, links, worker, result or reuse evidence differs');}last=r.key;
+ }return{count:rows.length,lastKey:last||null};
+}
+export function childState(context,record){
+ const descendants=new Set([record.seq]),rows=invocationRows(context.db,context.generation);for(const r of rows)if(descendants.has(r.parentSeq))descendants.add(r.seq);
+ const workerPositions=rows.filter(r=>descendants.has(r.seq)&&r.kind==='agent').map(r=>r.workerPosition),running=record.status==='running';
+ return{child:record.child,alias:context.sources.entries.find(e=>e.sourceId===record.sourceId)?.alias??null,sourceId:record.sourceId,revision:['intent','running'].includes(record.status)?0:1,execution:running?(workerPositions.length?'waiting':'running'):record.status==='intent'?'queued':record.status,invocationSeq:record.seq,workerPositions,result:record.result,error:record.error,reusedFrom:record.reusedFrom?{...record.child,generation:record.reusedFrom.generation}:null};
+}
+export async function readChild({context,child}){assertRootContext(context);if(context.run!==null)validateChildRef(child);if(child.generation!==context.generation||canonicalJSON(child.run)!==canonicalJSON(context.run))throw fault('COMPOSITION_INPUT','Child target differs');await validateInvocationHistory({context});const row=invocationRows(context.db,context.generation).find(r=>r.child?.invocationId===child.invocationId);if(!row)throw fault('COMPOSITION_INPUT','Child was not admitted');return childState(context,row);}
+export async function listChildren({context,after=null,limit=50}){assertRootContext(context);if(!Number.isInteger(limit)||limit<1||limit>100||after!==null&&!isId(after))throw fault('COMPOSITION_INPUT','Invalid child page');await validateInvocationHistory({context});const rows=invocationRows(context.db,context.generation).filter(r=>r.kind==='workflow'),sequence=digest({run:context.run,runDir:context.run===null?context.runDir:null,generation:context.generation,sources:context.sources.catalogHash,children:rows.map(r=>r.child)}),cursor=n=>`p_${n}_${sequence}`;let offset=0;if(after!==null){const match=/^p_([1-9][0-9]{0,3})_[a-f0-9]{64}$/.exec(after);offset=match?Number(match[1]):0;if(offset<1||offset>=rows.length||cursor(offset)!==after)throw fault('COMPOSITION_INPUT','Foreign or changed child cursor; restart paging');}const items=rows.slice(offset,offset+limit).map(r=>childState(context,r)),hasMore=offset+items.length<rows.length,result={items,nextCursor:hasMore?cursor(offset+items.length):null,hasMore};if(Buffer.byteLength(canonicalJSON(result))>1048576)throw fault('COMPOSITION_LIMIT','Child page exceeds wire bound');return result;}
+
+export async function readChildrenAt({runDir,run,generation,after=null,limit=50,child=null}){
+ const db=new DatabaseSync(join(runDir,'run.sqlite'),{readOnly:true});try{
+  const state=JSON.parse(db.prepare('SELECT value FROM header WHERE id=1').get().value);if(state.compositionVersion!==1)throw fault('COMPOSITION_UNSUPPORTED','Recorded run has no composition evidence');if(state.generation!==generation)throw fault('CONTROL_GENERATION','Child read targets another generation');const actual=await contextRunRef({runDir,sessionId:state.sessionId});if(canonicalJSON(actual)!==canonicalJSON(run))throw fault('CONTROL_SESSION','Child read binding differs');
+  const context=createRootContext({db,runDir,run,generation,sessionId:state.sessionId,state,sources:await verifyWorkflowSources({runDir,descriptor:state.workflowSources}),signal:new AbortController().signal,assertOwner:()=>{},transaction:()=>{throw fault('COMPOSITION_INPUT','Read-only context cannot publish records');},workspaceInputs:async()=>state.workspaceInputs??null,resolveWorker:async()=>{throw fault('COMPOSITION_INPUT','Use authoritative child worker resolution in a controller');},resolveAuthority:()=>({accessPolicy:state.accessPolicy??null,capturePolicy:state.capturePolicy??null,workerCapabilities:state.workerCapabilities??null})});
+  return child?await readChild({context,child}):await listChildren({context,after,limit});
+ }finally{db.close();}
+}

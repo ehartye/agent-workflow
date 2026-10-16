@@ -1,0 +1,70 @@
+{
+  "version": "0.2.0",
+  "commandEvidence": [
+    {
+      "status": "completed",
+      "exitCode": 0,
+      "markerObserved": true
+    }
+  ],
+  "workerCleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members",
+    "nativeTerminals": {
+      "observed": 0,
+      "acknowledged": 0,
+      "inventoryEmpty": true,
+      "descendants": "notVerified"
+    }
+  },
+  "status": "passed",
+  "checkedAt": "2026-10-13T19:40:21.026Z",
+  "runtimeId": "0.2.0-09c38b67d6b43546-node24.18.0",
+  "sourceDigest": "09c38b67d6b43546504f0df66f609783e7016da01e52cd5a11ec483a1fe98d24",
+  "dependenciesDigest": "92161a584c62369f394ce7c95fdde634e34da61d8a00f70dacb2861548b59d2a",
+  "node": "v24.18.0",
+  "platform": "win32",
+  "authentication": "managed ChatGPT",
+  "customMcp": false,
+  "apiKeyFallback": false,
+  "savedCommand": true,
+  "namedWorkflow": true,
+  "model": "gpt-6-astra",
+  "nativeResult": {
+    "marker": "INSTALLED_NATIVE_OK"
+  },
+  "attempts": [
+    1,
+    1
+  ],
+  "cached": [
+    0,
+    1
+  ],
+  "cleanup": [
+    {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified",
+      "jobEmpty": true,
+      "ownershipScope": "windows-job-members"
+    },
+    {
+      "serverExited": true,
+      "forced": false,
+      "descendants": "notVerified",
+      "jobEmpty": true,
+      "ownershipScope": "windows-job-members"
+    }
+  ],
+  "dashboard": {
+    "unauthenticated": 401,
+    "authenticated": 200,
+    "generation": 2,
+    "closed": true
+  },
+  "release": false
+}

@@ -3,6 +3,8 @@ import {join} from 'node:path';
 import {fault} from '../../foundation/client.mjs';
 import {monitorData} from '../monitor-data.mjs';
 import {validateDeadlineChange,assertWorkerTarget} from '../controls.mjs';
+import {readStepsAt} from '../steps.mjs';
+import {readChildrenAt} from '../composition-store.mjs';
 
 const id=/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
 const unavailable=message=>fault('MONITOR_UNAVAILABLE',message);
@@ -97,6 +99,19 @@ export async function createExperienceSurface({runDir,binding,services}){
     }
     const scoped=/^\/api\/runs\/([A-Za-z0-9][A-Za-z0-9._-]{0,199})(\/.*)$/.exec(url.pathname),runId=scoped?.[1]??null,path=scoped?.[2]??url.pathname.slice(4);
     if(!scoped&&!url.pathname.startsWith('/api/'))return null;
+    if(method==='GET'&&['/steps','/children'].includes(path)){
+      const keys=[...url.searchParams.keys()];if(keys.some((k,i)=>!['generation','after','limit'].includes(k)||keys.indexOf(k)!==i))throw fault('HTTP_INPUT','Unsupported or duplicate scoped page fields');
+      const generation=integer(url,'generation'),limit=integer(url,'limit',50),after=url.searchParams.get('after');if(generation<1||limit<1||limit>100||after!==null&&after.length>200)throw fault('HTTP_INPUT','Invalid bounded scoped page');
+      const state=await read(runId);if(state.generation!==generation)throw fault('REPLAY_GENERATION','Observed page generation changed');
+      if(binding){const name=path==='/steps'?'readSteps':'readChildren';if(!has(name))throw unavailable('Recorded-runtime scoped projection is unavailable');return result(await services[name]({runId:runId??binding.pinnedRunId,generation,after,limit}));}
+      if(scoped)throw unavailable('Session navigation is unavailable');return result(path==='/steps'?await readStepsAt({runDir,run:null,generation,after,limit}):await readChildrenAt({runDir,run:null,generation,after,limit}));
+    }
+    if(path==='/domain-controls'&&method==='POST'){
+      if(!has('domainControl'))throw unavailable('Recorded-runtime domain controls are unavailable');const request=await body();return result(await services.domainControl({runId:runId??binding.pinnedRunId,request}),202);
+    }
+    if(path.startsWith('/domain-controls/')&&method==='GET'){
+      if(!has('readDomainControl'))throw unavailable('Recorded-runtime domain receipt reads are unavailable');if([...url.searchParams.keys()].length)throw fault('HTTP_INPUT','Domain receipt reads take no query');return result(await services.readDomainControl({runId:runId??binding.pinnedRunId,requestId:path.slice('/domain-controls/'.length)}));
+    }
     if(method==='GET'&&path.startsWith('/control/receipts/')&&binding){
       if(!has('readControlReceipt'))throw unavailable('Retained-runtime control receipt reader is unavailable.');
       const receiptId=path.slice('/control/receipts/'.length),generation=integer(url,'generation');

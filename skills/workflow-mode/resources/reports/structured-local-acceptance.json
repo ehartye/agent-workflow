@@ -1,0 +1,71 @@
+{
+  "status": "passed",
+  "backend": "mxc",
+  "dispatches": [
+    1,
+    0
+  ],
+  "checks": [
+    {
+      "status": "completed",
+      "generation": 1,
+      "coverage": {
+        "requested": 1,
+        "completed": 1,
+        "cached": 0,
+        "failed": 0,
+        "unknown": 0,
+        "complete": true
+      },
+      "attempts": 1,
+      "markerMatched": true,
+      "commandsVerified": true,
+      "settings": {
+        "model": "gpt-6-astra",
+        "effort": "high",
+        "permissions": {
+          "sandbox": "read-only",
+          "networkAccess": false,
+          "approvalPolicy": "never"
+        }
+      },
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified"
+      },
+      "error": null
+    },
+    {
+      "status": "completed",
+      "generation": 2,
+      "coverage": {
+        "requested": 1,
+        "completed": 1,
+        "cached": 1,
+        "failed": 0,
+        "unknown": 0,
+        "complete": true
+      },
+      "attempts": 1,
+      "markerMatched": true,
+      "commandsVerified": true,
+      "settings": {
+        "model": "gpt-6-astra",
+        "effort": "high",
+        "permissions": {
+          "sandbox": "read-only",
+          "networkAccess": false,
+          "approvalPolicy": "never"
+        }
+      },
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified"
+      },
+      "error": null
+    }
+  ],
+  "checkedAt": "2026-10-13T16:29:26.609Z"
+}

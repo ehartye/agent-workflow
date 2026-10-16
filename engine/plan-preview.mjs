@@ -4,7 +4,7 @@ import {parse} from 'acorn';
 import {parseScript} from './script.mjs';
 import {fault} from '../foundation/client.mjs';
 
-const apis = new Set(['agent','parallel','pipeline','phase','log']);
+const apis = new Set(['agent','parallel','pipeline','phase','log','workflow','refineArtifact']);
 const limits = {nodes:200000,depth:256,calls:4096,edges:4096,groups:1000,unknowns:256,bytes:512*1024};
 const isNode = value => value && typeof value.type === 'string';
 const children = node => Object.values(node).flatMap(value => Array.isArray(value) ? value.filter(isNode) : isNode(value) ? [value] : []);

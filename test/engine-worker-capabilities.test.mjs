@@ -1,20 +1,35 @@
 // @lane merge
 // @subject engine/worker-capabilities.mjs
 // @subject test/fixtures/capability-source-swap.mjs
+// @subject skills/agent-workflow
+// @subject skills/workflow-authoring
+// @subject skills/workflow-setup
+// @subject skills/workflow-mode
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,readdir,lstat,realpath,cp,rm,symlink,link} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import {join,dirname} from 'node:path';
+import {join,dirname,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {tmpdir} from 'node:os';
-import {execFile} from 'node:child_process';
+import {execFile,spawn} from 'node:child_process';
 import {promisify} from 'node:util';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
+const canonical=value=>Array.isArray(value)?`[${value.map(canonical).join(',')}]`:value&&typeof value==='object'?`{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`:JSON.stringify(value);
 async function resolver(){const module=await import('../engine/worker-capabilities.mjs').catch(()=>null);assert.ok(module?.verifySkillSources,'Source verification must exist');return module;}
+async function removeDirectory(path,owner){
+  const directory=await realpath(path),base=await realpath(owner),suffix=relative(base,directory);
+  assert.ok(suffix&&!suffix.startsWith('..')&&directory===path,'cleanup must stay in the owned fixture');
+  assert.equal((await lstat(path)).isSymbolicLink(),false);await rm(path,{recursive:true});
+}
+async function temporary(t){
+  const directory=await mkdtemp(join(tmpdir(),'workflow-capability-'));
+  t.after(async()=>{await removeDirectory(directory,tmpdir());await assert.rejects(lstat(directory),{code:'ENOENT'});});
+  return directory;
+}
 async function fixture(t){
-  const source=await mkdtemp(join(root,'.capability-test-'));t.after(()=>rm(source,{recursive:true,force:true}));
+  const source=await temporary(t);
   const path=join(source,'skills','compose','SKILL.md'),reference=join(source,'scripts','usage.md');
   await mkdir(dirname(path),{recursive:true});await mkdir(dirname(reference),{recursive:true});
   await writeFile(path,'---\nname: plugin:compose\n---\nNative content; no manual injection.\n');
@@ -38,7 +53,7 @@ test('source identity drift and escaping references fail closed',async t=>{
 });
 
 async function retainedFixture(t){
-  const directory=await mkdtemp(join(tmpdir(),'workflow-retained-sources-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const directory=await temporary(t);
   const source=join(directory,'cache','plugin','1.0.0'),runDir=join(directory,'run');
   const path=join(source,'skills','compose','SKILL.md'),reference=join(source,'scripts','usage.md');
   await mkdir(dirname(path),{recursive:true});await mkdir(dirname(reference),{recursive:true});await mkdir(runDir);
@@ -52,7 +67,7 @@ async function retainedFixture(t){
 test('retained packages preserve complete plugin layout and real tool execution after original cache deletion',async t=>{
   const {captureCapabilitySources,loadCapabilitySources}=await import('../engine/capability-sources.mjs'),f=await retainedFixture(t);
   const descriptor=await captureCapabilitySources({runDir:f.runDir,manifest:f.manifest});
-  await rm(f.source,{recursive:true});
+  await removeDirectory(f.source,f.directory);
   const loaded=await loadCapabilitySources({runDir:f.runDir,descriptor});
   assert.deepEqual(loaded.manifest,f.manifest,'original provenance is unchanged');
   const skill=loaded.executionManifest.skills[0];assert.notEqual(skill.root,f.source);assert.equal(skill.sha256,f.manifest.skills[0].sha256);
@@ -78,7 +93,7 @@ test('retention coalesces a parent plugin and selected skill while mapping assoc
   const parentCapabilities={roots,inventory:{plugins:[],skills:[{path:f.path}]},coverage:{complete:true},fingerprint:'a'.repeat(64)};
   const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),original=await freezeCapabilities(f.manifest);
   const descriptor=await captureCapabilitySources({runDir:f.runDir,manifest:f.manifest,parentCapabilities});
-  await rm(f.source,{recursive:true});
+  await removeDirectory(f.source,f.directory);
   const loaded=await loadCapabilitySources({runDir:f.runDir,descriptor}),bundle=await freezeCapabilities(f.manifest,{runDir:f.runDir,capabilitySources:descriptor});
   assert.equal(bundle.fingerprint,original.fingerprint);assert.notEqual(bundle.executionManifest.tools[0].launcher.path,launcher);
   assert.equal(loaded.parentCapabilities.roots[1].location.path,dirname(bundle.executionManifest.skills[0].path));
@@ -111,14 +126,15 @@ test('source retention refuses linked sources, a store inside its source, republ
   for(const bad of [{...descriptor,sha256:'0'.repeat(64)},{...descriptor,path:f.source},{...descriptor,bytes:descriptor.bytes+1}]){
     await assert.rejects(loadCapabilitySources({runDir:f.runDir,descriptor:bad}),{code:'CAPABILITY_SOURCES'});
   }
-  const second=await retainedFixture(t);await symlink(f.source,join(second.source,'linked'),process.platform==='win32'?'junction':'dir');
+  const second=await retainedFixture(t),target=join(second.directory,'target');await mkdir(target);
+  await symlink(target,join(second.source,'linked'),process.platform==='win32'?'junction':'dir');
   await assert.rejects(captureCapabilitySources({runDir:second.runDir,manifest:second.manifest}),{code:'CAPABILITY_SOURCES'});
 });
 
 test('an empty retained capability bundle still rejects a linked package container',async t=>{
   const {captureCapabilitySources,loadCapabilitySources}=await import('../engine/capability-sources.mjs'),f=await retainedFixture(t);
   const descriptor=await captureCapabilitySources({runDir:f.runDir,manifest:{version:1,skills:[],tools:[]}});
-  const container=join(f.runDir,'source-packages-v1','packages'),outside=join(f.directory,'empty');await mkdir(outside);await rm(container,{recursive:true});
+  const container=join(f.runDir,'source-packages-v1','packages'),outside=join(f.directory,'empty');await mkdir(outside);await removeDirectory(container,f.directory);
   await symlink(outside,container,process.platform==='win32'?'junction':'dir');
   await assert.rejects(loadCapabilitySources({runDir:f.runDir,descriptor}),{code:'CAPABILITY_SOURCES'});
 });
@@ -135,11 +151,157 @@ test('an intermediate destination junction is rejected before any file is create
   const observed=JSON.parse(result.stdout);assert.equal(observed.swapped,true);assert.equal(observed.error,'CAPABILITY_SOURCES');
   assert.equal(observed.outsideCreated,false,'rejection after writing through the junction is too late');
 });
-test('duplicate IDs names paths and unbounded references are rejected',async t=>{
+test('duplicate IDs names paths and references are rejected',async t=>{
   const {verifySkillSources}=await resolver(),{skill}=await fixture(t);
-  for(const skills of [[skill,skill],[skill,{...skill,id:'other'}],[{...skill,references:Array(65).fill(skill.references[0])}],null]){
+  for(const skills of [[skill,skill],[skill,{...skill,id:'other'}],[skill,{...skill,id:'other',name:'other'}],[{...skill,references:[skill.references[0],skill.references[0]]}],null]){
     await assert.rejects(verifySkillSources(skills),{code:'SKILL_MANIFEST'});
   }
+});
+
+async function declaredFiles(directory){
+  const files=[];
+  async function walk(path){
+    for(const name of (await readdir(path)).sort()){
+      const file=join(path,name),info=await lstat(file);
+      assert.equal(info.isSymbolicLink(),false);
+      if(info.isDirectory())await walk(file);
+      else{assert.equal(info.isFile(),true);assert.equal(info.nlink,1);const bytes=await readFile(file);files.push({path:relative(directory,file).replaceAll('\\','/'),bytes:bytes.length,sha256:digest(bytes)});}
+    }
+  }
+  await walk(directory);return files;
+}
+
+test('all four repaired production skill trees admit complete copied source identities',async t=>{
+  const {verifySkillSources,freezeCapabilities,selectCapabilities,admitWorkerCapabilities,checkCompletionSources}=await resolver(),source=await temporary(t),skills=[];
+  let files=0,bytes=0;
+  for(const name of ['agent-workflow','workflow-authoring','workflow-setup','workflow-mode']){
+    const original=join(root,'skills',name),copied=join(source,'skills',name);
+    await cp(original,copied,{recursive:true,errorOnExist:true,force:false});
+    const inventory=await declaredFiles(original);assert.deepEqual(await declaredFiles(copied),inventory,'every original file must survive with its exact bytes');
+    const main=inventory.find(file=>file.path==='SKILL.md'),manifest=JSON.parse(await readFile(join(copied,'resources','manifest.json'),'utf8'));
+    assert.equal(main.sha256,manifest.entry.sha256);assert.equal(main.bytes,manifest.entry.bytes);
+    for(const file of manifest.files){const actual=inventory.find(item=>item.path===file.output);assert.ok(actual,file.output);assert.equal(actual.sha256,file.outputSha256);assert.equal(actual.bytes,file.outputBytes);}
+    const skill={id:name,name:`agent-workflow:${name}`,root:source,path:join(copied,'SKILL.md'),sha256:main.sha256,references:inventory.filter(file=>file!==main).map(file=>({path:`skills/${name}/${file.path}`,sha256:file.sha256}))};
+    skills.push(skill);files+=inventory.length;bytes+=inventory.reduce((sum,file)=>sum+file.bytes,0);
+    await t.test(name,async child=>{
+      child.diagnostic(JSON.stringify({name,files:inventory.length,references:skill.references.length,manifestSha256:digest(await readFile(join(copied,'resources','manifest.json')))}));
+      try{assert.equal((await verifySkillSources([skill])).sourceChecks.files,inventory.length);}
+      catch(error){child.diagnostic(`${error.code}: ${error.message}`);throw error;}
+    });
+  }
+  t.diagnostic(JSON.stringify({bundleFiles:files,bundleBytes:bytes}));
+  const verified=await verifySkillSources(skills);assert.deepEqual(verified.sourceChecks,{scope:'controller-filesystem',files,bytes});
+  const bundle=await freezeCapabilities({version:1,skills,tools:[]});assert.equal(bundle.sources.files,files);
+  assert.ok(Buffer.byteLength(JSON.stringify(skills))>30000,'real descriptors exceed argv capacity');
+  const selection=selectCapabilities(bundle.manifest,{skills:skills.map(skill=>skill.id)}),seen=[],client=commandClient(seen,process.env);
+  assert.equal(selection.fingerprint,digest(canonical({manifest:bundle.manifest,skillIds:skills.map(skill=>skill.id),toolIds:[],directSkills:'features.code_mode.direct_only_tool_namespaces=["skills"]'})),'selection retains its existing canonical identity');
+  assert.deepEqual(selection.roots,skills.map(skill=>({id:skill.id,location:{type:'environment',environmentId:'local',path:dirname(skill.path)}})));
+  const admitted=await admitWorkerCapabilities(client,{cwd:source,selection});
+  assert.equal(admitted.sources.status,'passed');assert.equal(admitted.sources.markerObserved,true);
+  assert.equal(admitted.fingerprint,selection.fingerprint);assert.deepEqual(admitted.roots,selection.roots);
+  assert.deepEqual(admitted.skills.map(skill=>skill.references),skills.map(skill=>skill.references));
+  assert.equal(admitted.native.catalog,'notObserved','source admission is not genuine native activation');
+  assert.equal(seen.length,1);assert.ok(client.writes.length>2,'multiple bounded writes reach real child stdin');
+  assert.ok(seen[0].command.reduce((size,arg)=>size+2*arg.length+3,0)<=30000);
+  assert.ok(seen[0].command.every(arg=>!arg.includes(skills[0].references[0].sha256)));
+  t.diagnostic(JSON.stringify({stdinBytes:admitted.sources.transport.bytes,chunks:admitted.sources.transport.chunks,selectionFingerprint:selection.fingerprint}));
+  const deadline={remaining:()=>Infinity};
+  assert.equal(typeof checkCompletionSources,'function','completion must use the same bounded real-process transport');
+  const completion=await checkCompletionSources(client,{cwd:source,selection,deadline,sandboxPolicy:{type:'readOnly',networkAccess:false}});
+  assert.equal(completion.status,'passed');assert.equal(completion.exitCode,0);assert.equal(completion.sourceStatus,'verified');
+  assert.equal(completion.transport.sha256,admitted.sources.transport.sha256);assert.equal(completion.transport.bytes,admitted.sources.transport.bytes);
+  assert.equal(completion.transport.input,'closed');assert.equal(completion.transport.settlement,'observed');
+  assert.ok(seen.at(-1).command.reduce((size,arg)=>size+2*arg.length+3,0)<=30000);
+  await writeFile(join(source,skills[0].references[0].path),'corrupted source after selection');
+  const changed=await checkCompletionSources(client,{cwd:source,selection,deadline,sandboxPolicy:{type:'readOnly',networkAccess:false}});
+  assert.equal(changed.status,'failed');assert.equal(changed.exitCode,12);assert.equal(changed.sourceStatus,'changedOrUnavailable');
+  const corrupt=[];
+  await assert.rejects(admitWorkerCapabilities(commandClient(corrupt,process.env),{cwd:source,selection}),error=>{
+    assert.equal(error.noInference,true);assert.equal(error.capabilities.sources.start,'observed');assert.equal(error.capabilities.sources.status,'failed');return true;
+  });assert.equal(corrupt.length,1,'corruption refuses without another command');
+  const mode=skills.at(-1);assert.deepEqual(selectCapabilities(bundle.manifest,{skills:[mode.id]}).roots,[{id:mode.id,location:{type:'environment',environmentId:'local',path:dirname(mode.path)}}]);
+});
+
+async function countedSkill(source,id,references){
+  const path=join(source,id,'SKILL.md'),main=`---\nname: ${id}\n---\n`;
+  await mkdir(dirname(path),{recursive:true});await writeFile(path,main);
+  const skill={id,name:id,root:source,path,sha256:digest(main),references:[]};
+  for(let index=0;index<references;index++){
+    const file={path:`${id}/resource-${index}.md`,sha256:digest(`${id}:${index}`)};
+    await writeFile(join(source,file.path),`${id}:${index}`);skill.references.push(file);
+  }
+  return skill;
+}
+
+test('128 distinct references admit and a 129th distinct reference refuses at the manifest bound',async t=>{
+  const {verifySkillSources}=await resolver(),source=await temporary(t),skill=await countedSkill(source,'reference-bound',128);
+  assert.equal((await verifySkillSources([skill])).sourceChecks.files,129);
+  await writeFile(join(source,'reference-bound','resource-128.md'),'last');
+  skill.references.push({path:'reference-bound/resource-128.md',sha256:digest('last')});
+  assert.equal(new Set(skill.references.map(file=>file.path)).size,129);
+  await assert.rejects(verifySkillSources([skill]),{code:'SKILL_MANIFEST',message:'Skill descriptors require distinct IDs native names and original SKILL.md identities'});
+});
+
+test('512 unique skill source files admit and file 513 refuses independently of reference limits',async t=>{
+  const {verifySkillSources}=await resolver(),source=await temporary(t),skills=[];
+  for(let index=0;index<8;index++)skills.push(await countedSkill(source,`group-${index}`,63));
+  assert.equal(new Set(skills.flatMap(skill=>[skill.path,...skill.references.map(file=>join(source,file.path))])).size,512);
+  const verified=await verifySkillSources(skills);assert.equal(verified.sourceChecks.files,512);
+  const last=skills.at(-1);await writeFile(join(source,'group-7','last.md'),'513');last.references.push({path:'group-7/last.md',sha256:digest('513')});
+  await assert.rejects(verifySkillSources(skills),{code:'SKILL_SOURCE',message:'Skill source file count exceeded its limit'});
+});
+
+test('32 declared skill limit and complete discovery entry and depth bounds still fail closed',async t=>{
+  const {verifySkillSources}=await resolver(),source=await temporary(t),skills=[];
+  for(let index=0;index<33;index++)skills.push(await countedSkill(source,`skill-${index}`,0));
+  assert.equal((await verifySkillSources(skills.slice(0,32))).skills.length,32);
+  await assert.rejects(verifySkillSources(skills),{code:'SKILL_MANIFEST',message:'Provide at most 32 declared skill sources'});
+  const skill=skills[0];
+  for(let index=0;index<511;index++)await mkdir(join(dirname(skill.path),`empty-${index}`));
+  await verifySkillSources([skill]);
+  await mkdir(join(dirname(skill.path),'overflow'));
+  await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE',message:'Native skill discovery exceeded its bounded directory scan'});
+  const deep=skills[1],suffix='one/two/three/four/five/six/leaf.md',file=join(dirname(deep.path),suffix);
+  await mkdir(dirname(file),{recursive:true});await writeFile(file,'deep');deep.references.push({path:`skill-1/${suffix}`,sha256:digest('deep')});
+  await verifySkillSources([deep]);
+  const deeper=join(dirname(file),'seven','leaf.md');await mkdir(dirname(deeper));await writeFile(deeper,'too deep');deep.references.push({path:'skill-1/one/two/three/four/five/six/seven/leaf.md',sha256:digest('too deep')});
+  await assert.rejects(verifySkillSources([deep]),{code:'SKILL_SOURCE',message:'Native skill discovery exceeded its bounded directory scan'});
+});
+
+test('skill main reference and aggregate byte ceilings remain bounded after count admission',async t=>{
+  const {verifySkillSources}=await resolver(),source=await temporary(t),skill=await countedSkill(source,'byte-bound',0),mib=1024*1024;
+  const main=Buffer.alloc(mib,109);await writeFile(skill.path,main);skill.sha256=digest(main);
+  const sizes=[16*mib,16*mib,16*mib,15*mib];
+  for(const [index,size] of sizes.entries()){
+    const bytes=Buffer.alloc(size,index),path=`byte-bound/bytes-${index}`;
+    await writeFile(join(source,path),bytes);skill.references.push({path,sha256:digest(bytes)});
+  }
+  assert.equal((await verifySkillSources([skill])).sourceChecks.bytes,64*mib);
+  const last=skill.references.at(-1),overflow=Buffer.alloc(15*mib+1,3);await writeFile(join(source,last.path),overflow);last.sha256=digest(overflow);
+  await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE',message:'Skill source bytes exceeded the bounded limit'});
+  const largeMain=Buffer.alloc(mib+1,109);await writeFile(skill.path,largeMain);
+  await assert.rejects(verifySkillSources([{...skill,sha256:digest(largeMain)}]),{code:'SKILL_SOURCE',message:'Skill source bytes exceeded the bounded limit'});
+  await writeFile(skill.path,main);
+  const reference=skill.references[0],largeReference=Buffer.alloc(16*mib+1,0);await writeFile(join(source,reference.path),largeReference);
+  reference.sha256=digest(largeReference);
+  await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE',message:'Skill source bytes exceeded the bounded limit'});
+});
+
+test('missing files hardlinks and path aliases cannot evade declared skill identities',async t=>{
+  const {verifySkillSources}=await resolver();
+  for(const kind of ['missing-main','missing-reference','hardlink-main','hardlink-reference','case-alias'])await t.test(kind,async child=>{
+    const {skill,path,reference,source}=await fixture(child);
+    if(kind==='missing-main')await rm(path);
+    if(kind==='missing-reference')await rm(reference);
+    if(kind==='hardlink-main')await link(path,join(source,'main-alias'));
+    if(kind==='hardlink-reference')await link(reference,join(source,'reference-alias'));
+    if(kind==='case-alias'){
+      skill.references.push({...skill.references[0],path:'scripts/USAGE.md'});
+      if(process.platform!=='win32'){await writeFile(join(source,'scripts','USAGE.md'),'distinct');skill.references.at(-1).sha256=digest('distinct');await verifySkillSources([skill]);return;}
+      await assert.rejects(verifySkillSources([skill]),{code:'SKILL_MANIFEST',message:'Duplicate or escaping skill reference'});return;
+    }
+    await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE'});
+  });
 });
 
 test('native discovery refuses broader plugin manifests and undeclared nested skills',async t=>{
@@ -148,7 +310,8 @@ test('native discovery refuses broader plugin manifests and undeclared nested sk
     await t.test(name,async child=>{
       const {skill,path}=await fixture(child),extra=join(dirname(path),name);
       await mkdir(dirname(extra),{recursive:true});await writeFile(extra,'{}');
-      await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE'});
+      skill.references.push({path:relative(skill.root,extra).replaceAll('\\','/'),sha256:digest('{}')});
+      await assert.rejects(verifySkillSources([skill]),{code:'SKILL_SOURCE',message:'Native discovery would expose an undeclared skill or plugin bundle'});
     });
   }
 });
@@ -183,7 +346,7 @@ test('immutable bundle rejects unknown grants and selects exact native executor 
   for(const options of [{skills:null},{requireTools:null},{skills:['missing']},{skills:['compose','compose']},{skills:[skill.path]},{skills:['compose'],requireTools:['missing']}])assert.throws(()=>selectCapabilities(bundle.manifest,options),{code:'CAPABILITY_SELECTION'});
 });
 
-test('valid oversized capability commands are rejected before process dispatch',async t=>{
+test('huge readiness argv is rejected before process dispatch while bulk descriptors use stdin',async t=>{
   const {selectCapabilities}=await resolver(),{skill,tool}=await toolFixture(t);
   tool.guidance='g'.repeat(4000);
   const first=tool.runtime.files[0];
@@ -191,7 +354,10 @@ test('valid oversized capability commands are rejected before process dispatch',
   const {validateCapabilities}=await resolver();
   const manifest=validateCapabilities({version:1,skills:[skill],tools:[tool]});
   assert.ok(Buffer.byteLength(JSON.stringify(manifest))<256*1024);
-  assert.throws(()=>selectCapabilities(manifest,{skills:['compose'],requireTools:['compose-tool']}),{code:'CAPABILITY_SELECTION'});
+  assert.ok(selectCapabilities(manifest,{skills:['compose'],requireTools:['compose-tool']}));
+  tool.readiness[0].args=Array.from({length:8},()=> 'a'.repeat(2048));
+  const oversized=validateCapabilities({version:1,skills:[skill],tools:[tool]});
+  assert.throws(()=>selectCapabilities(oversized,{skills:['compose'],requireTools:['compose-tool']}),{code:'CAPABILITY_SELECTION'});
 });
 
 async function toolFixture(t){
@@ -202,10 +368,55 @@ async function toolFixture(t){
   const tool={id:'compose-tool',skills:['compose'],node:{path:process.execPath,version:process.version,sha256:digest(await readFile(process.execPath))},launcher:{root:f.source,path:launcher,sha256:digest(await readFile(launcher))},runtime:{root:f.source,files:[{path:'scripts/run-managed.mjs',sha256:digest(await readFile(launcher))}],receipt},dependencies:{root:f.source,files:[receipt],receipt},environment:{AGENT_BEEPS_HOME:f.source},readiness:[{id:'capabilities',args:['ready'],marker:'READY',timeoutMs:1000}],guidance:'Use the managed tool from the native skill instructions.'};
   return {...f,tool};
 }
+
+test('tool source verification retains its own 128 file and 64 per-tree limits',async t=>{
+  const {verifyToolSources,validateCapabilities}=await resolver(),{source,skill,tool}=await toolFixture(t);
+  // A small ordinary executable identity fixture tests source budgets only;
+  // existing readiness tests below execute the real admitted Node binary.
+  const node=join(source,'node-identity');await writeFile(node,'node identity');tool.node={...tool.node,path:node,sha256:digest('node identity')};
+  for(const name of ['runtime','dependencies']){
+    const directory=join(source,name);await mkdir(directory);const files=[];
+    for(let index=0;index<63;index++){const path=`file-${index}`,bytes=`${name}:${index}`;await writeFile(join(directory,path),bytes);files.push({path,sha256:digest(bytes)});}
+    tool[name]={root:directory,files,receipt:files[0]};
+  }
+  validateCapabilities({version:1,skills:[skill],tools:[tool]});
+  assert.equal((await verifyToolSources(tool)).files,128);
+  const path='file-63',bytes='runtime:63';await writeFile(join(tool.runtime.root,path),bytes);tool.runtime.files.push({path,sha256:digest(bytes)});
+  validateCapabilities({version:1,skills:[skill],tools:[tool]});
+  await assert.rejects(verifyToolSources(tool),{code:'CAPABILITY_SOURCE',message:'Declared tool files are unsafe unavailable or changed'});
+  tool.runtime.files.push({path:'file-64',sha256:digest('runtime:64')});
+  assert.throws(()=>validateCapabilities({version:1,skills:[skill],tools:[tool]}),{code:'CAPABILITY_MANIFEST'});
+});
+
 function commandClient(seen,env,expectedPolicy={type:'readOnly',networkAccess:false}){
-  return{async request(method,params){
+  const listeners=new Set(),children=new Map(),writes=[];
+  return{writes,onNotification(listener){listeners.add(listener);return()=>listeners.delete(listener);},async request(method,params){
+    if(method==='command/exec/write'){
+      writes.push(params);const child=children.get(params.processId);assert.ok(child,'write must follow registered readiness');
+      assert.ok(Buffer.byteLength(JSON.stringify(params))<20000,'bounded native write request');
+      if(params.deltaBase64)await new Promise((resolve,reject)=>child.stdin.write(Buffer.from(params.deltaBase64,'base64'),error=>error?reject(error):resolve()));
+      if(params.closeStdin)await new Promise((resolve,reject)=>{child.stdin.once('error',reject);child.stdin.end(resolve);});
+      return{};
+    }
+    if(method==='command/exec/terminate'){
+      const child=children.get(params.processId);
+      if(child)await new Promise(resolve=>{child.once('close',resolve);child.kill();});
+      return{};
+    }
     assert.equal(method,'command/exec');seen.push(params);
     assert.deepEqual(params.sandboxPolicy,expectedPolicy);
+    if(params.streamStdin){
+      assert.equal(params.streamStdoutStderr,true);assert.equal(Object.hasOwn(params,'stdin'),false);
+      const child=spawn(params.command[0],params.command.slice(1),{cwd:params.cwd,env,timeout:params.timeoutMs,windowsHide:true,stdio:['pipe','pipe','pipe']});
+      children.set(params.processId,child);child.stdin.on('error',()=>{});
+      const totals={stdout:0,stderr:0};
+      for(const stream of ['stdout','stderr'])child[stream].on('data',bytes=>{
+        const available=Math.max(0,params.outputBytesCap-totals[stream]);totals[stream]+=bytes.length;
+        const message={method:'command/exec/outputDelta',params:{processId:params.processId,stream,deltaBase64:bytes.subarray(0,available).toString('base64'),capReached:totals[stream]>=params.outputBytesCap}};
+        for(const listener of listeners)listener(message);
+      });
+      return await new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',code=>{children.delete(params.processId);resolve({exitCode:code??1,stdout:'',stderr:''});});});
+    }
     assert.equal(params.streamStdoutStderr,false);
     try{const result=await promisify(execFile)(params.command[0],params.command.slice(1),{cwd:params.cwd,env,timeout:params.timeoutMs,windowsHide:true,maxBuffer:8192});return{exitCode:0,...result};}
     catch(error){if(Number.isInteger(error.code))return{exitCode:error.code,stdout:error.stdout,stderr:error.stderr};throw error;}
@@ -235,6 +446,125 @@ test('required managed readiness executes real processes; optional tools retain 
   const metadata={id:tool.id,node:{path:tool.node.path,version:tool.node.version},launcher:tool.launcher.path,environment:tool.environment,readiness:tool.readiness};
   assert.ok(taskPrompt.includes(JSON.stringify(metadata)),'initial model task receives exact verified invocation paths, environment and checked stages');
   assert.doesNotMatch(taskPrompt,/Native content; no manual injection/,'skill bodies are not copied into task prompts');
+});
+
+test('source stdin rejects missing and corrupt bindings, invalid UTF8/JSON, overflow and premature EOF',async t=>{
+  const {selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,source}=await fixture(t),selection=selectCapabilities({version:1,skills:[skill],tools:[]},{skills:['compose']});
+  for(const mode of ['missing-binding','wrong-length','wrong-hash','oversized-binding','invalid-utf8','invalid-json','overflow','premature-eof'])await t.test(mode,async()=>{
+    const seen=[],client=commandClient(seen,process.env),request=client.request.bind(client);
+    let bytes=Buffer.from(JSON.stringify(selection.skills));
+    if(mode==='invalid-utf8'){bytes=Buffer.from(bytes);bytes[bytes.length-1]=255;}
+    if(mode==='invalid-json'){bytes=Buffer.from(bytes);bytes[bytes.length-1]=123;}
+    client.request=async(method,params,options)=>{
+      if(method==='command/exec'){
+        const command=[...params.command];
+        if(mode==='missing-binding')command.pop();
+        if(mode==='wrong-length')command[command.length-2]=String(bytes.length+1);
+        if(mode==='oversized-binding')command[command.length-2]=String(256*1024+1);
+        if(mode==='wrong-hash')command[command.length-1]='0'.repeat(64);
+        if(mode.startsWith('invalid-'))command[command.length-1]=digest(bytes);
+        return request(method,{...params,command},options);
+      }
+      if(method==='command/exec/write'&&params.deltaBase64){
+        let chunk=bytes;
+        if(mode==='overflow')chunk=Buffer.concat([chunk,Buffer.from('x')]);
+        if(mode==='premature-eof')chunk=chunk.subarray(0,chunk.length-1);
+        return request(method,{...params,deltaBase64:chunk.toString('base64')},options);
+      }
+      return request(method,params,options);
+    };
+    await assert.rejects(admitWorkerCapabilities(client,{cwd:source,selection}),error=>{
+      assert.equal(error.noInference,true);assert.equal(error.capabilities.sources.status,'failed');assert.equal(error.capabilities.sources.start,'observed');return true;
+    });assert.equal(seen.length,1,'no fallback or repeated dispatch');
+  });
+});
+
+test('large required tool descriptors cross stdin while every real tool file and readiness still checks',async t=>{
+  const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,tool,source}=await toolFixture(t);
+  for(const [tree,count] of [['runtime',62],['dependencies',61]]){
+    for(let i=0;i<count;i++){
+      const path=`${tree}-${i}-${'x'.repeat(35)}`,bytes=`${tree}:${i}`;await writeFile(join(source,path),bytes);
+      tool[tree].files.push({path,sha256:digest(bytes)});
+    }
+  }
+  tool.runtime.files.push(tool.runtime.receipt);
+  assert.ok(JSON.stringify(tool).length*2>30000,'tool descriptor exceeds old argv ceiling');
+  const bundle=await freezeCapabilities({version:1,skills:[skill],tools:[tool]}),selection=selectCapabilities(bundle.manifest,{skills:['compose'],requireTools:['compose-tool']}),seen=[],client=commandClient(seen,{...process.env,...tool.environment});
+  const evidence=await admitWorkerCapabilities(client,{cwd:source,selection});
+  assert.equal(evidence.tools[0].status,'passed');assert.equal(evidence.tools[0].stages[0].markerObserved,true);
+  assert.ok(evidence.tools[0].stages[0].transport.chunks>1);assert.equal(seen.length,3);
+  for(const request of seen)assert.ok(request.command.reduce((size,arg)=>size+2*arg.length+3,0)<=30000);
+});
+
+test('stdin receiver accepts the exact 256KiB JSON byte boundary and rejects one byte over',async()=>{
+  const moduleUrl=new URL('../engine/worker-capabilities.mjs',import.meta.url).href;
+  const script=`const m=await import(${JSON.stringify(moduleUrl)});await m.verifyCapabilityStdin(...process.argv.slice(1));`;
+  const bytes=Buffer.from('[]'+' '.repeat(256*1024-2));
+  const pending=promisify(execFile)(process.execPath,['--input-type=module','-e',script,'skills',String(bytes.length),digest(bytes)],{env:process.env,windowsHide:true,maxBuffer:8192,timeout:3000});
+  pending.child.stdin.on('error',()=>{});pending.child.stdin.end(bytes);
+  const result=await pending;assert.equal(result.stdout,'WORKER_CAPABILITY_INPUT_READY\nWORKER_SKILL_SOURCE_OK\n');assert.equal(result.stderr,'');
+  const over=promisify(execFile)(process.execPath,['--input-type=module','-e',script,'skills',String(bytes.length+1),digest(bytes)],{env:process.env,windowsHide:true,maxBuffer:8192,timeout:3000});
+  over.child.stdin.end();
+  await assert.rejects(over,error=>{assert.equal(error.code,1);assert.equal(error.stdout,'','over-bound binding refuses before readiness');return true;});
+});
+
+test('stdin protocol failure, cancellation and deadline stop the owned process without repeat',async t=>{
+  const {selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,source}=await fixture(t),selection=selectCapabilities({version:1,skills:[skill],tools:[]},{skills:['compose']});
+  for(const mode of ['bad-base64','truncated-output','huge-output','wrong-stream','invalid-output-utf8','invalid-final-utf8','notification-flood','missing-ready','cancel-ready','cancel-write','lost-write','null-write-rejection','bad-write-response','bad-close-response','bad-final-response','missing-eof','execution-rejection','execution-rejection-write'])await t.test(mode,async()=>{
+    const seen=[],client=commandClient(seen,process.env),request=client.request.bind(client),subscribe=client.onNotification.bind(client),abort=new AbortController();
+    let terminations=0,writes=0,stdoutMessages=0,rejectExecution;
+    const executionFailure=new Promise((resolve,reject)=>{rejectExecution=()=>reject(Error('PRIVATE lost execution response during stdin write'));});
+    client.onNotification=listener=>subscribe(message=>{
+      if(message.params.stream==='stdout'){
+        stdoutMessages++;
+        if(mode==='missing-ready')return;
+        if(mode==='notification-flood'){for(let i=0;i<257;i++)listener({...message,params:{...message.params,deltaBase64:''}});return;}
+        if(mode==='bad-base64')message={...message,params:{...message.params,deltaBase64:'YQ'}};
+        if(mode==='truncated-output')message={...message,params:{...message.params,capReached:true}};
+        if(mode==='huge-output')message={...message,params:{...message.params,deltaBase64:Buffer.alloc(8193).toString('base64')}};
+        if(mode==='wrong-stream')message={...message,params:{...message.params,stream:'other'}};
+        if(mode==='invalid-output-utf8')message={...message,params:{...message.params,deltaBase64:Buffer.from([255]).toString('base64')}};
+        if(mode==='invalid-final-utf8'&&stdoutMessages>1)message={...message,params:{...message.params,deltaBase64:Buffer.from([255]).toString('base64')}};
+        if(mode==='cancel-ready')abort.abort();
+      }
+      listener(message);
+    });
+    client.request=async(method,params,options)=>{
+      if(method==='command/exec/terminate')terminations++;
+      if(mode==='execution-rejection'&&method==='command/exec'){seen.push(params);throw Error('PRIVATE transport rejection');}
+      if(mode==='execution-rejection-write'&&method==='command/exec')return Promise.race([request(method,params,options),executionFailure]);
+      if(method==='command/exec/write'){
+        writes++;
+        if(mode==='missing-eof'&&params.closeStdin)return{};
+        const result=await request(method,params,options);
+        if(mode==='execution-rejection-write')rejectExecution();
+        if(mode==='cancel-write')abort.abort();
+        if(mode==='lost-write')throw Error('PRIVATE lost acknowledgment after actual write');
+        if(mode==='null-write-rejection')throw null;
+        if(mode==='bad-write-response'&&!params.closeStdin)return{unexpected:true};
+        if(mode==='bad-close-response'&&params.closeStdin)return{unexpected:true};
+        return result;
+      }
+      const result=await request(method,params,options);
+      return mode==='bad-final-response'&&method==='command/exec'?{...result,stdout:'unexpected buffered result'}:result;
+    };
+    await assert.rejects(admitWorkerCapabilities(client,{cwd:source,selection,signal:abort.signal,deadline:performance.now()+700}),error=>{
+      assert.equal(error.noInference,true);assert.equal(error.capabilities.sources.status,'failed');
+      assert.equal(error.capabilities.sources.transport.settlement,mode.startsWith('execution-rejection')?'unknown':'observed');
+      if(['lost-write','null-write-rejection','cancel-write','bad-write-response','bad-close-response'].includes(mode))assert.equal(error.executionUnknown,true,'unknown writes remain diagnostic uncertainty');
+      assert.doesNotMatch(JSON.stringify(error.capabilities),/PRIVATE/);return true;
+    });
+    assert.equal(seen.length,1);assert.ok(terminations<=1,'at most one supported termination');
+    if(mode==='lost-write'||mode==='cancel-write')assert.equal(writes,1,'no write repeated after uncertainty or cancellation');
+    if(mode==='execution-rejection')assert.equal(writes,0,'execution rejection is handled during readiness wait');
+    if(mode==='execution-rejection-write')assert.equal(writes,1,'execution rejection is handled during the write without repeat');
+  });
+  const seen=[],abort=new AbortController();abort.abort();
+  await assert.rejects(admitWorkerCapabilities(commandClient(seen,process.env),{cwd:source,selection,signal:abort.signal}),error=>{
+    assert.equal(error.noInference,true);assert.equal(error.capabilities.sources.start,'notStarted');return true;
+  });assert.equal(seen.length,0);
+  const huge={...skill,references:Array.from({length:128},(_,i)=>({path:`${'x'.repeat(2040)}/${i}`,sha256:skill.sha256}))};
+  assert.throws(()=>selectCapabilities({version:1,skills:[huge],tools:[]},{skills:['compose']}),{code:'CAPABILITY_SELECTION'},'descriptor input is bounded independently of argv');
 });
 
 test('required native tool readiness uses the admitted parent policy for source and executable checks',async t=>{
@@ -288,8 +618,9 @@ test('nonzero executed readiness and unknown transport failures never certify no
     assert.doesNotMatch(JSON.stringify(error.capabilities),/PRIVATE_DIAGNOSTIC/);return true;
   });
   assert.equal(seen.length,3);
-  let calls=0;
-  await assert.rejects(admitWorkerCapabilities({async request(){calls++;throw Error('PRIVATE_DIAGNOSTIC');}},{cwd:source,selection}),error=>{
+  let calls=0;const unknown=commandClient([],process.env);
+  unknown.request=async method=>{if(method==='command/exec')calls++;throw Error('PRIVATE_DIAGNOSTIC');};
+  await assert.rejects(admitWorkerCapabilities(unknown,{cwd:source,selection}),error=>{
     assert.equal(error.capabilities.sources.start,'unknown');assert.notEqual(error.noProcessStarted,true);assert.equal(error.executionUnknown,true);return true;
   });assert.equal(calls,1);
 });
@@ -297,15 +628,17 @@ test('nonzero executed readiness and unknown transport failures never certify no
 test('readiness shares a bounded deadline and dispatches nothing after it expires',async t=>{
   const {freezeCapabilities,selectCapabilities,admitWorkerCapabilities}=await resolver(),{skill,tool,source}=await toolFixture(t);
   const bundle=await freezeCapabilities({version:1,skills:[skill],tools:[tool]}),selection=selectCapabilities(bundle.manifest,{skills:['compose'],requireTools:['compose-tool']});
-  const seen=[],deadline=performance.now()+80;
-  await assert.rejects(admitWorkerCapabilities({async request(method,params,options){
-    seen.push({params,options});await new Promise(resolve=>setTimeout(resolve,100));
-    return{exitCode:0,stdout:'WORKER_SKILL_SOURCE_OK',stderr:''};
-  }},{cwd:source,selection,deadline}),error=>{
+  const seen=[],calls=[],client=commandClient(seen,{...process.env,...tool.environment}),request=client.request.bind(client),deadline=performance.now()+700;
+  client.request=async(method,params,options)=>{
+    calls.push({method,params,options});const result=await request(method,params,options);
+    if(method==='command/exec')await new Promise(resolve=>setTimeout(resolve,800));
+    return result;
+  };
+  await assert.rejects(admitWorkerCapabilities(client,{cwd:source,selection,deadline}),error=>{
     assert.equal(error.code,'CAPABILITY_READINESS');assert.equal(error.noInference,true);
     assert.equal(error.capabilities.sources.start,'observed');assert.equal(error.capabilities.sources.exitCode,0);assert.notEqual(error.executionUnknown,true);return true;
   });
-  assert.equal(seen.length,1);assert.ok(seen[0].params.timeoutMs<=80);assert.ok(seen[0].options.timeoutMs<=80);
+  assert.equal(seen.length,1);assert.ok(calls[0].params.timeoutMs<=700);assert.ok(calls[0].options.timeoutMs<=700);
   await assert.rejects(admitWorkerCapabilities({async request(){throw Error('expired deadline dispatched a command');}},{cwd:source,selection,deadline:performance.now()-1}),error=>{
     assert.equal(error.capabilities.sources.start,'notStarted');assert.notEqual(error.executionUnknown,true);return true;
   });

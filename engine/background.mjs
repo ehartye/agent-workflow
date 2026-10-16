@@ -13,6 +13,7 @@ import {resolveDeadlines} from './deadlines.mjs';
 import {validateCapturePolicy} from './workspace-policy.mjs';
 import {freezeCapabilities} from './worker-capabilities.mjs';
 import {validateAccessPolicy} from './access-policy.mjs';
+import {freezeWorkflowSources,verifyWorkflowSources} from './composition.mjs';
 
 export async function startBackground(input,{runnerPath=fileURLToPath(new URL('./background-child.mjs',import.meta.url)),startupMs=60000}={}){
   if(!isAbsolute(input.runDir??'')||typeof input.sessionId!=='string'||!input.sessionId||!Number.isSafeInteger(startupMs)||startupMs<0||startupMs>2147483647)throw fault('BACKGROUND_INPUT','Provide an absolute run directory, originating session and timer-safe startup budget (0 removes it)');
@@ -50,12 +51,15 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   if(capabilitySources!==undefined)launch.capabilitySources=capabilitySources;
   if(capabilities)Object.assign(launch,{workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint});
   if(frozenPolicy)Object.assign(launch,{capturePolicy:frozenPolicy.policy,capturePolicyHash:frozenPolicy.policyHash});
+  if(input.artifactScope??previous?.launch?.artifactScope)launch.artifactScope=input.artifactScope??previous.launch.artifactScope;
   const native=createLaunch({executable:launch.codex,cwd:launch.cwd,backend:launch.backend,session0Desktop});
   launch.cwd=native.cwd;
   const request={runDir:input.runDir,sessionId:input.sessionId,script:input.script??previous?.script,
     args:Object.hasOwn(input,'args')?input.args:previous?.args??null,concurrency:input.concurrency??previous?.concurrency??2,
     maxAgents:input.maxAgents??previous?.maxAgents??1000,...resolveDeadlines(input,previous??{}),resume:input.resume===true,launch,...(input.expectedGeneration===undefined?{}:{expectedGeneration:input.expectedGeneration}),...(input.restart===undefined?{}:{restart:input.restart})};
-  parseScript(request.script);
+  const {meta}=parseScript(request.script);
+  if(meta.workflows?.length||previous?.compositionVersion){request.launch.preparedWorkflowSources=input.preparedWorkflowSources??await freezeWorkflowSources({runDir:input.runDir,cwd:launch.cwd,declarations:meta.workflows??[],previousCatalog:previous?.workflowSources??null,revisions:input.workflowRevisions??null});await verifyWorkflowSources({runDir:input.runDir,descriptor:request.launch.preparedWorkflowSources});}
+  if(input.workflowRevisions!==undefined)request.workflowRevisions=input.workflowRevisions;
   const serialized=JSON.stringify(request);
   if(Buffer.byteLength(serialized)>2*1024*1024)throw fault('BACKGROUND_INPUT','Background request exceeded its limit');
   await mkdir(input.runDir,{recursive:true});
@@ -64,7 +68,7 @@ export async function startBackground(input,{runnerPath=fileURLToPath(new URL('.
   const requestPath=join(input.runDir,`launch-${id}.json`);
   const resultPath=join(input.runDir,`finish-${id}.json`);
   await writeFile(requestPath,serialized,{flag:'wx'});
-  const child=fork(runnerPath,[requestPath],{cwd:resolve(launch.cwd),env:native.env,execArgv:[],detached:true,windowsHide:true,stdio:['ignore','ignore','ignore','ipc']});
+  const child=fork(runnerPath,[requestPath],{cwd:resolve(launch.cwd),env:{...native.env,...(process.env.AGENT_WORKFLOW_WORKER===undefined?{}:{AGENT_WORKFLOW_WORKER:process.env.AGENT_WORKFLOW_WORKER})},execArgv:[],detached:true,windowsHide:true,stdio:['ignore','ignore','ignore','ipc']});
   return await new Promise((resolveStart,reject)=>{
     let settled=false,committed=false;
     const finish=(error,value)=>{
@@ -103,6 +107,7 @@ export async function serveBackground(requestPath,createBackend){
   try{
     request=JSON.parse(await readFile(requestPath,'utf8'));
     parseScript(request.script);
+    if(request.launch?.preparedWorkflowSources)await verifyWorkflowSources({runDir:request.runDir,descriptor:request.launch.preparedWorkflowSources});
     if(request.launch?.accessPolicy!==undefined)request.launch.accessPolicy=validateAccessPolicy(request.launch.accessPolicy,{sessionId:request.sessionId});
     admitting=true;
     const backend=await createBackend({runDir:request.runDir,retainSources:request.resume!==true,executable:request.launch.codex,cwd:request.launch.cwd,backend:request.launch.backend,session0Desktop:request.launch.session0Desktop??'inherit',defaults:request.launch.defaults??{},...(request.launch.capabilitySources===undefined?{}:{capabilitySources:request.launch.capabilitySources}),...(request.launch.accessPolicy?{accessPolicy:request.launch.accessPolicy}:{}),...(request.launch.workerCapabilities?{workerCapabilities:request.launch.workerCapabilities,workerCapabilitiesHash:request.launch.workerCapabilitiesHash}:{})});

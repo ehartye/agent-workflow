@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "at": "2026-10-13T18:55:50.068Z",
+  "codex": "0.162.1",
+  "backend": "mxc",
+  "authentication": "managed ChatGPT",
+  "apiKeyFallback": false,
+  "customMcp": false,
+  "status": "passed",
+  "sourceUnchanged": true,
+  "indexUnchanged": true,
+  "userConfigUnchanged": true,
+  "distinctWorkspaces": true,
+  "replay": {
+    "status": "completed",
+    "generation": 2,
+    "attempts": 2,
+    "cached": 2
+  },
+  "workers": [
+    {
+      "position": 0,
+      "result": {
+        "marker": "WRITER_A",
+        "verified": true
+      },
+      "settings": {
+        "model": "gpt-6-astra",
+        "effort": "high",
+        "maxAttempts": 1,
+        "permissions": {
+          "sandbox": "workspace-write",
+          "networkAccess": false,
+          "approvalPolicy": "never"
+        }
+      },
+      "nativePatchCompleted": true,
+      "commandExitCodes": [
+        0
+      ],
+      "changedFiles": [
+        "note.txt"
+      ],
+      "patch": "diff --git a/note.txt b/note.txt\nindex 8142749..37dbba0 100644\n--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-local input\n+WRITER_A\n",
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified",
+        "jobEmpty": true,
+        "ownershipScope": "windows-job-members",
+        "nativeTerminals": {
+          "observed": 0,
+          "acknowledged": 0,
+          "inventoryEmpty": true,
+          "descendants": "notVerified"
+        }
+      },
+      "patchApplyCheck": true,
+      "workspaceVerified": true
+    },
+    {
+      "position": 1,
+      "result": {
+        "marker": "WRITER_B",
+        "verified": true
+      },
+      "settings": {
+        "model": "gpt-6-astra",
+        "effort": "high",
+        "maxAttempts": 1,
+        "permissions": {
+          "sandbox": "workspace-write",
+          "networkAccess": false,
+          "approvalPolicy": "never"
+        }
+      },
+      "nativePatchCompleted": true,
+      "commandExitCodes": [
+        0
+      ],
+      "changedFiles": [
+        "note.txt"
+      ],
+      "patch": "diff --git a/note.txt b/note.txt\nindex 8142749..9453779 100644\n--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-local input\n+WRITER_B\n",
+      "cleanup": {
+        "serverExited": true,
+        "forced": false,
+        "descendants": "notVerified",
+        "jobEmpty": true,
+        "ownershipScope": "windows-job-members",
+        "nativeTerminals": {
+          "observed": 0,
+          "acknowledged": 0,
+          "inventoryEmpty": true,
+          "descendants": "notVerified"
+        }
+      },
+      "patchApplyCheck": true,
+      "workspaceVerified": true
+    }
+  ],
+  "limits": [
+    "Process drain is scoped to owned Windows job members.",
+    "All writers start from captured run inputs; dependencies do not import predecessor edits."
+  ]
+}

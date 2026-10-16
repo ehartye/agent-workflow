@@ -1,5 +1,7 @@
 ﻿import {createServer} from 'node:http';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
+import {networkInterfaces} from 'node:os';
+import {LOOPBACK_NETWORK,selectMonitorNetwork,verifyMonitorNetwork} from './monitor-network.mjs';
 import {readFile} from 'node:fs/promises';
 import {monitorData} from './monitor-data.mjs';
 import {requestControl,readControl} from './controls.mjs';
@@ -15,8 +17,9 @@ async function body(request){
   for await(const chunk of request){size+=chunk.length;if(size>40000)throw fault('HTTP_INPUT','Request body exceeded its limit');chunks.push(chunk);}
   try{const value=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(!value||typeof value!=='object'||Array.isArray(value))throw new Error();return value;}catch{throw fault('HTTP_INPUT','Provide a JSON object');}
 }
-export async function createMonitor({runDir,start=startBackground,idleMs=null,binding=null,experienceServices=null}){
+export async function createMonitor({runDir,start=startBackground,idleMs=null,binding=null,experienceServices=null,network}){
   binding=validateMonitorBinding(binding);
+  const selection=network===undefined?selectMonitorNetwork({request:LOOPBACK_NETWORK,interfaces:networkInterfaces()}):verifyMonitorNetwork({selection:network,interfaces:networkInterfaces()});
   const surface=await createExperienceSurface({runDir,binding,services:experienceServices});
   const token=randomBytes(32).toString('base64url'),serviceInstanceId=randomBytes(16).toString('hex');let origin,busy=false,lastActivity=Date.now();
   const send=(response,status,value,type='application/json')=>{response.writeHead(status,{'Content-Type':`${type}; charset=utf-8`});response.end(type==='application/json'?JSON.stringify(value):value);};
@@ -31,7 +34,7 @@ export async function createMonitor({runDir,start=startBackground,idleMs=null,bi
       const provided=Buffer.from(request.headers.authorization??''),expected=Buffer.from(`Bearer ${token}`);
       if(provided.length!==expected.length||!timingSafeEqual(provided,expected))return send(response,401,{error:{code:'HTTP_AUTH',message:'Open the dashboard URL from agent-workflow dashboard to authenticate.'}});
       lastActivity=Date.now();
-      if(request.method==='GET'&&url.pathname==='/api/health')return send(response,200,{serviceInstanceId,status:'available'});
+      if(request.method==='GET'&&url.pathname==='/api/health')return send(response,200,{serviceInstanceId,status:'available',network:{selection,port:server.address().port,origin}});
       const handled=await surface.route({url,method:request.method,body:()=>body(request)});
       if(handled)return send(response,handled.status,handled.value,handled.type);
       if(request.method==='GET'){
@@ -81,14 +84,15 @@ export async function createMonitor({runDir,start=startBackground,idleMs=null,bi
       return send(response,404,{error:{code:'HTTP_ROUTE',message:'Unknown monitor route'}});
     }catch(error){
       const conflict=['MONITOR_TARGET','REPLAY_GENERATION','REPLAY_UNKNOWN','CONTROL_GENERATION','CONTROL_TERMINAL','CONTROL_ATTEMPT','CONTROL_TURN','CONTROL_WORKER','CONTROL_DEADLINE','DEADLINE_EXPIRED','DEADLINE_CLOSED','DEADLINE_REVISION','CONTROL_BUSY','RUN_LOCKED','MONITOR_BUSY','RESTART_ACTIVE','RESTART_WORKER','RESTART_PREFIX','RESTART_DRAIN','RESTART_CHANGED','AGENT_LIMIT'].includes(error.code);
-      send(response,error.code==='MONITOR_UNAVAILABLE'?503:['MONITOR_OWNERSHIP','CONTROL_SESSION'].includes(error.code)?403:conflict?409:['MONITOR_MISSING','CONTROL_MISSING'].includes(error.code)?404:['HTTP_INPUT','CONTROL_INPUT','ACTIVITY_INPUT','RESTART_INPUT','RESTART_RECONCILE','HISTORY_INPUT','PATCH_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
+      send(response,['MONITOR_UNAVAILABLE','STEP_UNSUPPORTED','COMPOSITION_UNSUPPORTED','REFINEMENT_UNSUPPORTED'].includes(error.code)?503:['MONITOR_OWNERSHIP','CONTROL_SESSION'].includes(error.code)?403:conflict||['STEP_CONFLICT','CONTROL_CONFLICT'].includes(error.code)?409:['MONITOR_MISSING','CONTROL_MISSING'].includes(error.code)?404:['HTTP_INPUT','CONTROL_INPUT','STEP_INPUT','COMPOSITION_INPUT','ACTIVITY_INPUT','RESTART_INPUT','RESTART_RECONCILE','HISTORY_INPUT','PATCH_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
     }
   });
   server.requestTimeout=5000;server.headersTimeout=5000;server.keepAliveTimeout=1000;
-  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-  origin=`http://127.0.0.1:${server.address().port}`;
+  verifyMonitorNetwork({selection,interfaces:networkInterfaces()});
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,selection.address,resolve);});
+  origin=`http://${selection.address}:${server.address().port}`;
   const timer=idleMs===null?undefined:setInterval(()=>{if(!busy&&!surface.busy&&Date.now()-lastActivity>idleMs)void close();},Math.min(idleMs,30000));timer?.unref();
   let closing;
   function close(){clearInterval(timer);return closing??=new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});}
-  return{url:`${origin}${binding?`/runs/${encodeURIComponent(binding.pinnedRunId)}`:'/'}#token=${token}`,sessionUrl:surface.capabilities.sessionNavigation?`${origin}/session#token=${token}`:null,close};
+  return{url:`${origin}${binding?`/runs/${encodeURIComponent(binding.pinnedRunId)}`:'/'}#token=${token}`,sessionUrl:surface.capabilities.sessionNavigation?`${origin}/session#token=${token}`:null,network:{selection,port:server.address().port,origin},serviceInstanceId,close};
 }

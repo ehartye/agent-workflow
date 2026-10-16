@@ -1,6 +1,8 @@
 /** @lane merge
  * @subject engine/controller.mjs
  * @subject engine/evaluator-child.mjs
+ * @subject engine/controls.mjs
+ * @subject engine/steps.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,6 +31,230 @@ async function setup(t) {
 }
 // Synthetic backend observations; these tests make no model, Windows job or descendant claim.
 const backend = execute => ({ identity: 'fixture-v1', execute, close: async () => ({ serverExited: true, descendants: 'notVerified' }) });
+
+const declaration=(alias,path)=>({alias,source:{kind:'script',path},argsSchema:{type:'object'},resultSchema:{type:'object'},capabilities:{skills:null,tools:null},permissions:null});
+async function compositionFixture(t,body,children){
+ const {runDir:root,runWorkflow,readRun}=await setup(t),{mkdir}=await import('node:fs/promises');
+ const source=join(root,'sources');await mkdir(source);
+ for(const [name,text]of Object.entries(children))await writeFile(join(source,name),text);
+ const {resolveAccess}=await import('../engine/access-policy.mjs');
+ const accessPolicy=resolveAccess({sessionId:'s',parentAccess:{version:1,sessionId:'s',provenance:'codex-session-context',filesystem:'unrestricted',networkAccess:true,approvalPolicy:'never'}});
+ let starts=0;const clean={serverExited:true,jobEmpty:true,ownershipScope:'windows-job-members',nativeTerminals:{inventoryEmpty:true}};
+ const native={identity:'composition-fixture',accessPolicy,parentCapabilities:{fingerprint:'a'.repeat(64),coverage:{complete:true}},close:async()=>clean,execute:async({prompt})=>{starts++;await new Promise(r=>setTimeout(r,prompt==='slow'?90:5));return{value:{prompt},terminalObserved:true,evidence:{cleanup:clean}};}};
+ const script='export const meta='+JSON.stringify({name:'Composition',description:'public process fixture',steps:[{id:'unused',label:'Unassigned',dependsOn:[]}],workflows:Object.keys(children).map((name,i)=>declaration('child'+i,name))})+';'+body;
+ const input={runDir:join(root,'state'),sessionId:'s',launch:{cwd:source,accessPolicy},script,backend:native,concurrency:1};
+ return{input,root,source,runWorkflow,readRun,starts:()=>starts};
+}
+
+test('composition retains no-agent sources and scoped steps, replays after source deletion and refuses corrupt retained bytes',async t=>{
+ const f=await compositionFixture(t,'return await workflow("child0",{n:7});',{'pure.mjs':meta+'return {n:args.n};'});
+ const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');assert.equal(first.result.value.n,7);assert.equal(f.starts(),0);
+ assert.equal(first.result.invocation.invocationId,'c_1');assert.equal(first.compositionVersion,1);
+ const {unlink,readFile}=await import('node:fs/promises');await unlink(join(f.source,'pure.mjs'));
+ const replay=await f.runWorkflow({...f.input,resume:true});assert.equal(replay.result.cached,true);assert.equal(replay.result.value.n,7);
+ const {verifyWorkflowSources}=await import('../engine/composition.mjs');const catalog=await verifyWorkflowSources({runDir:f.input.runDir,descriptor:replay.workflowSources});
+ const retained=join(f.input.runDir,'workflow-sources-v1','blobs',catalog.entries[0].script.sha256);
+ const bytes=await readFile(retained);await writeFile(retained,Buffer.alloc(bytes.length,32));
+ await assert.rejects(f.runWorkflow({...f.input,resume:true}),{code:'COMPOSITION_CORRUPT'});const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'),{readOnly:true});assert.equal(JSON.parse(db.prepare('SELECT value FROM header WHERE id=1').get().value).generation,replay.generation);db.close();
+});
+
+test('depth1 child agent and root share worker permits but child lifetime permits stay occupied until exit',async t=>{
+ const f=await compositionFixture(t,'return {rows:await parallel([()=>workflow("child0",{}),()=>workflow("child0",{})])};',{'worker.mjs':'export const meta={name:"child",description:"one worker",steps:[{id:"read",label:"Read",dependsOn:[],worker:{id:"reader"}}]};return await agent("slow",{id:"reader",maxAttempts:1});'});
+ const state=await f.runWorkflow(f.input);assert.equal(state.status,'completed');assert.equal(f.starts(),2);assert.equal(state.workers.length,2);
+ assert.deepEqual(state.workers.map(w=>w.origin.kind),['child','child']);assert.notEqual(state.workers[0].step.scope.invocation.invocationId,state.workers[1].step.scope.invocation.invocationId);
+ const {DatabaseSync}=await import('node:sqlite'),db=new DatabaseSync(join(f.input.runDir,'run.sqlite'),{readOnly:true});
+ const events=db.prepare('SELECT value FROM events ORDER BY seq').all().map(r=>JSON.parse(r.value)).filter(e=>e.method==='child-process');db.close();
+ assert.equal(events.filter(e=>e.event==='spawn').length,2);let live=0,maximum=0;for(const e of events){live+=e.event==='spawn'?1:-1;maximum=Math.max(maximum,live);}assert.equal(maximum,1);assert.equal(live,0);
+ const replay=await f.runWorkflow({...f.input,resume:true});assert.equal(replay.coverage.cached,2);assert.equal(f.starts(),2);
+});
+
+test('saved read and replay keep child ordinals distinct from interleaved global agent journal sequences',async t=>{
+ const f=await compositionFixture(t,'const a=await agent("root-before",{id:"rootBefore"});const b=await workflow("child0",{});const c=await agent("root-between",{id:"rootBetween"});const d=await workflow("child0",{});return {a,b,c,d};',{'worker.mjs':meta+'return await agent("inside",{id:"reader"});'});
+ const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');assert.equal(f.starts(),4);assert.equal(first.result.b.invocation.invocationId,'c_1');assert.equal(first.result.d.invocation.invocationId,'c_2');assert.deepEqual(await f.readRun(f.input.runDir),first);
+ const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'),{readOnly:true});const invocations=db.prepare('SELECT value FROM invocations WHERE generation=1 ORDER BY seq').all().map(r=>JSON.parse(r.value));db.close();assert.deepEqual(invocations.map(r=>r.kind),['agent','workflow','agent','agent','workflow','agent']);assert.deepEqual(invocations.filter(r=>r.kind==='workflow').map(r=>({seq:r.seq,id:r.child.invocationId})),[{seq:2,id:'c_1'},{seq:5,id:'c_2'}]);
+ const replay=await f.runWorkflow({...f.input,resume:true});assert.equal(replay.status,'completed');assert.equal(replay.coverage.cached,4);assert.equal(f.starts(),4);assert.equal(replay.result.b.cached,true);assert.equal(replay.result.d.cached,true);assert.deepEqual(await f.readRun(f.input.runDir),replay);
+});
+
+test('declared steps bind actual workers without scheduling display dependencies and preserve unassigned terminal steps',async t=>{
+ const {runDir,runWorkflow}=await setup(t);
+ const script='export const meta={name:"steps",description:"display",steps:[{id:"first",label:"First",dependsOn:[]},{id:"second",label:"Second",dependsOn:["first"],worker:{id:"actual"}}]};return await agent("Read",{id:"actual"});';
+ const {requestAppend}=await import('../engine/append.mjs'),{randomUUID}=await import('node:crypto');
+ const state=await runWorkflow({runDir,sessionId:'s',script:script.replace('return await agent','await agent("Dynamic",{maxAttempts:1});return await agent'),onReady:()=>requestAppend(runDir,{sessionId:'s',generation:1,requestId:randomUUID(),tasks:[{id:'late',prompt:'Added'}]}),backend:backend(async()=>({value:'ok',terminalObserved:true}))});
+ const assigned=state.workers.find(w=>w.options.id==='actual'),dynamic=state.workers.find(w=>w.origin.kind==='guest'&&w.options.id===undefined),added=state.workers.find(w=>w.origin.kind==='append');
+ assert.equal(state.status,'completed');assert.equal(assigned.step.stepId,'second');assert.deepEqual(assigned.dependencies,undefined);assert.equal(dynamic.step,undefined);assert.equal(added.step,undefined);
+ const {readStepsAt}=await import('../engine/steps.mjs');const page=await readStepsAt({runDir,generation:1,run:null});
+ assert.equal(page.available,true);assert.equal(page.coverage.unassigned,1);assert.equal(page.items[0].execution,'planned');assert.equal(page.items[1].acceptance,'unverified');assert.equal(page.items[1].displayBlockedBy[0].stepId,'first');
+ assert.equal(page.coverage.dynamicWorkers,2);
+ const db=new DatabaseSync(join(runDir,'run.sqlite'));try{const value={...dynamic,step:null};db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=?').run(JSON.stringify(value),dynamic.position);}finally{db.close();}
+ assert.equal((await readStepsAt({runDir,generation:1,run:null})).coverage.dynamicWorkers,2,'A genuinely dynamic null association remains valid');
+ assert.equal((await (await import('../engine/controller.mjs')).readRun(runDir)).workers.find(w=>w.position===dynamic.position).step,null);
+});
+
+test('composition source revision invalidates no-agent invocation and interleaved completed ancestors',async t=>{
+ const f=await compositionFixture(t,'return {rows:await parallel([()=>workflow("child0",{}),()=>workflow("child1",{})]),tail:await agent("tail")};',{'a.mjs':meta+'await agent("slow",{id:"w"});return {version:1};','b.mjs':meta+'return {version:1};'});f.input.concurrency=2;
+ const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');assert.equal(f.starts(),2);
+ const {verifyWorkflowSources}=await import('../engine/composition.mjs');const cat=await verifyWorkflowSources({runDir:f.input.runDir,descriptor:first.workflowSources});
+ await writeFile(join(f.source,'b.mjs'),meta+'return {version:2};');
+ const request={schemaVersion:1,expectedGeneration:1,expectedCatalogHash:cat.catalogHash,reconciliation:'Synthetic fixture only; no external effects and all native fixture work drained.',replacements:[{alias:'child1',expectedSourceId:cat.entries.find(e=>e.alias==='child1').sourceId,source:{kind:'script',path:'b.mjs'}}]};
+ const second=await f.runWorkflow({...f.input,resume:true,expectedGeneration:1,workflowRevisions:request});
+ assert.equal(second.status,'completed');assert.equal(second.result.rows[1].value.version,2);assert.equal(second.result.rows[0].cached,false,'interleaved ancestor closes over invalidated descendant');assert.equal(second.workers.at(-1).cached,false);assert.equal(f.starts(),4);
+});
+
+test('preallocated Pause request identity survives receipt loss and later generation conflict',async t=>{
+ const {runDir,runWorkflow,requestControl,readControl}=await setup(t),{randomUUID}=await import('node:crypto');const requestId=randomUUID();let first;
+ const state=await runWorkflow({runDir,sessionId:'s',script:meta+'return null;',backend:backend(async()=>{throw Error('forbidden');}),onReady:async()=>{
+  first=await requestControl(runDir,{sessionId:'s',generation:1,action:'pause',requestId});
+  const duplicate=await requestControl(runDir,{sessionId:'s',generation:1,action:'pause',requestId});assert.deepEqual(duplicate,first);assert.equal(first.id,requestId);
+ }});
+ assert.equal(state.status,'paused');const retained=await readControl(runDir,requestId);assert.equal(retained.status,'applied');
+ assert.deepEqual(await requestControl(runDir,{sessionId:'s',generation:1,action:'pause',requestId}),retained);
+ await assert.rejects(requestControl(runDir,{sessionId:'s',generation:1,action:'stop',requestId}),{code:'CONTROL_CONFLICT'});
+});
+
+test('saved composition reads reject corrupt invocation links beyond requested child page',async t=>{
+ const f=await compositionFixture(t,'return {a:await workflow("child0",{}),b:await workflow("child0",{})};',{'a.mjs':meta+'return {ok:true};'});const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');
+ const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'));db.prepare('DELETE FROM invocation_links WHERE generation=1 AND seq=2').run();db.close();
+ await assert.rejects(f.readRun(f.input.runDir),{code:'COMPOSITION_CORRUPT'});
+});
+
+test('child paging refuses a cursor from an earlier generation after validating all invocation history',async t=>{
+ const f=await compositionFixture(t,'return {a:await workflow("child0",{}),b:await workflow("child0",{})};',{'a.mjs':meta+'return {ok:true};'});await f.runWorkflow(f.input);
+ const {readChildrenAt}=await import('../engine/composition-store.mjs');const page=await readChildrenAt({runDir:f.input.runDir,run:null,generation:1,limit:1});assert.equal(page.items.length,1);assert.equal(page.hasMore,true);
+ const next=await readChildrenAt({runDir:f.input.runDir,run:null,generation:1,limit:1,after:page.nextCursor});assert.equal(next.items[0].child.invocationId,'c_2');
+ await f.runWorkflow({...f.input,resume:true});await assert.rejects(readChildrenAt({runDir:f.input.runDir,run:null,generation:2,after:page.nextCursor}),{code:'COMPOSITION_INPUT'});
+});
+
+test('saved composition reads reject a rehashed child agent detached from its authoritative ancestor',async t=>{
+ const f=await compositionFixture(t,'await agent("root");return await workflow("child0",{});',{'a.mjs':meta+'return await agent("inside",{id:"reader"});'});const before=await f.runWorkflow(f.input);assert.equal(before.status,'completed');
+ const {digest}=await import('../engine/composition-contracts.mjs');const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'));const row=db.prepare('SELECT value FROM invocations WHERE generation=1 AND seq=3').get(),record=JSON.parse(row.value);record.parentSeq=null;db.prepare('UPDATE invocations SET value=?,record_hash=? WHERE generation=1 AND seq=3').run(JSON.stringify(record),digest(record));db.close();
+ await assert.rejects(f.readRun(f.input.runDir),{code:'COMPOSITION_CORRUPT'});await assert.rejects(f.runWorkflow({...f.input,resume:true}),{code:'COMPOSITION_CORRUPT'});assert.equal(f.starts(),2);
+});
+
+test('steps validate complete retained root and child declarations before any page or replay',async t=>{
+ const {digest}=await import('../engine/composition-contracts.mjs'),{readStepsAt}=await import('../engine/steps.mjs');
+ for(const scope of ['root','child'])for(const mutation of ['remove','replace','missing-scope','source']){
+  const steps=['a','b','c'].map(id=>({id,label:id,dependsOn:[]}));
+  const f=await compositionFixture(t,'return await workflow("child0",{});',{'a.mjs':'export const meta='+JSON.stringify({name:'child',description:'steps',steps})+';return {ok:true};'});
+  f.input.script=f.input.script.replace('"steps":[{"id":"unused","label":"Unassigned","dependsOn":[]}]','"steps":'+JSON.stringify(steps));
+  const before=await f.runWorkflow(f.input);assert.equal(before.status,'completed');
+  const page=await readStepsAt({runDir:f.input.runDir,run:null,generation:1,limit:1});assert.equal(page.coverage.declared,6);assert.equal(page.items.length,1);
+  const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'));
+  try{const ordinal=scope==='root'?0:1,c=JSON.parse(db.prepare('SELECT value FROM step_catalogs WHERE generation=1 AND ordinal=?').get(ordinal).value);
+   if(mutation==='missing-scope')db.prepare('DELETE FROM step_catalogs WHERE generation=1 AND ordinal=?').run(ordinal);
+   else{delete c.catalogHash;if(mutation==='source')c.sourceId='f'.repeat(64);if(mutation==='remove')c.steps.pop();if(mutation==='replace')c.steps[2]={id:'hidden',label:'Replacement',dependsOn:[]};c.catalogHash=digest(c);db.prepare('UPDATE step_catalogs SET value=? WHERE generation=1 AND ordinal=?').run(JSON.stringify(c),ordinal);}
+  }finally{db.close();}
+  await assert.rejects(readStepsAt({runDir:f.input.runDir,run:null,generation:1,limit:1}),{code:'STEP_CORRUPT'},scope+':'+mutation);
+  await assert.rejects(f.runWorkflow({...f.input,resume:true}),{code:'STEP_CORRUPT'});assert.equal(f.starts(),0);
+  const saved=new DatabaseSync(join(f.input.runDir,'run.sqlite'),{readOnly:true});try{assert.equal(JSON.parse(saved.prepare('SELECT value FROM header WHERE id=1').get().value).generation,1);}finally{saved.close();}
+ }
+});
+
+test('saved reads and replay refuse deleted or null required worker steps in the actual root or child scope',async t=>{
+ const {readStepsAt,readStepCatalogs}=await import('../engine/steps.mjs');
+ for(const scope of ['root','child'])for(const binding of ['preset','explicit'])for(const mutation of ['delete','null'])await t.test(`${scope} ${binding} ${mutation}`,async t=>{
+  const steps=Array.from({length:105},(_,i)=>({id:'s'+i,label:'Step '+i,dependsOn:[],...(i===103&&binding==='preset'?{worker:{id:'reader'}}:{})}));
+  const body='return await agent("Read",'+JSON.stringify({id:'reader',maxAttempts:1,...(binding==='explicit'?{stepId:'s103'}:{})})+');';
+  const f=await compositionFixture(t,scope==='root'?body:'return await workflow("child0",{});',scope==='child'?{'worker.mjs':'export const meta='+JSON.stringify({name:'child',description:'required association',steps})+';'+body}:{});
+  if(scope==='root')f.input.script='export const meta='+JSON.stringify({name:'root',description:'required association',steps})+';'+body;
+  const managed=await bindControlFixture(f.root);f.input.runDir=managed.runDir;
+  const intact=await f.runWorkflow(f.input);assert.equal(intact.status,'completed');assert.equal(intact.workers[0].step.stepId,'s103');
+  const page=await readStepsAt({runDir:f.input.runDir,run:managed.run,generation:1,limit:1});assert.equal(page.items.length,1);assert.equal(page.coverage.assigned,1);assert.equal(page.items[0].worker,null,'Required binding lies beyond page one');
+  const catalogInput={dataDir:managed.dataDir,run:managed.run,sessionId:'s',generation:1};assert.equal((await readStepCatalogs(catalogInput)).at(-1).steps.length,105);
+  const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'));let corrupt;
+  try{const w=JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value);if(mutation==='delete')delete w.step;else w.step=null;corrupt=JSON.stringify(w);db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(corrupt);}finally{db.close();}
+  await t.test('saved read',()=>assert.rejects(f.readRun(f.input.runDir),{code:'STEP_CORRUPT'}));
+  await t.test('page one',()=>assert.rejects(readStepsAt({runDir:f.input.runDir,run:managed.run,generation:1,limit:1}),{code:'STEP_CORRUPT'}));
+  await t.test('catalog read',()=>assert.rejects(readStepCatalogs(catalogInput),{code:'STEP_CORRUPT'}));
+  await t.test('resume',()=>assert.rejects(f.runWorkflow({...f.input,resume:true}),{code:'STEP_CORRUPT'}));
+  const saved=new DatabaseSync(join(f.input.runDir,'run.sqlite'),{readOnly:true});try{
+   const header=JSON.parse(saved.prepare('SELECT value FROM header WHERE id=1').get().value);
+   assert.equal(header.generation,1);assert.equal(header.attempts,intact.attempts);assert.equal(header.workerCount,1);
+   assert.equal(saved.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value,corrupt,'Refusal preserves the corrupt evidence exactly');
+   assert.equal(saved.prepare('SELECT count(*) AS n FROM workers').get().n,1);
+  }finally{saved.close();}
+  assert.equal(f.starts(),1,'No additional backend effect after refusal');
+ });
+});
+
+test('composed cosmetic edits preserve both effects and lifetime starts while changed calls require reconciliation',async t=>{
+ const f=await compositionFixture(t,'await phase("Initial");await agent("first",{id:"first",label:"Before",phase:"Before"});return await workflow("child0",{n:1});',{'worker.mjs':meta+'return await agent("second"+args.n,{id:"second",maxAttempts:1});'});
+ const effects={first:0,second:0},base=f.input.backend.execute;
+ f.input.backend.execute=async request=>{effects[request.prompt==='first'?'first':'second']++;return base(request);};
+ const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');assert.deepEqual(effects,{first:1,second:1});
+ const cosmetic=f.input.script.replace('phase("Initial")','log("Added cosmetic log");await phase("Renamed")').replace('label:"Before",phase:"Before"','label:"After",phase:"After"')+'\n// cosmetic root edit';
+ const second=await f.runWorkflow({...f.input,script:cosmetic,resume:true});assert.equal(second.status,'completed');assert.equal(second.attempts,2);assert.equal(second.coverage.cached,2);assert.deepEqual(effects,{first:1,second:1});
+ const unused=declaration('unused','worker.mjs'),withAlias=cosmetic.replace('"workflows":[','"workflows":['+JSON.stringify(unused)+',');
+ const third=await f.runWorkflow({...f.input,script:withAlias,resume:true});assert.equal(third.status,'completed');assert.equal(third.attempts,2);assert.deepEqual(third.workers.map(w=>w.reusedFrom),second.workers.map(w=>w.reusedFrom));assert.deepEqual(effects,{first:1,second:1});
+ const changed=withAlias.replace('"child0",{n:1}','"child0",{n:2}');
+ const refused=await f.runWorkflow({...f.input,script:changed,resume:true});assert.equal(refused.error.code,'COMPOSITION_REPLAY_CHANGED');assert.equal(refused.attempts,2);assert.deepEqual(effects,{first:1,second:1});
+ const {verifyWorkflowSources}=await import('../engine/composition.mjs');const sources=await verifyWorkflowSources({runDir:f.input.runDir,descriptor:refused.workflowSources});
+ await writeFile(join(f.source,'worker.mjs'),meta+'return await agent("reconciled"+args.n,{id:"second",maxAttempts:1});');
+ const workflowRevisions={schemaVersion:1,expectedGeneration:refused.generation,expectedCatalogHash:sources.catalogHash,reconciliation:'Both synthetic effects known; explicitly replace the child suffix only.',replacements:[{alias:'child0',expectedSourceId:sources.entries.find(e=>e.alias==='child0').sourceId,source:{kind:'script',path:'worker.mjs'}}]};
+ const recovered=await f.runWorkflow({...f.input,script:changed,resume:true,expectedGeneration:refused.generation,workflowRevisions});assert.equal(recovered.status,'completed');assert.equal(recovered.workers[0].cached,true);assert.equal(recovered.attempts,3);assert.deepEqual(effects,{first:1,second:2});
+});
+
+test('foreign valid journal results reject saved reads and resume including reused history before effects',async t=>{
+ const {digest,canonicalJSON}=await import('../engine/composition-contracts.mjs');
+ for(const corruptGeneration of [1,2]){
+  const f=await compositionFixture(t,'await agent("first");return await workflow("child0",{});',{'worker.mjs':meta+'return await agent("second");'});
+  f.input.backend.execute=async({prompt})=>({value:{z:prompt,a:1},terminalObserved:true});
+  let effects=0;const execute=f.input.backend.execute;f.input.backend.execute=async r=>{effects++;return execute(r);};
+  const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');assert.equal(first.result.value.z,'second');
+  if(corruptGeneration===2){const replay=await f.runWorkflow({...f.input,resume:true});assert.equal(replay.status,'completed');assert.equal(replay.result.value.z,'second');}assert.equal(effects,2);
+  const db=new DatabaseSync(join(f.input.runDir,'run.sqlite'));
+  try{for(let g=1;g<=corruptGeneration;g++){const rows=db.prepare('SELECT value FROM invocations WHERE generation=? ORDER BY seq').all(g).map(r=>JSON.parse(r.value)),victim=rows[0],foreign=rows[2];victim.result=foreign.result;victim.resultHash=foreign.resultHash;db.prepare('UPDATE invocations SET value=?,record_hash=? WHERE generation=? AND seq=1').run(canonicalJSON(victim),digest(victim),g);}}finally{db.close();}
+  await assert.rejects(f.readRun(f.input.runDir),{code:'COMPOSITION_CORRUPT'});await assert.rejects(f.runWorkflow({...f.input,resume:true}),{code:'COMPOSITION_CORRUPT'});assert.equal(effects,2);
+  const saved=new DatabaseSync(join(f.input.runDir,'run.sqlite'),{readOnly:true});try{const h=JSON.parse(saved.prepare('SELECT value FROM header WHERE id=1').get().value);assert.equal(h.generation,corruptGeneration);assert.equal(h.attempts,2);}finally{saved.close();}
+ }
+});
+
+test('cached children refuse changed effective worker settings before generation or further effects',async t=>{
+ const f=await compositionFixture(t,'return await workflow("child0",{});',{'worker.mjs':meta+'return await agent("inside",{id:"worker",maxAttempts:1});'});let effort='low';
+ f.input.backend.resolveOptions=()=>({model:'fixture',effort,maxAttempts:1});const first=await f.runWorkflow(f.input);assert.equal(first.status,'completed');const replay=await f.runWorkflow({...f.input,resume:true});assert.equal(replay.result.cached,true);assert.equal(f.starts(),1);
+ effort='medium';await assert.rejects(f.runWorkflow({...f.input,resume:true}),{code:'COMPOSITION_REPLAY_CHANGED'});assert.deepEqual(await f.readRun(f.input.runDir),replay);assert.equal(f.starts(),1);
+ effort='low';await assert.rejects(f.runWorkflow({...f.input,resume:true,workerTimeoutMs:1000}),{code:'COMPOSITION_REPLAY_CHANGED'});assert.deepEqual(await f.readRun(f.input.runDir),replay);assert.equal(f.starts(),1);
+});
+
+// Inert managed metadata fixture for public authenticated controls. Its native
+// file is never launched; real evaluator children and SQLite remain in use.
+async function bindControlFixture(root){
+ const {mkdir,rename}=await import('node:fs/promises'),{sourceDigest,dependenciesDigest,bindRun,runtimeEntries}=await import('../bin/managed-runtime.mjs'),{sha256}=await import('../engine/composition-contracts.mjs');
+ const dataDir=join(root,'managed'),stage=join(dataDir,'runtime-v2','stage');await mkdir(stage,{recursive:true});
+ for(const entry of runtimeEntries)if(!entry.includes('.'))await mkdir(join(stage,entry));else await writeFile(join(stage,entry),entry==='package.json'?JSON.stringify({version:'0.0.0',dependencies:{'@openai/codex':'0.162.1'}}):'fixture');
+ const dep=join(stage,'node_modules','@openai');await mkdir(join(dep,'codex'),{recursive:true});await writeFile(join(dep,'codex','package.json'),JSON.stringify({version:'0.162.1'}));
+ const platform=process.platform+'-'+process.arch,triple={win32:{x64:'x86_64-pc-windows-msvc'},linux:{x64:'x86_64-unknown-linux-musl'},darwin:{arm64:'aarch64-apple-darwin',x64:'x86_64-apple-darwin'}}[process.platform]?.[process.arch];assert.ok(triple);
+ const native=join(dep,'codex-'+platform);await mkdir(join(native,'vendor',triple,'bin'),{recursive:true});await writeFile(join(native,'package.json'),JSON.stringify({version:'0.162.1-'+platform}));const executable=join('node_modules','@openai','codex-'+platform,'vendor',triple,'bin',process.platform==='win32'?'codex.exe':'codex');await writeFile(join(stage,executable),'inert fixture; never execute');
+ const digest=await sourceDigest(stage),id='0.0.0-'+digest.slice(0,16)+'-node'+process.version.slice(1),path=join(dataDir,'runtime-v2',id),runtime={schema:2,version:'0.0.0',digest,node:process.version,id,path,codex:join(path,executable),codexDigest:sha256('inert fixture; never execute'),dependenciesDigest:await dependenciesDigest(stage)};await rename(stage,path);
+ const owner=await bindRun({dataDir,runtime,sessionId:'s'}),{contextRunRef}=await import('../engine/composition-store.mjs');return{dataDir,runDir:owner.runDir,run:await contextRunRef({runDir:owner.runDir,sessionId:'s'})};
+}
+async function observeUntil(read,predicate,milliseconds=3000){const deadline=Date.now()+milliseconds;let value;do{value=await read();if(predicate(value))return value;await new Promise(r=>setTimeout(r,10));}while(Date.now()<deadline);return value;}
+
+test('exact queued child cancellation settles before an unrelated held child and preserves FIFO permits',async t=>{
+ const f=await compositionFixture(t,'return {rows:await parallel([()=>workflow("child0",{id:"A"}),()=>workflow("child0",{id:"B"}),()=>workflow("child0",{id:"C"}),()=>workflow("child0",{id:"D"})])};',{'worker.mjs':meta+'return await agent(args.id,{id:"worker",maxAttempts:1});'});
+ const managed=await bindControlFixture(f.root);f.input.runDir=managed.runDir;
+ const {readChildrenAt}=await import('../engine/composition-store.mjs'),{randomUUID}=await import('node:crypto'),{execFile}=await import('node:child_process'),{promisify}=await import('node:util');
+ const client=async(method,input)=>{const code='import{'+method+' as call}from '+JSON.stringify(new URL('../engine/controls.mjs',import.meta.url).href)+';try{console.log(JSON.stringify({value:await call(JSON.parse(process.argv[1]))}));}catch(e){console.log(JSON.stringify({error:{code:e.code,message:e.message}}));}';const reply=JSON.parse((await promisify(execFile)(process.execPath,['--input-type=module','-e',code,JSON.stringify(input)],{windowsHide:true})).stdout);if(reply.error)throw Object.assign(new Error(reply.error.message),{code:reply.error.code});return reply.value;};
+ const requestDomainControl=input=>client('requestDomainControl',input),readDomainControl=input=>client('readDomainControl',input);
+ let releaseA,startedA;const gate=new Promise(r=>{releaseA=r;}),started=new Promise(r=>{startedA=r;}),calls=[],original=f.input.backend.execute;
+ f.input.backend.execute=async r=>{calls.push(r.prompt);if(r.prompt==='A'){startedA();await gate;}return original(r);};
+ const work=f.runWorkflow(f.input);work.catch(()=>{});let observed;
+ try{await started;const read=()=>readChildrenAt({runDir:managed.runDir,run:managed.run,generation:1});const queued=await observeUntil(read,p=>p.items.length===4);assert.equal(queued.items.length,4);
+  const child=queued.items[1].child,request={schemaVersion:1,requestId:randomUUID(),expectedGeneration:1,action:'cancel-child',payload:{child,expectedRevision:0}},input={dataDir:managed.dataDir,run:managed.run,sessionId:'s'};
+  await assert.rejects(requestDomainControl({...input,request:{...request,requestId:randomUUID(),expectedGeneration:2}}),{code:'CONTROL_GENERATION'});
+  await assert.rejects(requestDomainControl({...input,request:{...request,requestId:randomUUID(),payload:{child,expectedRevision:1}}}),{code:'CONTROL_CONFLICT'});
+  await requestDomainControl({...input,request});observed=await observeUntil(read,p=>p.items[1].execution==='cancelled');
+  assert.equal((await readDomainControl({...input,requestId:request.requestId})).status,'applied');assert.equal(observed.items[1].execution,'cancelled','queued B must settle while A stays held');assert.equal(observed.items[0].execution,'waiting');assert.deepEqual(calls,['A']);
+  assert.deepEqual(await requestDomainControl({...input,request}),await readDomainControl({...input,requestId:request.requestId}));
+  await assert.rejects(requestDomainControl({...input,request:{...request,payload:{child:queued.items[2].child,expectedRevision:0}}}),{code:'CONTROL_CONFLICT'});
+  await assert.rejects(requestDomainControl({...input,request:{...request,requestId:randomUUID()}}),{code:'CONTROL_CONFLICT'});
+ }finally{releaseA();await work;}
+ const state=await f.readRun(managed.runDir);assert.equal(state.status,'completed');assert.deepEqual(calls,['A','C','D']);assert.equal(state.result.rows[1],null);
+ const db=new DatabaseSync(join(managed.runDir,'run.sqlite'),{readOnly:true});try{const all=db.prepare('SELECT value FROM events ORDER BY seq').all().map(r=>JSON.parse(r.value)),events=all.filter(e=>e.method==='child-process');assert.equal(events.filter(e=>e.event==='spawn'&&e.child.invocationId==='c_2').length,0);const cancelled=all.find(e=>e.method==='invocation-terminal'&&e.seq===2);assert.equal(cancelled.noProcessStarted,true);assert.equal(cancelled.noInference,true);let live=0;for(const e of events){live+=e.event==='spawn'?1:-1;assert.ok(live>=0&&live<=1);}assert.equal(live,0);}finally{db.close();}
+});
+
+test('unintegrated artifact entrypoints refuse explicitly before worker admission',async t=>{
+ const {runDir,runWorkflow}=await setup(t);let calls=0;const first=await runWorkflow({runDir,sessionId:'s',script:meta+'return await refineArtifact({});',backend:backend(async()=>{calls++;return{value:'unexpected',terminalObserved:true};})});assert.equal(calls,0);assert.equal(first.status,'failed');assert.equal(first.error.code,'REFINEMENT_UNSUPPORTED');
+});
 
 test('new-run persisted input overflow refuses before creating state artifacts',async t=>{
  const {runDir:root,runWorkflow}=await setup(t),runDir=join(root,'unbound');let calls=0;
@@ -542,7 +768,7 @@ test('stop durably retains activity and unknown interruption through controlled 
   const gate=new Promise(resolve=>{finish=resolve;});let closed=false,dispatches=0;
   const usage={inputTokens:10,cachedInputTokens:2,outputTokens:3,reasoningOutputTokens:1,totalTokens:13};
   const progress={method:'item/agentMessage/delta',params:{threadId:'thread',turnId:'turn',itemId:'progress',delta:'durable before stop'}};
-  const input={runDir,sessionId:'s',concurrency:1,script:meta+'return await parallel([()=>agent("A"),()=>agent("B")]);'};
+  const input={runDir,sessionId:'s',concurrency:1,script:'export const meta={name:"stop",description:"unknown boundary",steps:[{id:"verify",label:"Verify",dependsOn:[]}]};return await parallel([()=>agent("A"),()=>agent("B")]);'};
   const worker={...backend(async({signal,onActive,onEvent,reserveRetry})=>{
     dispatches++;onActive({threadId:'thread',turnId:'turn'});onEvent(progress);
     onEvent({method:'thread/tokenUsage/updated',params:{threadId:'thread',turnId:'turn',tokenUsage:{total:usage}}});
@@ -581,6 +807,8 @@ test('stop durably retains activity and unknown interruption through controlled 
   assert.equal(stopped.cleanup.serverExited,true);assert.equal(stopped.cleanup.descendants,'notVerified');
   assert.equal(stopped.sessionId,before.sessionId);assert.equal(stopped.runtimeIdentity,before.runtimeIdentity);
   assert.equal(stopped.backendIdentity,before.backendIdentity);assert.equal(stopped.generation,1);
+  const {readStepsAt}=await import('../engine/steps.mjs'),steps=await readStepsAt({runDir,run:null,generation:1});
+  assert.equal(steps.coverage.futureWorkers,'executionClosed');assert.equal(steps.coverage.unassigned,1);assert.equal(steps.items[0].worker,null);assert.equal(steps.items[0].acceptance,'unverified');
   assert.deepEqual(stopped.workers[0].usage,during.workers[0].usage);
   const page=await monitorData(runDir,{kind:'activity',generation:1,position:0});
   assert.equal(page.observed,3);assert.equal(page.records.at(-1).status,'interrupted');

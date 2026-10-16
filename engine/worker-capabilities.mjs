@@ -7,7 +7,7 @@ import {fault} from '../foundation/client.mjs';
 import {projectToolEvent,createToolObserver,EARLY_TOOL_LIMIT,skillRootIdentity} from '../foundation/tool-observation.mjs';
 import {loadCapabilitySources} from './capability-sources.mjs';
 
-const MAX_FILES=128,MAX_BYTES=64*1024*1024;
+const MAX_SKILL_FILES=512,MAX_TOOL_FILES=128,MAX_BYTES=64*1024*1024;
 const sha=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 const bounded=value=>typeof value==='string'&&value.length>0&&value.length<=4096&&!/[\u0000-\u001f\u007f]/.test(value);
 const absolute=value=>bounded(value)&&isAbsolute(value)&&!/^[/\\]{2}/.test(value)&&!(process.platform==='win32'&&/[<>:"|?*]/.test(value.slice(2)))&&!value.replaceAll('\\','/').split('/').some(part=>['.','..'].includes(part));
@@ -34,7 +34,7 @@ async function unlinked(path,directory=false){
 
 async function checkFile(path,expected,limit,budget){
   await unlinked(path);
-  if(++budget.files>MAX_FILES)throw fault('SKILL_SOURCE','Skill source file count exceeded its limit');
+  if(++budget.files>budget.maximumFiles)throw fault('SKILL_SOURCE','Skill source file count exceeded its limit');
   const handle=await open(path,'r');
   try{
     const before=await handle.stat();
@@ -77,7 +77,7 @@ export async function verifySkillSources(input){
   if(!Array.isArray(input)||input.length>32)throw fault('SKILL_MANIFEST','Provide at most 32 declared skill sources');
   const skills=structuredClone(input),ids=new Set(),names=new Set(),paths=new Set();
   for(const skill of skills){
-    if(!exact(skill,['id','name','root','path','sha256','references'])||typeof skill.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(skill.id)||!bounded(skill.name)||!skill.name.trim()||skill.name.length>200||!absolute(skill.root)||!absolute(skill.path)||basename(skill.path)!=='SKILL.md'||!inside(skill.root,skill.path)||!sha(skill.sha256)||!Array.isArray(skill.references)||skill.references.length>64||ids.has(skill.id)||names.has(skill.name)||paths.has(pathKey(skill.path))){
+    if(!exact(skill,['id','name','root','path','sha256','references'])||typeof skill.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(skill.id)||!bounded(skill.name)||!skill.name.trim()||skill.name.length>200||!absolute(skill.root)||!absolute(skill.path)||basename(skill.path)!=='SKILL.md'||!inside(skill.root,skill.path)||!sha(skill.sha256)||!Array.isArray(skill.references)||skill.references.length>128||ids.has(skill.id)||names.has(skill.name)||paths.has(pathKey(skill.path))){
       throw fault('SKILL_MANIFEST','Skill descriptors require distinct IDs native names and original SKILL.md identities');
     }
     ids.add(skill.id);names.add(skill.name);paths.add(pathKey(skill.path));
@@ -89,7 +89,7 @@ export async function verifySkillSources(input){
       references.add(pathKey(path));
     }
   }
-  const budget={files:0,bytes:0};
+  const budget={files:0,bytes:0,maximumFiles:MAX_SKILL_FILES};
   try{
     for(const skill of skills){
       await unlinked(skill.root,true);
@@ -199,7 +199,7 @@ export function validateCapabilities(input){
 }
 
 export async function verifyToolSources(tool,{checkEnvironment=false}={}){
-  const budget={files:0,bytes:0,maximum:512*1024*1024};
+  const budget={files:0,bytes:0,maximumFiles:MAX_TOOL_FILES,maximum:512*1024*1024};
   try{
     await checkFile(tool.node.path,tool.node.sha256,256*1024*1024,budget);
     await unlinked(tool.launcher.root,true);await checkFile(tool.launcher.path,tool.launcher.sha256,16*1024*1024,budget);
@@ -247,8 +247,154 @@ export async function readCapabilities(path){
   }finally{await handle.close();}
 }
 
-const skillSourceCommand=skills=>[process.execPath,'--input-type=module','-e',`const m=await import(${JSON.stringify(import.meta.url)});await m.verifySkillSources(JSON.parse(process.argv[1]));process.stdout.write("WORKER_SKILL_SOURCE_OK\\n");`,JSON.stringify(skills)];
-const toolSourceCommand=tool=>[tool.node.path,'--input-type=module','-e',`const m=await import(${JSON.stringify(import.meta.url)});await m.verifyToolSources(JSON.parse(process.argv[1]),{checkEnvironment:true});process.stdout.write("WORKER_TOOL_SOURCE_OK\\n");`,JSON.stringify(tool)];
+const MAX_SOURCE_INPUT=256*1024,SOURCE_CHUNK_BYTES=8192,SOURCE_READY='WORKER_CAPABILITY_INPUT_READY\n';
+function sourceCommand(value,kind,node){
+  let serialized;
+  try{serialized=JSON.stringify(value);}catch{throw fault('CAPABILITY_SELECTION','Capability source input must be bounded JSON');}
+  if(typeof serialized!=='string'||Buffer.byteLength(serialized)>MAX_SOURCE_INPUT)throw fault('CAPABILITY_SELECTION','Capability source input exceeded its bounded transport');
+  const input=Buffer.from(serialized),hash=createHash('sha256').update(input).digest('hex');
+  return{input,hash,command:[node,'--input-type=module','-e',`const m=await import(${JSON.stringify(import.meta.url)});await m.verifyCapabilityStdin(...process.argv.slice(1));`,kind,String(input.length),hash]};
+}
+const skillSourceCommand=skills=>sourceCommand(skills,'skills',process.execPath);
+const toolSourceCommand=tool=>sourceCommand(tool,'tool',tool.node.path);
+
+// The argv contains only a fixed receiver and a small length/hash binding.
+// EOF is mandatory: neither a complete prefix nor a successful stdin write
+// admits sources. Every declared file is still verified in this process.
+export async function verifyCapabilityStdin(kind,length,hash){
+  if(!['skills','tool','skills-completion'].includes(kind)||typeof length!=='string'||!/^[1-9][0-9]{0,5}$/.test(length)||Number(length)>MAX_SOURCE_INPUT||!sha(hash))throw fault('CAPABILITY_INPUT','Invalid capability stdin binding');
+  const expected=Number(length),input=Buffer.alloc(expected);let bytes=0;
+  process.stdout.write(SOURCE_READY);
+  for await(const chunk of process.stdin){
+    if(bytes+chunk.length>expected)throw fault('CAPABILITY_INPUT','Capability stdin exceeded its exact bounded length');
+    chunk.copy(input,bytes);bytes+=chunk.length;
+  }
+  if(bytes!==expected||createHash('sha256').update(input).digest('hex')!==hash)throw fault('CAPABILITY_INPUT','Capability stdin length or content identity did not match');
+  let value;
+  try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(input));}catch{throw fault('CAPABILITY_INPUT','Capability stdin requires strict UTF8 JSON');}
+  if(kind==='skills-completion'){
+    try{await verifySkillSources(value);process.stdout.write('WORKER_SKILL_COMPLETION_OK\n');}
+    catch(error){const changed=error?.code==='SKILL_SOURCE';process.stdout.write(changed?'WORKER_SKILL_COMPLETION_CHANGED\n':'WORKER_SKILL_COMPLETION_UNKNOWN\n');process.exitCode=changed?12:13;}
+    return;
+  }
+  if(kind==='skills')await verifySkillSources(value);else await verifyToolSources(value,{checkEnvironment:true});
+  process.stdout.write(kind==='skills'?'WORKER_SKILL_SOURCE_OK\n':'WORKER_TOOL_SOURCE_OK\n');
+}
+
+async function sourceExec(client,invocation,{fact,cwd,sandboxPolicy,signal,timeoutMs,deadline,processIdPrefix='capability-'}){
+  const processId=`${processIdPrefix}${randomUUID()}`,transport=fact.transport={kind:'stdin-v1',bytes:invocation.input.length,sha256:invocation.hash,chunks:0,readiness:'notObserved',input:'notSent',settlement:'unknown',termination:'notRequested'};
+  const end=Math.min(deadline,performance.now()+timeoutMs+1000),output={stdout:[],stderr:[]},readyBytes=Buffer.from(SOURCE_READY);
+  let failure,dispatched=false,settled=false,closing=false,execution,unsubscribe,timer,total=0,notifications=0,stdoutBytes=0;
+  let readyResolve,stopResolve;
+  const ready=new Promise(resolve=>{readyResolve=resolve;}),stopped=new Promise(resolve=>{stopResolve=resolve;});
+  const fail=error=>{if(!failure){failure=error;stopResolve(error);}};
+  const cancelled=()=>fail(fault('CAPABILITY_CANCELLED','Worker capability stdin admission was cancelled'));
+  const check=()=>{if(signal?.aborted)cancelled();if(performance.now()>=end)fail(fault('CAPABILITY_DEADLINE','Worker capability stdin deadline expired'));if(failure)throw failure;};
+  const wait=async promise=>{
+    const outcome=await Promise.race([Promise.resolve(promise).then(value=>({ok:true,value}),error=>({ok:false,error})),stopped.then(error=>({ok:false,error}))]);
+    if(!outcome.ok)throw outcome.error;check();return outcome.value;
+  };
+  const request=(method,params)=>{check();return client.request(method,params,{timeoutMs:Math.max(1,Math.floor(end-performance.now()))});};
+  const record=result=>{
+    if(Number.isSafeInteger(result?.exitCode)){settled=true;fact.start='observed';fact.exitCode=result.exitCode;transport.settlement='observed';}
+  };
+  // Cleanup has its own small settlement allowance, even after cancellation.
+  // Never retry a write, dispatch or termination, including a lost response.
+  const cleanupWait=async promise=>{
+    let cleanupTimer;
+    try{return await Promise.race([Promise.resolve(promise).then(value=>({value}),()=>({unknown:true})),new Promise(resolve=>{cleanupTimer=setTimeout(()=>resolve({unknown:true}),1000);})]);}
+    finally{clearTimeout(cleanupTimer);}
+  };
+  try{
+    if(typeof client.onNotification!=='function'){fact.start='notStarted';throw fault('CAPABILITY_PROTOCOL','Source stdin requires native output notifications');}
+    assertCommandBudget(invocation.command);check();
+    unsubscribe=client.onNotification(message=>{
+      if(message.method!=='command/exec/outputDelta'||message.params?.processId!==processId)return;
+      const p=message.params;
+      if(++notifications>256||!['stdout','stderr'].includes(p.stream)||typeof p.capReached!=='boolean'||typeof p.deltaBase64!=='string'||p.deltaBase64.length>4*Math.ceil(8192/3)||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(p.deltaBase64)){
+        fail(fault('CAPABILITY_PROTOCOL','Invalid bounded source output notification'));return;
+      }
+      const bytes=Buffer.from(p.deltaBase64,'base64');
+      if(bytes.toString('base64')!==p.deltaBase64){fail(fault('CAPABILITY_PROTOCOL','Noncanonical source output notification'));return;}
+      fact.start='observed';
+      if(p.capReached||total+bytes.length>=8192){fact.outputTruncated=true;fail(fault('CAPABILITY_OUTPUT','Source output was truncated or exceeded its bound'));return;}
+      total+=bytes.length;output[p.stream].push(bytes);
+      if(p.stream==='stdout'&&transport.readiness!=='observed'){
+        stdoutBytes+=bytes.length;const prefix=Buffer.concat(output.stdout,stdoutBytes).subarray(0,readyBytes.length);
+        if(!prefix.equals(readyBytes.subarray(0,prefix.length))){fail(fault('CAPABILITY_PROTOCOL','Source stdin readiness did not match'));return;}
+        if(stdoutBytes>=readyBytes.length){transport.readiness='observed';readyResolve();}
+      }
+    });
+    signal?.addEventListener('abort',cancelled,{once:true});
+    timer=setTimeout(()=>fail(fault('CAPABILITY_DEADLINE','Worker capability stdin deadline expired')),Math.max(1,end-performance.now()));
+    check();dispatched=true;
+    // Install both settlement handlers immediately, before waiting for readiness
+    // or any write, so execution rejection cannot escape as unhandled rejection.
+    execution=Promise.resolve().then(()=>request('command/exec',{processId,command:invocation.command,cwd,sandboxPolicy,streamStdin:true,streamStdoutStderr:true,timeoutMs,outputBytesCap:8192})).then(result=>{
+      record(result);
+      if(!closing)fail(fault('CAPABILITY_EOF','Source process exited before input EOF was sent'));
+      return{result};
+    },()=>{const error=fault('CAPABILITY_EXEC_UNKNOWN','Source command execution outcome is unknown');fail(error);return{error};});
+    await wait(ready);
+    // Positive child output establishes readiness, as independently exercised
+    // against the pinned native transport. There is no blind registration retry.
+    for(let offset=0;offset<invocation.input.length;offset+=SOURCE_CHUNK_BYTES){
+      transport.input='writing';
+      try{
+        const response=await wait(request('command/exec/write',{processId,deltaBase64:invocation.input.subarray(offset,offset+SOURCE_CHUNK_BYTES).toString('base64'),closeStdin:false}));
+        if(!exact(response,[]))throw fault('CAPABILITY_PROTOCOL','Source stdin write returned an unexpected response');
+      }catch(error){transport.input='unknown';throw error;}
+      transport.chunks++;
+    }
+    closing=true;
+    try{
+      const response=await wait(request('command/exec/write',{processId,closeStdin:true}));
+      if(!exact(response,[]))throw fault('CAPABILITY_PROTOCOL','Source stdin close returned an unexpected response');
+    }catch(error){transport.input='unknown';throw error;}
+    transport.input='closed';
+    const outcome=await wait(execution);if(outcome.error)throw outcome.error;
+    const result=outcome.result;
+    if(!settled||result.stdout!==''||result.stderr!=='')throw fault('CAPABILITY_PROTOCOL','Source streamed completion was invalid');
+    let stdout,stderr;
+    try{stdout=new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(output.stdout));stderr=new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(output.stderr));}
+    catch{throw fault('CAPABILITY_PROTOCOL','Source output requires strict UTF8');}
+    return{...result,stdout:stdout.slice(SOURCE_READY.length),stderr};
+  }catch(error){
+    fact.diagnostic=typeof error?.code==='string'&&/^[A-Z_]{1,60}$/.test(error.code)?error.code:'CAPABILITY_TRANSPORT';
+    if(dispatched&&!settled){
+      transport.termination='unknown';
+      const terminated=await cleanupWait(Promise.resolve().then(()=>client.request('command/exec/terminate',{processId},{timeoutMs:1000})));
+      if(exact(terminated.value,[]))transport.termination='acknowledged';
+    }
+    if(execution&&!settled)await cleanupWait(execution);
+    if(dispatched&&(!settled||transport.input==='unknown'))fact.executionUnknown=true;
+    throw error;
+  }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancelled);unsubscribe?.();}
+}
+
+// Admission and completion bind the same selected bytes, through the same
+// receiver and bounded write protocol. A changed source is a known child result;
+// lost transport, malformed input and cancellation never imply source drift.
+export async function checkCompletionSources(client,{cwd,sandboxPolicy,selection,deadline,signal}){
+  const fact={scope:'selected-skills',skillCount:selection.skills.length,selectionFingerprint:selection.fingerprint,status:'failed',start:'unknown',exitCode:null,sourceStatus:'unverified',outputTruncated:false};
+  try{
+    if(signal?.aborted){fact.start='notStarted';throw fault('RUN_STOPPED','Completion source check was cancelled');}
+    if(deadline.remaining()<=0){fact.start='notStarted';throw fault('TURN_TIMEOUT','Worker deadline elapsed before source completion check');}
+    const invocation=sourceCommand(selection.skills,'skills-completion',process.execPath);
+    // The worker's live signal owns its mutable wall budget. Do not freeze a
+    // remaining-time snapshot into this independently bounded command.
+    const response=await sourceExec(client,invocation,{fact,cwd,sandboxPolicy,signal,timeoutMs:20000,deadline:Infinity,processIdPrefix:'capability-completion-'});
+    const valid=typeof response?.stdout==='string'&&typeof response?.stderr==='string';
+    fact.outputTruncated||=!valid||Buffer.byteLength(response.stdout+response.stderr)>=8192;
+    if(valid&&!fact.outputTruncated&&response.stderr===''){
+      if(fact.exitCode===0&&response.stdout.trim()==='WORKER_SKILL_COMPLETION_OK')fact.sourceStatus='verified';
+      else if(fact.exitCode===12&&response.stdout.trim()==='WORKER_SKILL_COMPLETION_CHANGED')fact.sourceStatus='changedOrUnavailable';
+    }
+    if(deadline.remaining()<=0)throw fault('TURN_TIMEOUT','Worker deadline elapsed during source completion check');
+    if(fact.sourceStatus==='verified')fact.status='passed';
+  }catch(error){fact.error={code:['RUN_STOPPED','TURN_TIMEOUT','REQUEST_TIMEOUT'].includes(error?.code)?error.code:'COMPLETION_CHECK_FAILED'};}
+  return fact;
+}
 function assertCommandBudget(command){
   // Conservative UTF-16 ceiling, including worst-case Windows quoting and
   // separators. Refuse the selection before App Server or commands are started.
@@ -267,9 +413,9 @@ export function selectCapabilities(manifest,options={}){
   for(const tool of tools.filter(tool=>toolIds.includes(tool.id)))for(const [key,value] of Object.entries(tool.environment)){
     if(environment[key]!==undefined&&environment[key]!==value)throw fault('CAPABILITY_SELECTION','Selected tools require conflicting managed home/cache values');environment[key]=value;
   }
-  assertCommandBudget(skillSourceCommand(skills));
+  assertCommandBudget(skillSourceCommand(skills).command);
   for(const tool of tools.filter(tool=>toolIds.includes(tool.id))){
-    assertCommandBudget(toolSourceCommand(tool));
+    assertCommandBudget(toolSourceCommand(tool).command);
     for(const stage of tool.readiness)assertCommandBudget([tool.node.path,tool.launcher.path,...stage.args]);
   }
   return freeze({fingerprint:digest({manifest,skillIds,toolIds,directSkills:DIRECT_SKILLS}),skills,tools,requireTools:toolIds,environment,
@@ -281,7 +427,7 @@ export function selectCapabilities(manifest,options={}){
 export async function admitWorkerCapabilities(client,{cwd,selection,signal,deadline=Infinity,sandboxPolicy={type:'readOnly',networkAccess:false}}){
   if(!selection)return null;
   const evidence={fingerprint:selection.fingerprint,skills:selection.skills.map(skill=>({id:skill.id,name:skill.name,path:skill.path,sha256:skill.sha256,references:skill.references})),roots:selection.roots,native:{...selection.native},tools:[],instructions:selection.instructions};
-  const stage=async(id,command,expectation,timeoutMs)=>{
+  const stage=async(id,invocation,expectation,timeoutMs)=>{
     const text=typeof expectation==='string';
     const fact={id,status:'running',start:'unknown',exitCode:null,expectation:text?'marker':'json',matched:false,...(text?{markerObserved:false}:{}),outputTruncated:false};
     try{
@@ -289,7 +435,7 @@ export async function admitWorkerCapabilities(client,{cwd,selection,signal,deadl
       const remaining=Math.floor(deadline-performance.now());
       if(remaining<=0){fact.start='notStarted';throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');}
       timeoutMs=Math.min(timeoutMs,remaining);
-      const result=await client.request('command/exec',{processId:`capability-${randomUUID()}`,command,cwd,sandboxPolicy,streamStdoutStderr:false,timeoutMs,outputBytesCap:8192},{timeoutMs:Math.min(timeoutMs+1000,remaining)});
+      const result=Array.isArray(invocation)?await client.request('command/exec',{processId:`capability-${randomUUID()}`,command:invocation,cwd,sandboxPolicy,streamStdoutStderr:false,timeoutMs,outputBytesCap:8192},{timeoutMs:Math.min(timeoutMs+1000,remaining)}):await sourceExec(client,invocation,{fact,cwd,sandboxPolicy,signal,timeoutMs,deadline});
       if(Number.isSafeInteger(result?.exitCode)){fact.start='observed';fact.exitCode=result.exitCode;}
       fact.outputTruncated=typeof result?.stdout!=='string'||typeof result?.stderr!=='string'||Buffer.byteLength((result?.stdout??'')+(result?.stderr??''))>=8192;
       if(text)fact.matched=fact.markerObserved=typeof result?.stdout==='string'&&result.stdout.trim()===expectation;
@@ -300,13 +446,14 @@ export async function admitWorkerCapabilities(client,{cwd,selection,signal,deadl
         }catch{fact.matched=false;}
       }
       if(fact.exitCode!==0||fact.outputTruncated||!fact.matched)throw fault('CAPABILITY_READINESS','Worker source or readiness command did not satisfy its bounded expectation');
+      if(signal?.aborted)throw fault('CAPABILITY_CANCELLED','Worker capability admission was cancelled');
       if(performance.now()>=deadline)throw fault('TURN_TIMEOUT','Worker exceeded its overall deadline');
       fact.status='passed';
-    }catch{fact.status='failed';}
+    }catch(error){fact.status='failed';fact.diagnostic??=typeof error?.code==='string'&&/^[A-Z_]{1,60}$/.test(error.code)?error.code:'CAPABILITY_READINESS';}
     return fact;
   };
   evidence.sources=await stage('skill-sources',skillSourceCommand(selection.skills),'WORKER_SKILL_SOURCE_OK',20000);
-  const blocked=()=>{const executionUnknown=[evidence.sources,...evidence.tools.flatMap(tool=>tool.stages)].some(stage=>stage.status==='failed'&&stage.start==='unknown');throw Object.assign(fault('CAPABILITY_READINESS','Worker capability admission failed; no inference dispatched'),{capabilities:evidence,noInference:true,...(executionUnknown?{executionUnknown:true}:{})});};
+  const blocked=()=>{const executionUnknown=[evidence.sources,...evidence.tools.flatMap(tool=>tool.stages)].some(stage=>stage.status==='failed'&&(stage.start==='unknown'||stage.executionUnknown));throw Object.assign(fault('CAPABILITY_READINESS','Worker capability admission failed; no inference dispatched'),{capabilities:evidence,noInference:true,...(executionUnknown?{executionUnknown:true}:{})});};
   if(evidence.sources.status!=='passed')blocked();
   const externalDocuments=selection.skills.flatMap(skill=>skill.references
     .filter(reference=>reference.path.toLowerCase().endsWith('.md')&&basename(reference.path).toLowerCase()!=='skill.md'&&!inside(dirname(skill.path),resolve(skill.root,reference.path)))

@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "at": "2026-10-14T01:24:19.281Z",
+  "scope": "fresh public CLI capability bundle; hidden fixture only; no asset-tool or release claim",
+  "runId": "0cc2103c-babe-436b-b7d1-837477c0b3c0",
+  "generation": 1,
+  "position": 0,
+  "attempts": 1,
+  "runtime": {
+    "id": "0.3.1-b69cce4a7ac32e14-node24.18.0",
+    "digest": "b69cce4a7ac32e14d0a07ea221cc73474db81ef7f3ea2a36e07beb34904aa19a",
+    "node": "v24.18.0"
+  },
+  "bundleFingerprint": "40728d75ca562a0cd4cfc4df4a6f0d4d7a2f13fbe639a6177d8c53fbce712116",
+  "selection": {
+    "fingerprint": "12d7b2508c0038476b35306d433a11622024bf325391ed4e64d387a1ebe7da6f",
+    "skills": [
+      "native-proof"
+    ],
+    "requireTools": []
+  },
+  "coverage": {
+    "requested": 1,
+    "completed": 1,
+    "cached": 0,
+    "failed": 0,
+    "unknown": 0,
+    "complete": true
+  },
+  "native": {
+    "catalog": "callAndOutputObserved",
+    "read": "callAndOutputObserved",
+    "exposure": "effectiveDirectModelOnly",
+    "observations": [
+      {
+        "turnId": "01a13801-07ee-73b0-ac27-ea1993c701a5",
+        "callId": "call_231f1b67f8234d2597bd85b0dc3ed8aa",
+        "tool": "skills.list",
+        "callObserved": true,
+        "outputObserved": true,
+        "ambiguous": false,
+        "outcome": "notVerified"
+      },
+      {
+        "turnId": "01a13801-07ee-73b0-ac27-ea1993c701a5",
+        "callId": "call_22348221b7c64606bad654ea885dc054",
+        "tool": "skills.read",
+        "callObserved": true,
+        "outputObserved": true,
+        "ambiguous": false,
+        "outcome": "notVerified"
+      }
+    ],
+    "discarded": 0,
+    "counters": {
+      "malformed": 0,
+      "duplicate": 0,
+      "conflicting": 0,
+      "discarded": 0,
+      "overflow": 0,
+      "unconfirmedDiscarded": 0,
+      "foreign": 0,
+      "unsupported": 0,
+      "missingCall": 0,
+      "missingOutput": 0
+    },
+    "coverage": "complete",
+    "catalogContents": "notRetained",
+    "readRootMatch": "notVerified"
+  },
+  "sourceStage": {
+    "id": "skill-sources",
+    "status": "passed",
+    "start": "observed",
+    "exitCode": 0,
+    "markerObserved": true,
+    "outputTruncated": false
+  },
+  "hiddenMarkerMatched": true,
+  "modelCommandCount": 0,
+  "manualOrExecFallbackObserved": false,
+  "workerCleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members",
+    "nativeTerminals": {
+      "observed": 0,
+      "acknowledged": 0,
+      "inventoryEmpty": true,
+      "descendants": "notVerified"
+    }
+  },
+  "aggregateCleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified",
+    "jobEmpty": true,
+    "ownershipScope": "windows-job-members",
+    "startup": [
+      {
+        "stage": "discovery",
+        "cleanup": {
+          "serverExited": true,
+          "forced": false,
+          "descendants": "notVerified",
+          "jobEmpty": true,
+          "ownershipScope": "windows-job-members"
+        }
+      },
+      {
+        "stage": "admission",
+        "cleanup": {
+          "serverExited": true,
+          "forced": false,
+          "descendants": "notVerified",
+          "jobEmpty": true,
+          "ownershipScope": "windows-job-members"
+        }
+      },
+      {
+        "stage": "setup",
+        "cleanup": {
+          "serverExited": true,
+          "forced": false,
+          "descendants": "notVerified",
+          "jobEmpty": true,
+          "ownershipScope": "windows-job-members"
+        }
+      }
+    ]
+  },
+  "passed": true
+}

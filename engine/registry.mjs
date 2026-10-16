@@ -23,10 +23,12 @@ async function noLinks(target){
 async function readText(path){
   await noLinks(path);const handle=await open(path,'r');
   try{
-    const info=await handle.stat();if(!info.isFile()||info.size>maxScript)throw fault('WORKFLOW_PATH','Workflow must be a regular file no larger than 1 MiB');
+    const info=await handle.stat();if(!info.isFile()||info.nlink!==1||info.size>maxScript)throw fault('WORKFLOW_PATH','Workflow must be a regular single-link file no larger than 1 MiB');
     const buffer=Buffer.alloc(maxScript+1);let size=0;
     while(size<buffer.length){const {bytesRead}=await handle.read(buffer,size,buffer.length-size);if(!bytesRead)break;size+=bytesRead;}
     if(size>maxScript)throw fault('WORKFLOW_PATH','Workflow grew beyond 1 MiB');
+    const after=await handle.stat(),current=await lstat(path);await noLinks(path);
+    if(['dev','ino','size','mtimeMs','ctimeMs','nlink'].some(k=>info[k]!==after[k]||after[k]!==current[k])||after.size!==size)throw fault('WORKFLOW_PATH','Workflow changed while being read');
     return new TextDecoder('utf-8',{fatal:true}).decode(buffer.subarray(0,size));
   }finally{await handle.close();}
 }

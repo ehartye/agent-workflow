@@ -66,6 +66,45 @@ test('writer workspaces capture exact local inputs and keep two writers and sour
 
 const capturePolicy={version:1,excludeDirs:['generated/'],protectedPaths:['assigned/','binary.dat','note.txt']};
 
+test('Windows retained blobs and private indexes beyond 260 characters preserve exact writer artifacts',{skip:process.platform!=='win32'},async t=>{
+  const {root,source,artifacts}=await fixture(t),sha=bytes=>createHash('sha256').update(bytes).digest('hex');
+  // Keep the repository opt-out explicit: production must supply command-scoped support.
+  await git(source,'config','core.longpaths','false');
+  await writeFile(join(source,'note.txt'),'staged input\n');await git(source,'add','note.txt');
+  const original=Buffer.from('unstaged input\n');await writeFile(join(source,'note.txt'),original);
+  const index=await readFile(join(source,'.git','index')),config=await readFile(join(source,'.git','config'));
+  const status=await git(source,'status','--porcelain=v1'),object=await git(source,'hash-object','note.txt');
+  let retained=artifacts;
+  while(join(retained,'inputs','private-index').length<=270)retained=join(retained,'retained-artifacts-segment');
+  await mkdir(retained,{recursive:true});
+  assert.ok(retained.startsWith(root+'\\'));
+  const inputs=await captureInputs({source,artifactsDir:join(retained,'inputs'),capturePolicy:{version:1,excludeDirs:[],protectedPaths:['note.txt']}});
+  assert.ok(inputs.inputIndex.length>260);assert.ok(inputs.files.every(file=>file.blobPath.length>260));
+  assert.equal(inputs.files.find(file=>file.name==='note.txt').sha256,sha(original));
+  assert.equal(inputs.inputIndexHash,sha(await readFile(inputs.inputIndex)));
+  assert.equal(await git(source,'ls-tree',inputs.inputTree,'note.txt'),`100644 blob ${object}\tnote.txt`);
+  assert.equal((await loadInputs(describeInputs(inputs))).manifestHash,inputs.manifestHash);
+  const writer=await createWorkspace({inputs,artifactsDir:join(retained,'writer')});
+  assert.equal(await assertWorkspaceReady(writer),true);assert.deepEqual(await readFile(join(writer.cwd,'note.txt')),original);
+  await writeFile(join(writer.cwd,'note.txt'),'writer output\n');
+  const result=await collectWorkspace(writer),manifest=JSON.parse(await readFile(result.manifestPath,'utf8'));
+  assert.deepEqual(result.changedFiles,['note.txt']);
+  assert.ok(join(retained,'writer','result','private-index').length>260);
+  assert.ok(manifest.files.every(file=>file.blobPath.length>260));
+  assert.equal(manifest.files.find(file=>file.name==='note.txt').sha256,sha('writer output\n'));
+  assert.equal(result.patchHash,sha(await readFile(result.patchPath)));assert.equal(result.basePatchHash,sha(await readFile(result.basePatchPath)));
+  assert.equal(result.manifestHash,sha(await readFile(result.manifestPath)));assert.equal(await verifyWorkspace(result),true);
+  const replay=await createWorkspace({inputs,artifactsDir:join(artifacts,'replay')});
+  await git(replay.cwd,'-c','core.longpaths=true','apply',result.patchPath);
+  assert.equal(await readFile(join(replay.cwd,'note.txt'),'utf8'),'writer output\n');
+  assert.deepEqual(await readFile(join(source,'note.txt')),original);assert.deepEqual(await readFile(join(source,'.git','index')),index);
+  assert.deepEqual(await readFile(join(source,'.git','config')),config);assert.equal(await git(source,'config','--local','--get','core.longpaths'),'false');
+  assert.equal(await git(source,'status','--porcelain=v1'),status);assert.equal(await git(source,'hash-object','note.txt'),object);
+  assert.equal(inputs.inputIndexHash,sha(await readFile(inputs.inputIndex)));
+  t.diagnostic(JSON.stringify({retainedBlobLength:inputs.files[0].blobPath.length,inputIndexLength:inputs.inputIndex.length,inputTree:inputs.inputTree,
+    inputIndexHash:inputs.inputIndexHash,sourceIndexHash:sha(index),patchHash:result.patchHash,basePatchHash:result.basePatchHash,manifestHash:result.manifestHash}));
+});
+
 test('non-UTF-8 text diffs retain exact replayable bytes without claiming a text preview',async t=>{
   const {root,source,artifacts}=await fixture(t),legacy=join(source,'legacy.txt');
   const bytes=value=>Buffer.from([0x63,0x61,0x66,value,0x0a]);

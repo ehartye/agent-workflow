@@ -2,8 +2,8 @@
 // dependencies, real run data or model inference. All files live in the test cwd.
 import {createInterface} from 'node:readline';
 import {appendFileSync,readFileSync,unlinkSync,writeFileSync} from 'node:fs';
-import {writeFile,readdir,mkdir} from 'node:fs/promises';
-import {join} from 'node:path';
+import {writeFile,readFile,readdir,mkdir,cp} from 'node:fs/promises';
+import {join,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import childProcess from 'node:child_process';
 import {registerHooks,syncBuiltinESMExports} from 'node:module';
@@ -42,10 +42,12 @@ if(mode==='cli'){
   const reply=(id,result)=>send({id,result});
   const notify=(method,params)=>send({method,params});
   const fail=id=>send({id,error:{code:-32000,message:secret}});
+  const trace=event=>appendFileSync('trace.jsonl',JSON.stringify({stage,...event})+'\n');
+  const phase=processId=>processId.startsWith('capability-completion-')?'completion':'admission';
   createInterface({input:process.stdin}).on('line',line=>{
     const request=JSON.parse(line),{id,method,params}=request;
     if(method==='initialized')return;
-    appendFileSync('trace.jsonl',JSON.stringify({stage,method,...(method==='command/exec'?{commandTimeoutMs:params.timeoutMs}:{}),...(params.sandboxPolicy?{sandboxPolicy:params.sandboxPolicy}:{}),...(params.runtimeWorkspaceRoots?{cwd:params.cwd,runtimeWorkspaceRoots:params.runtimeWorkspaceRoots}:{}),...(method==='thread/start'?{sandbox:params.sandbox,developerInstructions:params.developerInstructions,experimentalRawEvents:params.experimentalRawEvents===true,experimentalApi,roots:params.selectedCapabilityRoots??[]}:{}) ,...(method==='turn/start'?{inputTypes:params.input.map(item=>item.type),nativeSkillGuidance:params.input.some(item=>item.type==='text'&&item.text.includes('skills.list')&&item.text.includes('skills.read'))}:{})})+'\n');
+    trace({method,...(method==='command/exec'?{commandTimeoutMs:params.timeoutMs,streamStdin:params.streamStdin===true,streamStdoutStderr:params.streamStdoutStderr===true,argvBudget:params.command.reduce((size,arg)=>size+2*arg.length+3,0),...(params.processId.startsWith('capability-')?{sourcePhase:phase(params.processId)}:{})}:{}),...(params.sandboxPolicy?{sandboxPolicy:params.sandboxPolicy}:{}),...(params.runtimeWorkspaceRoots?{cwd:params.cwd,runtimeWorkspaceRoots:params.runtimeWorkspaceRoots}:{}),...(method==='thread/start'?{sandbox:params.sandbox,developerInstructions:params.developerInstructions,experimentalRawEvents:params.experimentalRawEvents===true,experimentalApi,roots:params.selectedCapabilityRoots??[]}:{}) ,...(method==='turn/start'?{inputTypes:params.input.map(item=>item.type),nativeSkillGuidance:params.input.some(item=>item.type==='text'&&item.text.includes('skills.list')&&item.text.includes('skills.read'))}:{})});
     if(scenario.requestFailure===method)return fail(id);
     if(method==='initialize'){experimentalApi=params.capabilities.experimentalApi;return reply(id,{userAgent:'fixture/0.162.1'});}
     if(method==='config/read')return reply(id,{config:{...config,sandbox_mode:full?'danger-full-access':'read-only',...(all.parentAccess?{plugins:{'fixture-plugin':{enabled:true,token:secret}},mcp_servers:{'fixture-server':{enabled:scenario.mcpEnabled!==false,token:secret,...(Object.hasOwn(scenario,'mcpStartupTimeoutSec')?{startup_timeout_sec:scenario.mcpStartupTimeoutSec}:{})}}}:{}),...(stage==='worker'&&(all.nativeSkills||all.parentAccess)?{features:{...config.features,code_mode:{direct_only_tool_namespaces:['skills']}}}:{}),...(scenario.integrationDrift?{apps:{'new-integration':{enabled:true}}}:{}),...(scenario.badIntegration?{mcp_servers:{'bad\nidentifier':{enabled:true}}}:{})},layers:[{config:{}}]});
@@ -63,16 +65,53 @@ if(mode==='cli'){
     if(method==='command/exec'){
       if(JSON.stringify(params.sandboxPolicy)!==JSON.stringify(sandboxPolicy))throw Error('Command did not preserve admitted permissions');
       if(params.processId.startsWith('capability-')){
-        if(params.processId.startsWith('capability-completion-')&&scenario.completionTransportFailure)return fail(id);
-        if(scenario.sourceFailure)return reply(id,{exitCode:7,stdout:secret,stderr:secret});
-        promisify(childProcess.execFile)(params.command[0],params.command.slice(1),{cwd:params.cwd,env:process.env,windowsHide:true,timeout:params.timeoutMs,maxBuffer:8192}).then(result=>setTimeout(()=>reply(id,{exitCode:0,...result}),scenario.sourceDelayMs??0),error=>reply(id,{exitCode:Number.isInteger(error.code)?error.code:1,stdout:error.stdout??'',stderr:error.stderr??''}));return;
+        if(params.processId.startsWith('capability-completion-')&&scenario.completionTransportFailure===true)return fail(id);
+        const command=scenario.sourceFailure?[process.execPath,'-e',`process.stderr.write(${JSON.stringify(secret)});process.exitCode=7;`]:[...params.command];
+        if(params.processId.startsWith('capability-completion-')&&scenario.completionTransportFailure==='binding')command[command.length-1]='0'.repeat(64);
+        const child=childProcess.spawn(command[0],command.slice(1),{cwd:params.cwd,env:process.env,windowsHide:true,timeout:params.timeoutMs,stdio:['pipe','pipe','pipe']});
+        const entry={id,child,sourcePhase:phase(params.processId),writing:false,closed:false,output:{stdout:[],stderr:[]},totals:{stdout:0,stderr:0}};
+        commands.set(params.processId,entry);child.stdin.on('error',()=>{});
+        if(!params.streamStdin)child.stdin.end();
+        for(const stream of ['stdout','stderr'])child[stream].on('data',bytes=>{
+          const available=Math.max(0,params.outputBytesCap-entry.totals[stream]);entry.totals[stream]+=bytes.length;
+          const bounded=bytes.subarray(0,available);entry.output[stream].push(bounded);
+          if(stream==='stdout'&&!entry.ready&&Buffer.concat(entry.output.stdout).toString('utf8').startsWith('WORKER_CAPABILITY_INPUT_READY\n')){
+            entry.ready=true;trace({method:'fixture/sourceReady',sourcePhase:entry.sourcePhase,pid:child.pid});
+          }
+          if(params.streamStdoutStderr)notify('command/exec/outputDelta',{processId:params.processId,stream,deltaBase64:bounded.toString('base64'),capReached:entry.totals[stream]>=params.outputBytesCap});
+        });
+        child.once('error',()=>{entry.failed=true;});
+        entry.drained=new Promise(resolve=>child.once('close',code=>{
+          const stdout=Buffer.concat(entry.output.stdout).toString('utf8'),stderr=Buffer.concat(entry.output.stderr).toString('utf8');
+          trace({method:'fixture/sourceExit',sourcePhase:entry.sourcePhase,pid:child.pid,exitCode:code,verified:code===0&&['WORKER_SKILL_SOURCE_OK','WORKER_SKILL_COMPLETION_OK','WORKER_TOOL_SOURCE_OK'].includes(stdout.trim().split('\n').at(-1))});
+          entry.finish=()=>{clearTimeout(entry.timer);commands.delete(params.processId);if(entry.failed)fail(id);else reply(id,{exitCode:code??1,stdout:params.streamStdoutStderr?'':stdout,stderr:params.streamStdoutStderr?'':stderr});};
+          entry.timer=setTimeout(entry.finish,scenario.sourceDelayMs??0);resolve();
+        }));return;
       }
       const cancel=params.processId.startsWith('cancel-');
       if(params.streamStdoutStderr)notify('command/exec/outputDelta',{processId:params.processId,stream:'stdout',deltaBase64:Buffer.from(cancel?'READY\n':'FOUNDATION_OK\n').toString('base64'),capReached:false});
-      if(cancel){commands.set(params.processId,id);return;}
+      if(cancel){commands.set(params.processId,{id});return;}
       return reply(id,{exitCode:0,stdout:'FOUNDATION_OK\n',stderr:''});
     }
-    if(method==='command/exec/terminate'){reply(id,{});return reply(commands.get(params.processId),{exitCode:1,stdout:'',stderr:''});}
+    if(method==='command/exec/write'){
+      const entry=commands.get(params.processId);
+      if(!entry?.child||entry.closed||entry.writing||params.closeStdin&&params.deltaBase64!==undefined)return fail(id);
+      entry.writing=true;
+      const done=error=>{
+        entry.writing=false;if(error)return fail(id);
+        const lost=entry.sourcePhase==='completion'&&scenario.completionTransportFailure==='write';
+        trace({method:lost?'fixture/sourceWriteApplied':params.closeStdin?'fixture/sourceEof':'fixture/sourceWriteAck',sourcePhase:entry.sourcePhase,bytes:params.deltaBase64?Buffer.from(params.deltaBase64,'base64').length:0});
+        if(lost)return fail(id);reply(id,{});
+      };
+      if(params.closeStdin){entry.closed=true;entry.child.stdin.end(done);}
+      else entry.child.stdin.write(Buffer.from(params.deltaBase64,'base64'),done);
+      return;
+    }
+    if(method==='command/exec/terminate'){
+      const entry=commands.get(params.processId);
+      if(entry?.child){entry.child.kill();entry.drained.then(()=>{entry.finish?.();reply(id,{});});return;}
+      reply(id,{});if(entry){commands.delete(params.processId);reply(entry.id,{exitCode:1,stdout:'',stderr:''});}return;
+    }
     if(method==='thread/start'){
       if(!experimentalApi||params.experimentalRawEvents!==true)return fail(id);
       selectedRoots=params.selectedCapabilityRoots??[];
@@ -93,7 +132,7 @@ if(mode==='cli'){
         if(calls==='paired'||calls==='unpaired'){
           notify('rawResponseItem/completed',{threadId:params.threadId,turnId:'fixture-turn',item:{type:'function_call',call_id:'native-list',namespace:'skills',name:'list',arguments:'{}'}});
           notify('rawResponseItem/completed',{threadId:params.threadId,turnId:'fixture-turn',item:{type:'function_call_output',call_id:'native-list',output:'PRIVATE_NATIVE_SKILL_CATALOG'}});
-          const selected=[['native-fixture',all.nativeSkills?(selectedRoots.find(root=>root.id==='native-fixture')?.location.path??originalSelected):join(process.cwd(),'codex-home','plugins','cache','fixture-market','fixture-plugin','1.0.0','skills','parent')]];
+          const selected=all.packagedSkills?selectedRoots.map(root=>[root.id,root.location.path]):[['native-fixture',all.nativeSkills?(selectedRoots.find(root=>root.id==='native-fixture')?.location.path??originalSelected):join(process.cwd(),'codex-home','plugins','cache','fixture-market','fixture-plugin','1.0.0','skills','parent')]];
           if(all.twoSkills&&scenario.nativeRead!=='partial')selected.push(['native-second',join(process.cwd(),'selected-second')]);
           for(const [skillId,path] of selected){
             const root=path.replaceAll('\\','/'),packageUri=`skill://${skillId}/${root}`,callId=`native-read-${skillId}`;
@@ -123,7 +162,8 @@ if(mode==='cli'){
     }
     if(method==='turn/interrupt'){reply(id,{});const finish=()=>notify('turn/completed',{threadId:params.threadId,turn:{id:params.turnId,status:'interrupted',items:[]}});if(scenario.interruptDelayMs)return setTimeout(finish,scenario.interruptDelayMs);return finish();}
     throw Error('Unexpected protocol method');
-  }).on('close',()=>{
+  }).on('close',async()=>{
+    await Promise.all([...commands.values()].filter(entry=>entry.child).map(async entry=>{entry.child.kill();await entry.drained;entry.finish?.();}));
     // A controlled receipt tests backend proof handling. This is not a native
     // Windows job containment test (owned by windows-job.test.mjs).
     const finish=()=>{
@@ -147,7 +187,7 @@ if(mode==='cli'){
     workspace=await createWorkspace({inputs,artifactsDir:join(process.cwd(),'outputs')});
     if(scenario.workspace==='tampered')workspace.gitPointerHash='0'.repeat(64);
   }
-  let workerCapabilities,selectedRoot;
+  let workerCapabilities,selectedRoot,bundleFixture;
   if(scenario.parentAccess){
     const home=join(process.cwd(),'codex-home'),plugin=join(home,'plugins','cache','fixture-market','fixture-plugin','1.0.0');
     process.env.CODEX_HOME=home;
@@ -164,6 +204,18 @@ if(mode==='cli'){
       const second=join(process.cwd(),'selected-second');await mkdir(second);const path=join(second,'SKILL.md');await writeFile(path,body);
       workerCapabilities.skills.push({id:'native-second',name:'fixture:second',root:process.cwd(),path,sha256:createHash('sha256').update(body).digest('hex'),references:[]});
     }
+  }
+  if(scenario.packagedSkills){
+    const source=join(process.cwd(),'packaged-plugin'),skills=[];let files=0;
+    for(const name of ['agent-workflow','workflow-authoring','workflow-setup','workflow-mode']){
+      const copied=join(source,'skills',name);await cp(new URL(`../../skills/${name}/`,import.meta.url),copied,{recursive:true,errorOnExist:true,force:false});
+      const inventory=[];
+      const walk=async directory=>{for(const entry of await readdir(directory,{withFileTypes:true})){const path=join(directory,entry.name);if(entry.isDirectory())await walk(path);else inventory.push({path:relative(source,path).replaceAll('\\','/'),sha256:createHash('sha256').update(await readFile(path)).digest('hex')});}};
+      await walk(copied);files+=inventory.length;
+      const main=inventory.find(file=>file.path===`skills/${name}/SKILL.md`);
+      skills.push({id:name,name:`agent-workflow:${name}`,root:source,path:join(copied,'SKILL.md'),sha256:main.sha256,references:inventory.filter(file=>file!==main)});
+    }
+    workerCapabilities={version:1,skills,tools:[]};bundleFixture={files,skills:skills.length};
   }
   const connections=[],closeCalls={},stageByClient=new WeakMap();let connecting;
   const {AppServer,diagnostic,fault}=await import('../../foundation/client.mjs');
@@ -240,7 +292,7 @@ if(mode==='cli'){
       }else{
       let deadlineHandle,deadlineRegistered;
       const onDeadline=handle=>{deadlineHandle=handle;deadlineRegistered=handle.snapshot();if(scenario.liveChange){const apply=()=>handle.apply({...scenario.liveChange,expectedRevision:handle.snapshot().revision});if(scenario.liveChangeDelayMs)setTimeout(apply,scenario.liveChangeDelayMs);else apply();}};
-      const result=scenario.execute?await backend.execute({onDeadline,onActive:()=>{if(scenario.activeChange)deadlineHandle.apply({...scenario.activeChange,expectedRevision:deadlineHandle.snapshot().revision});if(scenario.activeFailure)throw fault('CONTROL_FIXTURE','Controlled active registration failure');},prompt:'Controlled fixture answer',position:0,workspace,options:{...(scenario.nativeSkills?{skills:scenario.twoSkills?['native-fixture','native-second']:['native-fixture']}:{}),...(scenario.timeoutMs?{timeoutMs:scenario.timeoutMs}:{}),...scenario.workerOptions}}):undefined;
+      const result=scenario.execute?await backend.execute({onDeadline,onActive:()=>{if(scenario.activeChange)deadlineHandle.apply({...scenario.activeChange,expectedRevision:deadlineHandle.snapshot().revision});if(scenario.activeFailure)throw fault('CONTROL_FIXTURE','Controlled active registration failure');},prompt:'Controlled fixture answer',position:0,workspace,options:{...(scenario.nativeSkills?{skills:scenario.packagedSkills?workerCapabilities.skills.map(skill=>skill.id):scenario.twoSkills?['native-fixture','native-second']:['native-fixture']}:{}),...(scenario.timeoutMs?{timeoutMs:scenario.timeoutMs}:{}),...scenario.workerOptions}}):undefined;
       const closing=backend.close(),again=backend.close();
       report={ok:true,effective:backend.resolveOptions(),parentCapabilities:backend.parentCapabilities,capabilitySources:backend.capabilitySources,admission:backend.admission,value:result?.value,workerEvidence:result?.evidence,deadlineRegistered,deadlineFinal:deadlineHandle?.snapshot(),cleanup:await closing,sameClose:closing===again};
       }
@@ -251,5 +303,6 @@ if(mode==='cli'){
     }
   }
   const trace=readFileSync('trace.jsonl','utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
-  process.stdout.write(JSON.stringify({...report,connections,closeCalls,trace,selectedRoot,directories:await readdir(process.cwd())})+'\n');
+  if(scenario.packagedSkills){const capabilities=report.workerEvidence?.capabilities??report.evidence?.capabilities;if(capabilities)capabilities.skills=capabilities.skills.map(({references,...skill})=>({...skill,referenceCount:references.length}));}
+  process.stdout.write(JSON.stringify({...report,connections,closeCalls,trace,selectedRoot,bundleFixture,directories:await readdir(process.cwd())})+'\n');
 }else throw Error('Unexpected fixture mode');

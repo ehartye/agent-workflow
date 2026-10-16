@@ -4,6 +4,14 @@ Keep the same explicitly selected data directory throughout. Otherwise CLI/hooks
 
 Fresh selection lives in runtime-v2.json, immutable versions in runtime-v2, and SQLite runs in runs-v2. Legacy release directories remain separate. Do not reinterpret old JSON runs as SQLite, move between namespaces or delete retained versions to hide integrity errors.
 
+The working-tree candidate above released 0.5.0 adds [declared steps](../../../docs/workflow-steps.md), [depth-one composition](../../../docs/workflow-composition.md), [explicit LAN binding](../../../docs/dashboard-lan.md) and generated same-package skill references. No successor version, publication or fresh native qualification is established by these docs. Inspect the recorded runtime before using new CLI flags/readers. `dashboard --current-ui` changes presentation only; unsupported steps/children/control providers remain unavailable. Setup does not retrofit catalogs, source descriptors or capabilities into a saved run.
+
+Composition freezes declared child scripts/registry entries, args/result schemas, source IDs and catalog hashes. Saved replay uses those bytes, independent of current registry/cache edits, and requires original policy/backend/runtime identities. Explicit reviewed source revisions require exact generation/catalog/source identities and positively drained completed work. Missing/corrupt retained sources and unknown effects remain failures; installing current bytes cannot reconcile them or authorize retry. Child capability ceilings cannot grant a running worker new roots/tools.
+
+Use complete frozen **clean plugin distribution roots** for explicit bundles, preserving `skills/`, `bin/` and CLI-relative layout. A managed runtime containing `node_modules` accidentally retains dependencies; a skill-only package root breaks relative CLI resolution. Keep native skill-directory selections inside that complete package. Preserve and reconcile failed capture evidence before new admission. Correcting accidental dependency inclusion needs no increase to the 512 MiB retention ceiling; genuine workload pressure requires separate evidence/review.
+
+Native packages bind individual skill directories. The four shipped mains point to generated resource closures and their source/output hash manifests. After canonical documentation/main changes, regenerate with `node scripts/package-skill-resources.mjs` from the real source root and run `--check`; public `npm run check` also refuses stale/missing/extra resources read-only. Never copy or execute another SKILL.md as a replacement for native activation, or execute packaged CLI/recipe copies. Capability source limits and bounded stdin transport are recorded in the [API](../../../docs/api.md#worker-capability-bundle); the new transport preserves fingerprints and aggregate ceilings.
+
 Use the updated package's public launcher:
 
 ```text

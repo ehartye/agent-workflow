@@ -20,7 +20,7 @@ export function runWorkspaces({runDir,source,inputs,capturePolicy,onInputs}){
     const loaded=await captureInputs({source,artifactsDir:join(directory,'inputs-'+randomUUID()),...(frozen?{capturePolicy:frozen.policy}:{})});
     await onInputs(describeInputs(loaded));return loaded;
   })();
-  return{async prepare({generation,position}){
+  return{async originalInputs(){const loaded=await obtain();return describeInputs(loaded);},async prepare({generation,position}){
     const capturedInputs=await obtain(),parent=join(runDir,'workspaces');await mkdir(parent,{recursive:true});
     const workspace=await createWorkspace({inputs:capturedInputs,artifactsDir:join(parent,`g${generation}-w${position}-${randomUUID()}`)});
     await assertWorkspaceReady(workspace);return workspace;

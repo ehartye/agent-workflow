@@ -8,6 +8,32 @@ import assert from 'node:assert/strict';
 
 const meta = 'export const meta = {name:"proof",description:"local workflow"};\n';
 
+test('declared catalogs reject cycles aliases and duplicate bindings before isolated evaluation',async()=>{
+ const {parseScript}=await import('../engine/script.mjs');
+ const script=steps=>'export const meta='+JSON.stringify({name:'Steps',description:'display only',steps})+';return null;';
+ for(const steps of [
+  [{id:'a',label:'A',dependsOn:['b']},{id:'b',label:'B',dependsOn:['a']}],
+  [{id:'a',label:'A',dependsOn:[]},{id:'A',label:'B',dependsOn:[]}],
+  [{id:'a',label:'A',dependsOn:[],worker:{id:'w'}},{id:'b',label:'B',dependsOn:[],worker:{id:'w'}}],
+  [{id:'a',label:'A',dependsOn:['unknown']}],
+ ])assert.throws(()=>parseScript(script(steps)),{code:'STEP_INPUT'});
+ const steps=[{id:'later',label:'Later',dependsOn:['first']},{id:'first',label:'First',dependsOn:[]}];
+ assert.deepEqual(parseScript(script(steps)).meta.steps,steps);
+});
+
+test('isolated evaluator brokers workflow calls without host guest execution',async()=>{
+ const {evaluate}=await import('../engine/evaluate.mjs');const calls=[];
+ const value=await evaluate(meta+'return await workflow("child",{n:3});',{call:async(method,params)=>{calls.push({method,params});return{value:{n:params.args.n}};}});
+ assert.deepEqual(value,{value:{n:3}});assert.deepEqual(calls,[{method:'workflow',params:{alias:'child',args:{n:3}}}]);
+});
+
+test('guest broker serialization refuses accessors serializers and subclass arrays without running them',async()=>{
+ const {evaluate}=await import('../engine/evaluate.mjs');
+ for(const body of ['const value={get x(){agent("SIDE_EFFECT");return 1;}};await workflow("x",value);return null;','const value={toJSON(){agent("SIDE_EFFECT");return {};}};await workflow("x",value);return null;','class Values extends Array {toJSON(){agent("SIDE_EFFECT");return [];}};await workflow("x",{values:new Values()});return null;']){
+  let calls=0;await assert.rejects(evaluate(meta+body,{call:async()=>{calls++;return null;}}));assert.equal(calls,0);
+ }
+});
+
 test('evaluator preflight uses the exact combined UTF8 envelope without executing script',async()=>{
  const {preflightEvaluatorInput,evaluate}=await import('../engine/evaluate.mjs');
  assert.equal(typeof preflightEvaluatorInput,'function');

@@ -12,7 +12,7 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const canonical=value=>Array.isArray(value)?`[${value.map(canonical).join(',')}]`:value&&typeof value==='object'?`{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`:JSON.stringify(value);
 const digest=value=>createHash('sha256').update(canonical(value)).digest('hex');
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
-export function transaction(db,body){db.exec('BEGIN IMMEDIATE');try{const value=body();db.exec('COMMIT');return value;}catch(error){db.exec('ROLLBACK');throw error;}}
+export function transaction(db,body){if(db.isTransaction)return body();db.exec('BEGIN IMMEDIATE');try{const value=body();if(value&&typeof value.then==='function')throw fault('APPEND_CORRUPT','Transactions must finish synchronously');db.exec('COMMIT');return value;}catch(error){db.exec('ROLLBACK');throw error;}}
 export function initializeAdmission(db,state){
  db.exec('CREATE TABLE IF NOT EXISTS admission(generation INTEGER PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS append_requests(generation INTEGER NOT NULL,id TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(generation,id)); CREATE TABLE IF NOT EXISTS append_tasks(generation INTEGER NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(generation,position));');
  db.prepare('INSERT INTO admission VALUES(?,?)').run(state.generation,JSON.stringify({version:1,generation:state.generation,revision:0,accepting:true,nextSlot:0,consumed:state.attempts??0,reserved:0,maxAgents:state.maxAgents}));

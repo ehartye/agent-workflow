@@ -4,6 +4,14 @@ import {defaultDataDir} from './managed-runtime.mjs';
 const lifecycleOptions=['session','generation','revision','target','worker-generation','position','attempt','reason'];
 const commands={mode:['cwd','scope','session'],help:[],setup:[],doctor:['cwd','backend','session0-desktop'],workflows:['cwd'],read:['cwd'],save:['cwd','script','command','overwrite'],validate:['script'],run:['cwd','session','script','args','concurrency','model','effort','max-attempts','writable','foreground','backend','run-timeout-ms','worker-timeout-ms','capture-policy','worker-capabilities','session0-desktop'],list:['show-hidden'],status:[],result:[],watch:['session','generation','after','jsonl','idle-ms','poll-ms'],worker:['position','generation','source-generation'],events:['position','generation','source-generation','after','limit'],patch:['position','generation','source-generation','basis'],exclusions:['position','generation','source-generation','stage','after','limit'],dashboard:['session','current-ui'],resume:['session','script','generation','run-timeout-ms','worker-timeout-ms'],pause:['session','generation'],stop:['session','generation'],steer:['session','generation','position','attempt','turn','text'],'cancel-worker':['session','generation','position','attempt','turn'],'restart-worker':['session','generation','position','attempt','reconcile'],control:['receipt'],lifecycle:[],'lifecycle-receipt':['receipt'],hide:[...lifecycleOptions,'request'],archive:[...lifecycleOptions,'request'],restore:[...lifecycleOptions,'request'],'prune-plan':lifecycleOptions,prune:['session','plan','approved-plan-hash']};
 commands.append=['session','generation','request-id','tasks-file'];
+commands.validate.push('summary');
+commands.dashboard.push('lan-bind');
+commands.resume.push('workflow-revisions-file');
+commands.run.push('artifact-scope-file');
+commands.children=['generation','after','limit'];
+commands.steps=['generation','after','limit'];
+commands['domain-control']=['session','request-file'];
+commands['domain-control-receipt']=['session','request-id'];
 commands['append-receipt']=['generation','request-id'];
 commands['worker-deadline']=['session','generation','position','attempt','turn','deadline-revision','set-ms','extend-ms','clear'];
 commands.run.push('access','parent-access','args-file');
@@ -18,10 +26,13 @@ const roadmapCommands={
 };
 Object.assign(commands,roadmapCommands);
 const sessionReads=new Set(['acceptance','job-status','job-output']);
-const booleans=new Set(['help','command','overwrite','writable','foreground','show-hidden','current-ui','jsonl','clear']);
+const booleans=new Set(['help','command','overwrite','writable','foreground','show-hidden','current-ui','jsonl','clear','summary']);
 const runCommands=new Set(['append','append-receipt','status','result','watch','worker','events','patch','exclusions','dashboard','resume','pause','stop','steer','cancel-worker','restart-worker','control','lifecycle','lifecycle-receipt','hide','archive','restore','prune-plan','prune']);
 const mutations=new Set(['append','dashboard','run','resume','pause','stop','steer','cancel-worker','restart-worker','hide','archive','restore','prune-plan','prune']);
 runCommands.add('worker-deadline');mutations.add('worker-deadline');
+for(const name of ['children','steps','domain-control','domain-control-receipt'])runCommands.add(name);
+mutations.add('domain-control');
+sessionReads.add('domain-control-receipt');
 for(const command of Object.keys(roadmapCommands))if(!['plan','capture-preflight'].includes(command))runCommands.add(command);
 for(const command of ['checkpoint-record','check-record','job-start','job-cancel'])mutations.add(command);
 function roadmapInput(command,id,values){
@@ -67,7 +78,7 @@ export function inspectCommand(tokens){
 export function parseCommand(tokens=process.argv.slice(2),env=process.env){
  const options=Object.fromEntries(['data-dir','help',...new Set(Object.values(commands).flat())].map(key=>[key,{type:booleans.has(key)?'boolean':'string'}]));
  const{values,positionals,tokens:parsedTokens}=parseArgs({args:tokens,options,allowPositionals:true,tokens:true});const command=positionals.shift()??'help';if(!Object.hasOwn(commands,command))throw Error(`Unknown command: ${command}`);
- if(Object.hasOwn(roadmapCommands,command)){const seen=new Set();for(const token of parsedTokens)if(token.kind==='option'){if(seen.has(token.name))throw Error(`Duplicate option --${token.name}`);seen.add(token.name);}}
+ {const seen=new Set();for(const token of parsedTokens)if(token.kind==='option'){if(seen.has(token.name)&&(Object.hasOwn(roadmapCommands,command)||command==='validate'&&token.name==='summary'||command==='dashboard'&&token.name==='lan-bind'))throw Error(`Duplicate option --${token.name}`);seen.add(token.name);}}
  for(const key of Object.keys(values))if(!['data-dir','help',...commands[command]].includes(key))throw Error(`Option --${key} is not valid for ${command}`);
  if(values.args!==undefined&&values['args-file']!==undefined)throw Error('--args and --args-file are mutually exclusive');
  if(values['startup-timeout-ms']!==undefined){
@@ -87,7 +98,7 @@ export function parseCommand(tokens=process.argv.slice(2),env=process.env){
  if(!values.help&&(mutations.has(command)||sessionReads.has(command)||command==='watch'||command==='doctor'&&values.access==='parent')&&(!sessionId?.trim()||sessionId.length>256))throw Error('An originating Codex session is required: --session or CODEX_THREAD_ID');
  if(!values.help&&Object.hasOwn(roadmapCommands,command))roadmapInput(command,id,values);
  if(command==='mode'&&!['on','off','status'].includes(id))throw Error('mode requires on, off or status');
- if(env.AGENT_WORKFLOW_WORKER==='1'&&!['help','workflows','read','validate','list','status','result','worker','events','patch','exclusions','control','append-receipt','lifecycle','lifecycle-receipt','capture-preflight','plan','usage','acceptance','checkpoint','job-status','job-output'].includes(command)&&!(command==='mode'&&id==='status'))throw Error('Worker processes cannot launch recursive workflows or mutate workflow state');
+ if(env.AGENT_WORKFLOW_WORKER==='1'&&!['help','workflows','read','validate','list','status','result','worker','events','patch','exclusions','control','append-receipt','lifecycle','lifecycle-receipt','capture-preflight','plan','usage','acceptance','checkpoint','job-status','job-output','children','steps','domain-control-receipt'].includes(command)&&!(command==='mode'&&id==='status'))throw Error('Worker processes cannot launch recursive workflows or mutate workflow state');
  return{command,id,values,sessionId,dataDir:resolve(values['data-dir']??defaultDataDir(env)),cwd:resolve(values.cwd??process.cwd()),runCommand:runCommands.has(command),mutation:mutations.has(command),sessionRead:sessionReads.has(command)};
 }
 export const help=`Agent Workflow — subscription-backed Codex workflows
@@ -95,7 +106,7 @@ export const help=`Agent Workflow — subscription-backed Codex workflows
 mode on|off|status [--scope session|project] [--session ID] [--cwd path]
 setup | doctor [--cwd path]
 workflows | read [scope:]name | save [scope:]name --script file [--command] [--overwrite]
-validate file | run [scope:]name [--script file] [--args JSON | --args-file path] [--writable]
+validate file [--summary] | run [scope:]name [--script file] [--args JSON | --args-file path] [--writable]
 run ... --parent-access context.json [--access parent] | run ... --access restricted
 list [--show-hidden] | status ID | result ID | dashboard [ID]
 watch ID --session ID --generation N --jsonl [--after N] [--idle-ms N] [--poll-ms N]
@@ -103,8 +114,12 @@ worker ID --position N --generation N
 events ID --position N --generation N [--after N] [--limit N]
 patch ID --position N --generation N [--basis inputs|base]
 exclusions ID --position N --generation N [--stage inputs|outputs] [--after N] [--limit N]
-dashboard [ID] [--current-ui] --session ID
-resume ID [--script file] | pause ID --generation N | stop ID --generation N
+dashboard [ID] [--current-ui] [--lan-bind privateIPv4] --session ID
+resume ID [--script file] [--workflow-revisions-file file] | pause ID --generation N | stop ID --generation N
+steps|children ID --generation N [--after cursor] [--limit N]
+domain-control ID --session ID --request-file file
+domain-control-receipt ID --session ID --request-id UUID
+New run artifact ownership: --writable --artifact-scope-file file (providers remain unavailable).
 Detached run/resume/restart-worker: [--startup-timeout-ms N]
 steer ID --generation N --position N --attempt N --turn ID --text instruction
 cancel-worker ID --generation N --position N --attempt N [--turn ID]

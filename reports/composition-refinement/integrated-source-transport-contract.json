@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "id": "backend-stdin-fixture",
+  "taskSha256": "176c77969ba4433c9017bb9e6607ddf2b98203fe91172e904167d73155e3fb90",
+  "status": "complete-owned-scope",
+  "sources": [
+    {
+      "path": "engine/backend.mjs",
+      "bytes": 35526,
+      "sha256": "0371a58a9d8f95f0cb9e96e57b8a7f0b2463c24f14a0d9dfca2bddf165c3e01c",
+      "baselineBytes": 38103,
+      "baselineSha256": "0820b98e003f69d6b8a7c1c8b5fa5c75850f0c952e01836d1751944096afa796"
+    },
+    {
+      "path": "engine/worker-capabilities.mjs",
+      "bytes": 40450,
+      "sha256": "cd474fadb53b2b081807cbb5ada7821cb2d741d1db607ce358aca8ad13081495",
+      "baselineBytes": 38002,
+      "baselineSha256": "179a8ec4653573181ac5ce8863ec8f74b7fe3564f33d07e3106fe95c806fbfd6"
+    },
+    {
+      "path": "test/engine-backend.test.mjs",
+      "bytes": 44820,
+      "sha256": "f1b5a6538ca08bf44dc42aa0455243f7ea44e29693792aeca7cbae531a1046fb",
+      "baselineBytes": 40230,
+      "baselineSha256": "fd758004e6cf4aacb17aa2f6b48f9486cdcaf34b86f08e7775cfd377d431f577"
+    },
+    {
+      "path": "test/engine-worker-capabilities.test.mjs",
+      "bytes": 61076,
+      "sha256": "bbe6de1383ab72afdae1099fe433d5c978cbb6cdac04f37bb3ba413c772ea61b",
+      "baselineBytes": 60003,
+      "baselineSha256": "bee3fc89ff3e65d207374586048aac59f5dc3b0a51572d557bf5304c141c6007"
+    },
+    {
+      "path": "test/fixtures/backend-startup.mjs",
+      "bytes": 30321,
+      "sha256": "17395e7ca339264007a366b5eacd9d4fd4d6571be4ca8183e573d1e14e2a62d0",
+      "baselineBytes": 25237,
+      "baselineSha256": "3c979e3af0abd378b294519ac013ee5b2b1d9af4ae6a74cd641eb792226de13c"
+    }
+  ],
+  "seams": {
+    "managedClient": "boundedWorkerClient forwards only command/exec/outputDelta and returns the original unsubscribe; live request cancellation is unchanged",
+    "admission": "skillSourceCommand -> sourceExec -> verifyCapabilityStdin(skills) -> verifySkillSources",
+    "completion": "checkCompletionSources -> sourceCommand(skills-completion) -> same sourceExec/verifyCapabilityStdin -> verifySkillSources",
+    "nativeProtocol": "Pinned 0.162.1 consumption inspected in foundation/client.mjs and foundation/probe.mjs, production source adapter, and supplied actual native stdin positive/corrupt-negative receipt. No worker native launch.",
+    "lifetime": "sourceExec unsubscribes in finally; one termination at most; backend retains independent native terminal inventory and owned-job drain",
+    "fixture": "real child spawn, outputDelta from child pipe, acknowledged sequential write callbacks, separate end/EOF, close after stdio drain; sourceFailure uses a real nonzero child",
+    "sourceOutcomes": {
+      "verified": "exit 0 plus exact completion marker, no stderr/truncation",
+      "changedOrUnavailable": "exit 12 plus exact changed marker",
+      "unverified": "exit 13/other, malformed binding, lost execution/write response, cancellation or deadline; no source-drift inference"
+    }
+  },
+  "limits": {
+    "inputBytes": 262144,
+    "chunkBytes": 8192,
+    "outputBytes": 8192,
+    "sourceFiles": 512,
+    "argvBudget": 30000,
+    "commandTimeoutMs": 20000,
+    "limitsRaised": false,
+    "retryOrFallback": false
+  },
+  "reproduction": {
+    "original": {
+      "tests": 82,
+      "pass": 54,
+      "fail": 28,
+      "receipt": "test-evidence/baseline-red-receipt.json",
+      "observed": "CAPABILITY_PROTOCOL before source command dispatch under missing bounded notification subscription"
+    },
+    "integration": {
+      "tests": 163,
+      "pass": 133,
+      "fail": 30,
+      "receipt": "test-evidence/integration-red-receipt.json",
+      "observed": "Original 28 plus public four-package completion argv selection rejection and missing shared completion adapter",
+      "sourceReceipt": "test-evidence/integration-red-source.json"
+    },
+    "nativeFailure": "test-evidence/coordinator-native-failure.stdout.log"
+  },
+  "validation": {
+    "affectedOwners": {
+      "tests": 165,
+      "pass": 165,
+      "fail": 0,
+      "skip": 0,
+      "receipt": "test-evidence/integrated-green-one-receipt.json",
+      "owners": [
+        "test/engine-backend.test.mjs",
+        "test/engine-worker-capabilities.test.mjs"
+      ],
+      "qualification": "Production bytes are final; followed only by fixture trace-label refinement and extra negative assertions"
+    },
+    "finalDiagnostics": {
+      "tests": 3,
+      "pass": 3,
+      "fail": 0,
+      "skip": 0,
+      "intent": "test-evidence/final-completion-diagnostics-intent.json",
+      "receipt": "test-evidence/final-completion-diagnostics-receipt.json",
+      "qualification": "Exact final five-file source identities retained; applied write distinguished from lost acknowledgement; dependency-free backend subset"
+    },
+    "largeSelection": {
+      "skills": 4,
+      "files": 269,
+      "sourceBytes": 3596371,
+      "adapterInputBytes": 44529,
+      "adapterChunks": 6,
+      "managedRetainedRoots": true,
+      "admissionAndCompletion": true,
+      "sourceFingerprint": "fdb2e4a76ba3b1ca9224c6b88cc0f6462cc83b0ec8990352d97c6a3972aa8035"
+    },
+    "syntax": "test-evidence/syntax-checks.json",
+    "baseline": "test-evidence/final-baseline-integrity.json",
+    "unownedBaselineFilesUnchanged": 646,
+    "cleanup": "test-evidence/dependencies-cleaned.json"
+  },
+  "missing": [
+    "Native test-strategy shared references/craft.md callback unavailable: skill environment is not available for this callback",
+    "Fresh combined full suite, npm check/smoke, installed native qualification and release acceptance are coordinator-owned and were not run"
+  ],
+  "externalOrGitMetadataMutations": false
+}

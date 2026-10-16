@@ -20,6 +20,10 @@ import { fault, diagnostic } from '../foundation/client.mjs';
 import {freezeCapabilities,selectCapabilities} from './worker-capabilities.mjs';
 import {validateAccessPolicy} from './access-policy.mjs';
 import {initializeAdmission,projectAdmission,projectAdditionWorkers,allocateSlot,consumeAttempt,releaseReservation,closeAdmission,pendingAdditions,transaction,abandonUnstartedAdmission} from './append.mjs';
+import {freezeWorkflowSources,verifyWorkflowSources,createCompositionRuntime} from './composition.mjs';
+import {createRootContext,contextRunRef,createCompositionTables,validateInvocationHistory,writeInvocation} from './composition-store.mjs';
+import {createStepTables,retainStepCatalog,associateStep,loadStepCatalogs,validateStepBindings,projectSteps} from './steps.mjs';
+import {digest,canonicalJSON,validateArtifactScope} from './composition-contracts.mjs';
 export {requestControl,readControl} from './controls.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -61,7 +65,7 @@ async function regular(path, optional = false) {
 }
 function identity() {
   const files = ['controller.mjs','notifications.mjs','run-lifecycle.mjs','deadlines.mjs','live-deadline.mjs','controls.mjs','restart.mjs','activity.mjs','schema.mjs','settings.mjs','access-policy.mjs','parent-capabilities.mjs','capability-sources.mjs','worker-session.mjs','worker-capabilities.mjs','workspace-run.mjs','workspaces.mjs','workspace-policy.mjs','script.mjs','evaluate.mjs','evaluator-child.mjs','backend.mjs','policy.mjs','../foundation/client.mjs','../foundation/turn.mjs','../foundation/tool-observation.mjs','../foundation/terminals.mjs','../foundation/windows-job.mjs','../foundation/native/JobHost.cs','../foundation/native/job-host-policy.json','../foundation/native/win32-x64/manifest.json','../foundation/native/win32-x64/workflow-job-host.exe','../foundation/launch.mjs','../foundation/probe.mjs','../package-lock.json'];
-  return hash(process.version + [...files,'append.mjs'].map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
+  return hash(process.version + [...files,'append.mjs','composition.mjs','composition-store.mjs','composition-contracts.mjs','steps.mjs'].map(file => hash(readFileSync(new URL(file, import.meta.url)))).join(''));
 }
 function snapshot(db) {
   const header = db.prepare("SELECT value FROM header WHERE id=1").get();
@@ -81,10 +85,11 @@ export async function readRun(runDir) {
   const path = join(runDir, 'run.sqlite');
   await regular(path);
   const db = new DatabaseSync(path, { readOnly: true });
-  try { db.exec('BEGIN');const value=snapshot(db);db.exec('COMMIT');return value; } finally { db.close(); }
+  try { db.exec('BEGIN');const value=snapshot(db);if(value?.compositionVersion===1){const run=await contextRunRef({runDir,sessionId:value.sessionId}),sources=await verifyWorkflowSources({runDir,descriptor:value.workflowSources}),context=createRootContext({db,runDir,run,generation:value.generation,sessionId:value.sessionId,state:value,sources,signal:new AbortController().signal,assertOwner:()=>{},transaction:()=>{throw fault('COMPOSITION_INPUT','Saved read cannot publish records');},workspaceInputs:async()=>value.workspaceInputs??null,resolveWorker:async()=>null,resolveAuthority:()=>null});await validateInvocationHistory({context});}
+    if(value?.stepsVersion===1){const run=await contextRunRef({runDir,sessionId:value.sessionId}),catalogs=await validateStepBindings({db,state:value,run,runDir});projectSteps({catalogs,workers:value.workers,run,generation:value.generation,available:true,accepting:value.acceptingAdditions});}db.exec('COMMIT');return value; } finally { db.close(); }
 }
 
-export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, restart, accessPolicy,capturePolicy,workerCapabilities,workerCapabilitiesHash, concurrency = 2, maxAgents = 1000, timeoutMs, workerTimeoutMs, drainTimeoutMs=20000, onReady, launch=null }) {
+export async function runWorkflow({ runDir, sessionId, script, args = null, backend, resume = false, expectedGeneration, restart, workflowRevisions, accessPolicy,capturePolicy,workerCapabilities,workerCapabilitiesHash, concurrency = 2, maxAgents = 1000, timeoutMs, workerTimeoutMs, drainTimeoutMs=20000, onReady, launch=null }) {
   let db, lease, state, primary;
   let leaseOwned = false;
   let stopped = false;
@@ -128,16 +133,14 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     own();
     const next=message?structuredClone(worker):worker;
     state.workerCount = Math.max(state.workerCount, worker.position + 1);
-    db.exec('BEGIN IMMEDIATE');
-    try {
+    transaction(db,()=>{
       if(message)recordNotificationProgress(db,{generation:state.generation,worker:next,record:recordActivity(db,{generation:state.generation,worker:next,message})});
       db.prepare('INSERT OR REPLACE INTO workers(generation,position,value) VALUES(?,?,?)').run(state.generation, next.position, json(next));
       projectAdmission(db,state);
       db.prepare('INSERT OR REPLACE INTO header(id,value) VALUES(1,?)').run(json(state));
       if(terminalReady)recordWorkerNotification(db,state,next);
-      db.exec('COMMIT');
       if(message)Object.assign(worker,next);
-    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    });
   };
   const cancelled=()=>Object.assign(fault('WORKER_CANCELLED','Worker was cancelled before dispatch'),{notStarted:true});
   const waitFor=async(promise,signal)=>{
@@ -220,6 +223,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if(previous?.workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==previous.workerCapabilitiesHash||workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==workerCapabilitiesHash||launch?.workerCapabilitiesHash!==undefined&&capabilities?.fingerprint!==launch.workerCapabilitiesHash||capabilities&&backend.workerCapabilitiesHash!==undefined&&backend.workerCapabilitiesHash!==capabilities.fingerprint)throw fault('CAPABILITY_IDENTITY','Capability ceiling fingerprint changed or is inconsistent');
     if(previous&&capabilities&&(previous.workerCapabilitySources===undefined||canonical(previous.workerCapabilitySources)!==canonical(capabilities.toolSources)))throw fault('CAPABILITY_IDENTITY','Declared tool source availability changed or is missing; cached results cannot be reused');
     if(capabilities&&launch)launch={...launch,workerCapabilities:capabilities.manifest,workerCapabilitiesHash:capabilities.fingerprint};
+    if(launch?.artifactScope){const scope=validateArtifactScope(launch.artifactScope.scope);if(scope.scopeHash!==launch.artifactScope.scopeHash||previous&&canonicalJSON(previous.launch?.artifactScope??null)!==canonicalJSON(scope))throw fault('ARTIFACT_OWNERSHIP','Artifact scope identity changed');if(!normalizedAccess||launch.defaults?.workspace!=='isolated'&&launch.defaults?.permissions?.sandbox!=='workspace-write')throw fault('ARTIFACT_OWNERSHIP','Artifact scope requires an admitted writable launch');}
     if(previous&&(capturePolicy!==undefined||launch?.capturePolicy!==undefined&&canonical(launch.capturePolicy)!==canonical(previous.capturePolicy??null)))throw fault('CAPTURE_POLICY_OVERRIDE','Resume/restart must use the saved capture policy; a change requires a new run');
     const suppliedPolicy=previous?previous.capturePolicy:capturePolicy??launch?.capturePolicy;
     let normalizedPolicy;
@@ -240,10 +244,33 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if(previous?.launch?.capabilitySources!==undefined&&previous.backendIdentity!==backend.identity)throw fault('CAPABILITY_ENVIRONMENT_CHANGED','Retained-source replay requires the original admitted backend identity; no completed work was redispatched');
     reuse = !previous || previous.backendIdentity === backend.identity;
     const oldWorkers = previous?.workers ?? [];
+    const compositionEnabled=Boolean(meta.workflows?.length||previous?.compositionVersion);
+    if(previous?.compositionVersion===1){
+      // A cached child does not reissue its nested agent calls. Validate saved
+      // effective settings here as well, before publishing another generation.
+      if(previous.backendIdentity!==backend.identity||previous.workerTimeoutMs!==workerTimeoutMs)throw fault('COMPOSITION_REPLAY_CHANGED','Completed composition requires its saved backend and worker deadline settings');
+      if(backend.resolveOptions)for(const worker of oldWorkers.filter(w=>w.origin?.kind!=='append'&&w.status==='completed')){
+        const {label,phase,...before}=worker.options,{label:nextLabel,phase:nextPhase,...after}={...worker.options,...backend.resolveOptions(worker.options)};
+        if(canonical(before)!==canonical(after))throw fault('COMPOSITION_REPLAY_CHANGED','Completed child worker effective settings changed; inspect retained effects before replacement');
+      }
+    }
+    if(compositionEnabled&&!normalizedAccess)throw fault('COMPOSITION_INPUT','Composition requires a verified saved access identity');
+    if(workflowRevisions!==undefined&&(!resume||workflowRevisions.expectedGeneration!==previous?.generation||expectedGeneration!==previous?.generation||previous.cleanup?.jobEmpty!==true||previous.cleanup?.ownershipScope!=='windows-job-members'||previous.cleanup?.error||previous.cleanup?.nativeTerminals?.error||oldWorkers.some(w=>w.status!=='completed'||w.evidence?.cleanup?.serverExited!==true||w.evidence?.cleanup?.jobEmpty!==true||w.evidence?.cleanup?.ownershipScope!=='windows-job-members'||w.evidence?.cleanup?.error||w.evidence?.cleanup?.nativeTerminals?.inventoryEmpty!==true)))throw fault('COMPOSITION_UNKNOWN','Source revision requires exact generation and positively drained reconciled work');
+    createCompositionTables(db);createStepTables(db);
+    const runRef=await contextRunRef({runDir,sessionId});
+    let workflowSources,sources;
+    if(compositionEnabled){
+      workflowSources=launch?.preparedWorkflowSources??(previous?.workflowSources?await freezeWorkflowSources({runDir,cwd:launch?.cwd,declarations:meta.workflows??[],previousCatalog:previous.workflowSources,revisions:workflowRevisions??null}):await freezeWorkflowSources({runDir,cwd:launch?.cwd,declarations:meta.workflows??[]}));
+      sources=await verifyWorkflowSources({runDir,descriptor:workflowSources});
+      if(canonicalJSON(sources.entries.map(e=>e.declaration).sort((a,b)=>a.alias<b.alias?-1:1))!==canonicalJSON([...(meta.workflows??[])].sort((a,b)=>a.alias<b.alias?-1:1)))throw fault('COMPOSITION_CORRUPT','Admitted declarations differ from source catalog');
+      for(const d of meta.workflows??[]){for(const [key,field]of [['skills','skills'],['tools','tools']])if(d.capabilities[key]!==null&&d.capabilities[key].some(id=>!capabilities?.manifest[field]?.some(item=>item.id===id)))throw fault('COMPOSITION_INPUT','Child declaration exceeds admitted capabilities');if(d.permissions?.sandbox==='workspace-write'&&normalizedAccess.policy.permissions.sandbox==='read-only')throw fault('COMPOSITION_INPUT','Child declaration exceeds root permissions');}
+    }
+    if(previous?.compositionVersion){const previousSources=await verifyWorkflowSources({runDir,descriptor:previous.workflowSources});const readContext=createRootContext({db,runDir,run:runRef,generation:previous.generation,sessionId,state:previous,sources:previousSources,signal:evaluatorAbort.signal,assertOwner:own,transaction:body=>transaction(db,body),workspaceInputs:async()=>previous.workspaceInputs??null,resolveWorker:async()=>null,resolveAuthority:()=>null});await validateInvocationHistory({context:readContext});}
+    if(previous?.stepsVersion===1){const catalogs=await validateStepBindings({db,state:previous,run:runRef,runDir});projectSteps({catalogs,workers:oldWorkers,run:runRef,generation:previous.generation,available:true,accepting:previous.acceptingAdditions});}
     if(oldWorkers.some(worker=>worker.origin?.kind==='append')&&(previous.backendIdentity!==backend.identity||previous.maxAgents!==maxAgents||previous.concurrency!==concurrency))throw fault('APPEND_IDENTITY','Saved additions retain their original backend, lifetime budget and concurrency ceiling');
     if(previous&&!restartAdmission&&oldWorkers.some(worker=>worker.origin?.kind==='append'&&worker.status!=='completed'))throw fault('APPEND_RECONCILE','Noncompleted additions require explicit effect reconciliation and physical-suffix restart');
     const oldGuests=oldWorkers.filter(worker=>worker.origin?.kind!=='append');
-    const restartPrefix=restartAdmission?oldGuests.filter(worker=>worker.position<=restartAdmission.position):[];
+    const restartPrefix=restartAdmission&&!compositionEnabled?oldGuests.filter(worker=>worker.position<=restartAdmission.position):[];
     let restartValidated=0,releaseRestartPrefix;
     const restartPrefixReady=new Promise(resolve=>{releaseRestartPrefix=resolve;});
     if(!restartPrefix.length)releaseRestartPrefix();
@@ -262,16 +289,25 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
     if(parentCapabilitiesHash)state.parentCapabilitiesHash=parentCapabilitiesHash;
     if(capabilities){state.workerCapabilities=capabilities.manifest;state.workerCapabilitiesHash=capabilities.fingerprint;state.workerCapabilitySources=capabilities.toolSources;}
     if(normalizedPolicy){state.capturePolicy=normalizedPolicy.policy;state.capturePolicyHash=normalizedPolicy.policyHash;}
+    state.stepsVersion=1;
+    state.domainControlsVersion=1;
+    if(compositionEnabled){state.compositionVersion=1;state.workflowSources=workflowSources;}
     initializeAdmission(db,state);
     // Replay additions by stable request origin. Their new physical slots need
     // not match their old slots; guest ordinals and dependency hashes are separate.
     for(const prior of oldWorkers.filter(worker=>worker.origin?.kind==='append')){
-      const cached=reuse&&prior.status==='completed'&&(!restartAdmission||prior.position<restartAdmission.position);
+      const cached=reuse&&prior.status==='completed'&&(!restartAdmission||prior.position<(restartAdmission.firstAffectedPosition??restartAdmission.position));
       const position=allocateSlot(db,state.generation,{reserve:!cached});
       const task={position,origin:prior.origin,prompt:prior.prompt,options:prior.options,key:prior.key,delivery:'queued'};
       db.prepare('INSERT INTO append_tasks VALUES(?,?,?)').run(state.generation,position,json(task));replayAdditions.set(position,prior);
     }
     const workspaces=runWorkspaces({runDir,source:launch?.cwd,inputs:state.workspaceInputs,...(normalizedPolicy?{capturePolicy:normalizedPolicy.policy}:{}),onInputs:record=>{if(retiredWrites)throw fault('RUN_RETIRED','Run no longer owns workspace admission');if(normalizedPolicy&&(record.version!==2||record.policyHash!==normalizedPolicy.policyHash))throw fault('CAPTURE_POLICY_IDENTITY','Workspace inputs did not confirm the frozen policy');state.workspaceInputs=record;saveHeader();}});
+    const makeContext=(header,catalog)=>createRootContext({db,runDir,run:runRef,generation:header.generation,sessionId,state:header,sources:catalog,signal:evaluatorAbort.signal,assertOwner:()=>{own();if(retiredWrites)throw fault('RUN_RETIRED','Controller no longer owns domain writes');},transaction:body=>{own();return transaction(db,body);},workspaceInputs:()=>workspaces.originalInputs(),resolveWorker:async ref=>{if(canonicalJSON(ref.run)!==canonicalJSON(runRef)||ref.generation!==header.generation)throw fault('COMPOSITION_INPUT','Foreign worker reference');const w=snapshot(db).workers.find(w=>w.position===ref.position);if(!w||(w.attempts??0)!==ref.attempt)throw fault('COMPOSITION_INPUT','Worker attempt differs');return w;},resolveAuthority:()=>({accessPolicy:header.accessPolicy??null,capturePolicy:header.capturePolicy??null,workerCapabilities:header.workerCapabilities??null})});
+    const context=makeContext(state,sources??null);
+    const previousContext=previous?.compositionVersion?makeContext(previous,await verifyWorkflowSources({runDir,descriptor:previous.workflowSources})):null;
+    if(previousContext)await validateInvocationHistory({context:previousContext});
+    const rootCatalog=transaction(db,()=>retainStepCatalog({db,run:runRef,generation:state.generation,scope:{kind:'root'},sourceId:hash(script),steps:meta.steps??[]}));
+    if(workflowRevisions!==undefined)transaction(db,()=>{const revision=db.prepare('SELECT COALESCE(MAX(revision),0)+1 AS n FROM source_revisions').get().n;db.prepare('INSERT INTO source_revisions VALUES(?,?,?)').run(revision,workflowSources.catalogHash,json({generation:state.generation,request:workflowRevisions,descriptor:workflowSources}));});
     if(restartAdmission){
       state.restart={...restartAdmission,sourceGeneration:previous.generation,receiptId:randomUUID()};
       const receipt={id:state.restart.receiptId,generation:state.generation,sourceGeneration:previous.generation,action:'restart-worker',status:'applied',requestedAt:state.updatedAt,appliedAt:state.updatedAt,...restartAdmission};
@@ -294,6 +330,12 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         const rows=db.prepare("SELECT value FROM controls WHERE generation=? AND json_extract(value,'$.status')='pending' ORDER BY rowid").all(state.generation);
         for(const row of rows){
           const receipt=JSON.parse(row.value);
+          if(receipt.action==='cancel-child'){
+            try{if(closing||primary||!composition)throw fault('CONTROL_TERMINAL','Child control admission closed');const child=receipt.payload.child;
+              const r=db.prepare("SELECT value FROM invocations WHERE generation=? AND json_extract(value,'$.child.invocationId')=?").get(state.generation,child.invocationId);if(!r||!['intent','running'].includes(JSON.parse(r.value).status))throw fault('CONTROL_CONFLICT','Child execution changed');
+              composition.cancelChild(child);for(const worker of currentWorkers.values())if(worker.origin?.invocationId===child.invocationId)workerAborts.get(worker.position)?.abort();receipt.status='applied';
+            }catch(error){receipt.status='rejected';receipt.error=diagnostic(error);}receipt.appliedAt=new Date().toISOString();db.prepare('UPDATE controls SET value=? WHERE id=?').run(json(receipt),receipt.id);continue;
+          }
           if(['steer','cancel-worker','worker-deadline'].includes(receipt.action)){
             const worker=currentWorkers.get(receipt.position);
             try{
@@ -357,36 +399,40 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       if(applied){stopped=true;evaluatorAbort.abort();if(controlAction==='stop'){abort.abort();if(expireDrain)armDrain(drainTimeoutMs);for(const resolve of waiters.splice(0))resolve();}}
     };
     controlTimer=setInterval(()=>{try{applyControls();pumpAdditions();}catch(error){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();if(expireDrain)armDrain(drainTimeoutMs);for(const resolve of waiters.splice(0))resolve();}},25);
-    const dispatch = async ({ prompt, options = {}, addition }) => {
+    const dispatch = async ({ prompt, options = {}, addition,scope,journal,priorOverride,publishInvocation }) => {
       if (typeof prompt === 'string' && prompt.length > 65536) throw fault('AGENT_INPUT', 'Worker prompt exceeds 65536 UTF-16 code units; keep bulk data in project files and pass file paths, hashes and assigned ranges');
-      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['id','dependsOn','label','phase','timeoutMs','schema','model','effort','maxAttempts','permissions','workspace','skills','requireTools'].includes(key)) || options.workspace!==undefined&&options.workspace!=='isolated' || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > MAX_WORKER_TIMEOUT_MS)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
+      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 || !options || Array.isArray(options) || Object.keys(options).some(key => !['id','dependsOn','label','phase','timeoutMs','schema','model','effort','maxAttempts','permissions','workspace','skills','requireTools','stepId','inputSnapshot','reviewPacket'].includes(key)) || options.workspace!==undefined&&options.workspace!=='isolated' || ['label','phase'].some(key => options[key] != null && (typeof options[key] !== 'string' || options[key].length > 500)) || options.timeoutMs != null && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > MAX_WORKER_TIMEOUT_MS)) throw fault('AGENT_INPUT', 'Unsupported agent prompt or options');
+      if(Object.hasOwn(options,'inputSnapshot')||Object.hasOwn(options,'reviewPacket'))throw fault('ARTIFACT_UNAVAILABLE','Artifact input and review packet providers are not integrated at this foundation checkpoint');
+      if(scope?.declaration){const d=scope.declaration;for(const [key,ceiling]of [['skills',d.capabilities.skills],['requireTools',d.capabilities.tools]]){if(ceiling!==null&&(options[key]??[]).some(id=>!ceiling.includes(id)))throw fault('COMPOSITION_INPUT','Child worker selection exceeds its retained capability ceiling');}
+        if(d.permissions){if(options.permissions?.sandbox!==undefined&&options.permissions.sandbox!=='read-only'&&d.permissions.sandbox==='read-only'||options.permissions?.networkAccess===true||options.permissions?.approvalPolicy!==undefined&&options.permissions.approvalPolicy!=='never')throw fault('COMPOSITION_INPUT','Child worker permissions exceed its declaration');options={...options,permissions:{...d.permissions,...options.permissions}};}}
       const capabilitySelection=selectCapabilities(capabilities?.manifest,options);
       options={...options,timeoutMs:options.timeoutMs===undefined?workerTimeoutMs:options.timeoutMs};
       const compiled=Object.hasOwn(options,'schema')?compileSchema(options.schema):null;
       if(backend.resolveOptions)options={...options,...backend.resolveOptions(options)};
       if(addition)options={...options,maxAttempts:1};
-      if(options.id!==undefined&&(typeof options.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(options.id)||workerIds.has(options.id)))throw fault('AGENT_INPUT','Worker ids must be unique bounded identifiers');
-      if(options.dependsOn!==undefined&&(!Array.isArray(options.dependsOn)||options.dependsOn.length>256||options.dependsOn.some(id=>typeof id!=='string'||!workerIds.has(id))||new Set(options.dependsOn).size!==options.dependsOn.length))throw fault('AGENT_INPUT','Dependencies must name distinct earlier workers');
+      const localIds=scope?.workerIds??workerIds;
+      if(options.id!==undefined&&(typeof options.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(options.id)||['__proto__','constructor','prototype'].includes(options.id.toLowerCase())||[...localIds.keys()].some(id=>id.toLowerCase()===options.id.toLowerCase())))throw fault('AGENT_INPUT','Worker ids must be unique bounded identifiers');
+      if(options.dependsOn!==undefined&&(!Array.isArray(options.dependsOn)||options.dependsOn.length>256||options.dependsOn.some(id=>typeof id!=='string'||!localIds.has(id))||new Set(options.dependsOn).size!==options.dependsOn.length))throw fault('AGENT_INPUT','Dependencies must name distinct earlier workers');
+      const step=addition?null:associateStep({catalog:scope?.catalog??rootCatalog,options,workers:[...currentWorkers.values()]});
       if (stopped&&!addition) throw fault('RUN_STOPPED', 'Workflow admission is closed');
       if (!addition&&sequence >= maxAgents) throw fault('AGENT_LIMIT', 'Workflow agent limit reached');
-      const ordinal=addition?null:sequence++;
-      const dependencies=(options.dependsOn??[]).map(id=>workerIds.get(id));
-      if(!addition)chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs, dependencies:dependencies.map(position=>currentWorkers.get(position).origin), schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null,...(options.workspace?{workspace:options.workspace}:{}),...(normalizedPolicy?{capturePolicyHash:normalizedPolicy.policyHash}:{}),...(capabilitySelection?{workerCapabilitiesHash:capabilities.fingerprint,capabilitySelectionHash:capabilitySelection.fingerprint}:{}) }));
-      const key=addition?.key??chain,prior=addition?replayAdditions.get(addition.position):oldGuests[ordinal];
-      if(!addition&&restartAdmission&&prior?.position<=restartAdmission.position&&prior?.key!==key)throw fault('RESTART_CHANGED','Saved worker invocation changed before the restart target');
-      if(!addition&&restartAdmission&&restartValidated<restartPrefix.length){
+      const ordinal=addition?null:scope?scope.ordinal++:sequence++;
+      const dependencies=(options.dependsOn??[]).map(id=>localIds.get(id));
+      if(!addition&&!journal)chain = hash(chain + canonical({ prompt, timeoutMs: options.timeoutMs, dependencies:dependencies.map(position=>currentWorkers.get(position).origin), schema:compiled?.schema??null,model:options.model??null,effort:options.effort??null,maxAttempts:options.maxAttempts??5,permissions:options.permissions??null,...(options.stepId?{stepId:options.stepId}:{}),...(options.workspace?{workspace:options.workspace}:{}),...(normalizedPolicy?{capturePolicyHash:normalizedPolicy.policyHash}:{}),...(capabilitySelection?{workerCapabilitiesHash:capabilities.fingerprint,capabilitySelectionHash:capabilitySelection.fingerprint}:{}) }));
+      const key=addition?.key??journal?.key??chain,prior=addition?replayAdditions.get(addition.position):journal?priorOverride:oldGuests[ordinal];
+      if(!addition&&!journal&&restartAdmission&&prior?.position<=restartAdmission.position&&prior?.key!==key)throw fault('RESTART_CHANGED','Saved worker invocation changed before the restart target');
+      if(!addition&&!journal&&restartAdmission&&restartValidated<restartPrefix.length){
         if(prior!==restartPrefix[restartValidated])throw fault('RESTART_CHANGED','Saved guest prefix changed before the restart target');
         restartValidated++;if(restartValidated===restartPrefix.length)releaseRestartPrefix();
       }
-      const cached=(addition?previous?.backendIdentity===backend.identity:reuse)&&(!restartAdmission||prior?.position<restartAdmission.position)&&prior?.key===key&&prior.status==='completed';
-      const position=addition?.position??allocateSlot(db,state.generation,{reserve:!cached});
-      const worker = { position,origin:addition?.origin??{kind:'guest',ordinal}, key, prompt, options, phase: options.phase ?? currentPhase, status: 'queued', cached: false };
+      const cached=!journal&&(addition?previous?.backendIdentity===backend.identity:reuse)&&(!restartAdmission||prior?.position<(restartAdmission.firstAffectedPosition??restartAdmission.position))&&prior?.key===key&&prior.status==='completed';
+      let position,worker;transaction(db,()=>{position=addition?.position??allocateSlot(db,state.generation,{reserve:!cached});worker={position,origin:addition?.origin??(scope?.depth?{kind:'child',invocationId:scope.id,ordinal}:{kind:'guest',ordinal}),key,prompt,options,phase:options.phase??scope?.phase??currentPhase,status:'queued',cached:false,...(step?{step}:{}),...(journal?{invocation:{seq:journal.seq,parentSeq:journal.parentSeq,scopeId:journal.scopeId,localCall:journal.localCall}}:{})};if(journal){journal.workerPosition=position;writeInvocation(context,journal,{insert:true});saveWorker(worker);}});
       if(capabilitySelection)worker.capabilitySelection={fingerprint:capabilitySelection.fingerprint,skills:options.skills??[],requireTools:options.requireTools??[]};
       const workerAbort=new AbortController();workerAborts.set(position,workerAbort);
       const signal=AbortSignal.any([abort.signal,workerAbort.signal]);
       if(Object.hasOwn(options,'dependsOn'))worker.dependencies=dependencies;
       currentWorkers.set(position,worker);
-      if(options.id!==undefined)workerIds.set(options.id,position);
+      if(options.id!==undefined)localIds.set(options.id,position);
       let settle;settlements.set(position,new Promise(resolve=>{settle=resolve;}));
       if (cached) {
         if (!Object.hasOwn(prior, 'result') || hash(json(prior.result)) !== prior.resultHash) throw fault('REPLAY_CORRUPT', 'Saved worker result is missing or corrupt');
@@ -440,6 +486,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         }
         if(workerAbort.signal.aborted)throw cancelled();
         applyControls();
+        if(scope?.depth&&db.prepare("SELECT 1 FROM controls WHERE generation=? AND json_extract(value,'$.action')='cancel-child' AND json_extract(value,'$.payload.child.invocationId')=? AND json_extract(value,'$.status') IN ('pending','applied')").get(state.generation,scope.id))throw cancelled();
         consumeAttempt(db,state.generation,{reserved:true,allowPaused:Boolean(addition),...(addition?{position}:{})});reserved=false;
         worker.attempts=(worker.attemptOffset??0)+1; worker.status = 'running'; worker.startedAt = new Date().toISOString();
         saveHeader(); saveWorker(worker);
@@ -475,7 +522,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         const value = JSON.parse(json(result.value));
         if(compiled&&!compiled.validate(value))throw fault('RESULT_SCHEMA','Worker result does not satisfy its declared schema');
         Object.assign(worker, { status: 'completed', result: value, resultHash: hash(json(value)), completedAt: new Date().toISOString() });
-        saveWorker(worker,undefined,true); return value;
+        if(publishInvocation)await publishInvocation({value,publish:()=>saveWorker(worker,undefined,true)});else saveWorker(worker,undefined,true); return value;
       } catch (error) {
         executionOpen=false;delete worker.activeTurn;
         if(retiredWrites)throw error;
@@ -494,7 +541,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         if(error.evidence)worker.evidence=JSON.parse(json(error.evidence));
         if(worker.workspaceError)worker.status='unknown';
         if(error.interruption)worker.interruption={terminalObserved:error.interruption.terminalObserved===true,terminalStatus:['completed','failed','interrupted'].includes(error.interruption.terminalStatus)?error.interruption.terminalStatus:null,descendants:'notVerified'};
-        saveWorker(worker,undefined,true);
+        if(publishInvocation)await publishInvocation({error,publish:()=>saveWorker(worker,undefined,true)});else saveWorker(worker,undefined,true);
         throw error;
       } finally {workerDeadlines.get(position)?.unsubscribe?.();workerDeadlines.delete(position);if(reserved&&!retiredWrites)releaseReservation(db,state.generation);workerAborts.delete(position);if (acquired) release();settle(); }
     };
@@ -517,10 +564,23 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
         calls.add(work);work.then(()=>calls.delete(work),()=>calls.delete(work));
       }
     };
+    let composition;
+    if(compositionEnabled)composition=await createCompositionRuntime({context,previous,previousContext,script,args,restart:restartAdmission,normalizeAgent:(params,scope)=>{let options={...params.options};if(scope.declaration?.permissions)options.permissions={...scope.declaration.permissions,...options.permissions};options.timeoutMs=options.timeoutMs===undefined?workerTimeoutMs:options.timeoutMs;if(backend.resolveOptions)options={...options,...backend.resolveOptions(options)};return{...params,options};},admission:()=>{applyControls();if(stopped)throw fault('RUN_STOPPED','Composition admission is closed');},recordProcess:event=>{own();if(!retiredWrites)db.prepare('INSERT INTO events(generation,value) VALUES(?,?)').run(state.generation,json({method:'child-process',...event}));},copyWorker:(prior,key)=>{
+      const position=allocateSlot(db,state.generation,{reserve:false}),worker=structuredClone(prior);worker.position=position;worker.cached=true;worker.key=key;worker.reusedFrom=prior.reusedFrom??{generation:previous.generation,position:prior.position};worker.sourceGeneration=worker.reusedFrom.generation;worker.sourcePosition=worker.reusedFrom.position;
+      if(worker.step){worker.step.generation=state.generation;if(worker.step.scope.kind==='child')worker.step.scope.invocation.generation=state.generation;}currentWorkers.set(position,worker);saveWorker(worker,undefined,true);return position;
+    },dispatch:({method,params,scope,journal,prior,publishInvocation})=>method==='agent'?dispatch({...params,scope,journal,priorOverride:prior,publishInvocation}):cosmetic(method,params,scope)});
+    const cosmetic=(method,params,scope)=>{
+      if(stopped)throw fault('RUN_STOPPED','Workflow admission is closed');
+      if(method==='phase'){if(typeof params.title!=='string'||params.title.length>500)throw fault('PHASE_INPUT','Phase title must be bounded text');if(!scope)currentPhase=params.title;}
+      else if(method!=='log'||typeof params.message!=='string'||params.message.length>4000)throw fault('LOG_INPUT','Log message must be bounded text');
+      own();db.prepare('INSERT INTO events(generation,value) VALUES(?,?)').run(state.generation,json({method,...params,...(scope?{scopeId:scope.id}:{})}));return null;
+    };
     const call = (method, params) => {
+      if(['refineArtifact','workflow'].includes(method)&&!composition){fatal??=fault(method==='workflow'?'COMPOSITION_INPUT':'REFINEMENT_UNSUPPORTED',method==='workflow'?'Workflow alias is not declared':'Artifact refinement providers are not integrated at this foundation checkpoint');stopped=true;evaluatorAbort.abort();abort.abort();throw fatal;}
+      if(composition){const work=composition.call(method,params).catch(error=>{if(!['RUN_STOPPED','EVALUATOR_ABORTED'].includes(error.code)){fatal??=error;stopped=true;evaluatorAbort.abort();abort.abort();}throw error;});calls.add(work);work.then(()=>calls.delete(work),()=>calls.delete(work));return work;}
       if (method === 'agent') {
         const work = dispatch(params).catch(error => {
-          if (['AGENT_INPUT','AGENT_LIMIT','WORKER_SETTINGS','CAPABILITY_SELECTION','SCHEMA_INVALID','SCHEMA_UNSUPPORTED','SCHEMA_LIMIT','REPLAY_CORRUPT','RESTART_CHANGED','RUN_OWNERSHIP'].includes(error.code)) { fatal ??= error; stopped=true; evaluatorAbort.abort(); abort.abort(); for(const resolve of waiters.splice(0))resolve(); }
+          if (['AGENT_INPUT','AGENT_LIMIT','STEP_INPUT','ARTIFACT_UNAVAILABLE','WORKER_SETTINGS','CAPABILITY_SELECTION','SCHEMA_INVALID','SCHEMA_UNSUPPORTED','SCHEMA_LIMIT','REPLAY_CORRUPT','RESTART_CHANGED','RUN_OWNERSHIP'].includes(error.code)) { fatal ??= error; stopped=true; evaluatorAbort.abort(); abort.abort(); for(const resolve of waiters.splice(0))resolve(); }
           throw error;
         });
         calls.add(work); work.then(() => calls.delete(work), () => calls.delete(work));
@@ -557,6 +617,7 @@ export async function runWorkflow({ runDir, sessionId, script, args = null, back
       pumpAdditions();
       evaluationStartedAt=performance.now();
       state.result = await evaluate(script, { args, call, timeoutMs, signal: evaluatorAbort.signal });
+      composition?.assertConsumed();
       if (fatal) throw fatal;
       if(restartValidated<restartPrefix.length)throw fault('RESTART_CHANGED','Saved guest prefix was not fully replayed before the restart target');
       state.guestFinishedAt=new Date().toISOString();saveHeader();

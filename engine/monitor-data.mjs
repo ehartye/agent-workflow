@@ -7,6 +7,10 @@ import {restartPreview} from './restart.mjs';
 import {readWorkspacePatch,readWorkspaceExclusions} from './workspaces.mjs';
 import {projectMonitorExperience} from './monitor/experience.mjs';
 import {projectAdmission,projectAdditionWorkers} from './append.mjs';
+import {validateStepBindings,validateStepWorkerSet,projectStepsRevision} from './steps.mjs';
+import {contextRunRef,createRootContext,validateInvocationHistory} from './composition-store.mjs';
+import {verifyWorkflowSources} from './composition.mjs';
+import {canonicalJSON} from './composition-contracts.mjs';
 export {projectMonitorExperience} from './monitor/experience.mjs';
 
 function preview(record,fields){
@@ -90,6 +94,13 @@ export async function monitorData(runDir,{kind='summary',generation,sourceGenera
       }
     }
     const workers=fullWorkers,completed=workers.filter(w=>w.status==='completed').length;
+    if(state.stepsVersion===1){
+      validateStepWorkerSet({db,state,workers});
+      const run=await contextRunRef({runDir,sessionId:state.sessionId});if(runRef!==null&&canonicalJSON(runRef)!==canonicalJSON(run))throw fault('STEP_CORRUPT','Summary run binding differs from retained step source');
+      const catalogs=await validateStepBindings({db,state,run,runDir});
+      if(state.compositionVersion===1){const sources=await verifyWorkflowSources({runDir,descriptor:state.workflowSources}),context=createRootContext({db,runDir,run,generation:state.generation,sessionId:state.sessionId,state,sources,signal:new AbortController().signal,assertOwner:()=>{},transaction:()=>{throw fault('COMPOSITION_INPUT','Summary cannot publish records');},workspaceInputs:async()=>null,resolveWorker:async()=>null,resolveAuthority:()=>null});await validateInvocationHistory({context});}
+      output.stepsRevision=projectStepsRevision({catalogs,workers,run,runDir,generation:state.generation,accepting:state.acceptingAdditions,status:state.status,acceptingControls:state.acceptingControls});
+    }
     const added=workers.filter(worker=>worker.origin?.kind==='append');
     output.additions={requested:added.length,completed:added.filter(worker=>worker.status==='completed').length,failed:added.filter(worker=>worker.status==='failed').length,unknown:added.filter(worker=>worker.status==='unknown').length};
     output.coverage={requested:workers.length,completed,cached:workers.filter(w=>w.cached).length,failed:workers.filter(w=>w.status==='failed').length,unknown:workers.filter(w=>w.status==='unknown').length,complete:state.status==='completed'&&completed===workers.length};

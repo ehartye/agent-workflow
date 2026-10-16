@@ -7,13 +7,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {syncBuiltinESMExports} from 'node:module';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {runWorkflow,readRun,requestControl} from '../engine/controller.mjs';
 
 test('writer artifact collection cannot replace unknown evidence after the drain deadline',async()=>{
-  const execute=promisify(execFile),root=await fs.mkdtemp(join(tmpdir(),'workflow-writer-retirement-'));
+  const execute=promisify(execFile),temporary=await fs.realpath(tmpdir()),root=await fs.realpath(await fs.mkdtemp(join(temporary,'workflow-writer-retirement-')));
+  assert.equal(dirname(root),temporary);
   const source=join(root,'project'),runDir=join(root,'run');
   const git=async(...args)=>execute('git',args,{cwd:source,windowsHide:true,timeout:10000});
   const originalWrite=fs.writeFile;
@@ -42,7 +43,13 @@ test('writer artifact collection cannot replace unknown evidence after the drain
         await fs.writeFile(join(workspace.cwd,'note.txt'),'writer output\n');
         return{value:'done',terminalObserved:true,evidence:{cleanup}};
       },close:async()=>{announceClose();await closeGate;return cleanup;}}});
-    await patchEntered;
+    // A capture failure closes the backend before reaching changes.patch. Observe
+    // that positive event so finally can release closeGate and retain the failure.
+    const reachedPatch=await Promise.race([patchEntered.then(()=>true),closeEntered.then(()=>false)]);
+    if(!reachedPatch){
+      const failed=await readRun(runDir);
+      assert.fail('Backend closed before writer patch entry: '+JSON.stringify({error:failed.error,workers:failed.workers}));
+    }
     await requestControl(runDir,{sessionId:'fixture',generation:1,action:'stop'});
     await closeEntered;
     const before=(await readRun(runDir)).workers[0];
@@ -58,6 +65,7 @@ test('writer artifact collection cannot replace unknown evidence after the drain
   }finally{
     releasePatch();releaseClose();await work?.catch(()=>{});
     fs.writeFile=originalWrite;syncBuiltinESMExports();
+    assert.equal(dirname(await fs.realpath(root)),temporary);
     await fs.rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
   }
 });

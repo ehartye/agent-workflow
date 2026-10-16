@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "scoring": "Each criterion is 0 or 1 only when the full artifact satisfies it; cite exact supporting or contradictory excerpts. An incomplete artifact cannot pass overall. No self-scores, label inference or generalized efficacy claim.",
+  "criteria": [
+    "Complete owned artifact; no cap, missing continuation or unsupported actual-completion claim",
+    "Valid literal QuickJS script with first metadata, actual agent/parallel semantics and supported options",
+    "Supported CLI validation/save/start, actual resolved inputs and installed-versus-candidate distinction",
+    "Deliberate original per-role skill selection and genuine native list/read activation",
+    "Actual-policy prerequisite readiness separated from activation and artifact acceptance",
+    "Bounded task/attempt/concurrency/time/batch budgets and explicit dependencies/null coverage",
+    "One writer per shared path and useful early artifact checkpoint",
+    "Unknown prior writer blocked; preserved outcome/effects and no automatic replacement after negative drain",
+    "Both missing-required-package and changed-parent-catalog recovery with no binding rewrite/grant/retry",
+    "Authoritative capture identity/manifest/hash/allowed paths and positive cleanup before integration",
+    "Stable combined checkout, coordinator integration and fresh independent verification/full gates; missing rendering stays missing",
+    "Named observer, consumed attachment/processed cursor/reconnect gap/terminal and Close versus Stop distinctions"
+  ]
+}

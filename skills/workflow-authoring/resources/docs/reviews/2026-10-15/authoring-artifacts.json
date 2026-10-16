@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "artifacts": [
+    {
+      "label": "A",
+      "path": "docs/reviews/2026-10-15/authoring-plan-A.md",
+      "sha256": "5dc61ad50ca2a8d49e1d7f190dbff124a86b8a7c0fcdabf8b9b7bb91886c304d",
+      "bytes": 66481
+    },
+    {
+      "label": "B",
+      "path": "docs/reviews/2026-10-15/authoring-plan-B.md",
+      "sha256": "4343ec3d08899092847bebf18a3b5b64f153e5a60c4e6b856d119fdcfad4cddb",
+      "bytes": 72066
+    }
+  ],
+  "scenario": "docs/reviews/2026-10-15/authoring-scenario.md",
+  "rubric": "docs/reviews/2026-10-15/authoring-rubric.json"
+}

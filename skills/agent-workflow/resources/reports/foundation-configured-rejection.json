@@ -1,0 +1,45 @@
+{
+  "status": "failed",
+  "inferenceRequests": 0,
+  "stages": [
+    {
+      "name": "authentication",
+      "status": "passed",
+      "evidence": {
+        "mode": "chatgpt",
+        "provider": "openai"
+      }
+    },
+    {
+      "name": "windows-readiness",
+      "status": "passed",
+      "evidence": {
+        "status": "ready",
+        "commandProven": false
+      }
+    },
+    {
+      "name": "buffered-command",
+      "status": "failed",
+      "error": {
+        "code": "RPC_ERROR",
+        "message": "Codex reported a failure (code -32600); untrusted details excluded"
+      }
+    }
+  ],
+  "runnerEquivalence": "notVerified",
+  "error": {
+    "code": "RPC_ERROR",
+    "message": "Codex reported a failure (code -32600); untrusted details excluded"
+  },
+  "cleanup": {
+    "serverExited": true,
+    "forced": false,
+    "descendants": "notVerified"
+  },
+  "codexVersion": "codex-cli 0.162.1",
+  "requestedBackend": "configured",
+  "platform": "win32",
+  "nodeVersion": "v24.18.0",
+  "checkedAt": "2026-10-13T13:09:16.371Z"
+}

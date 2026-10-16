@@ -403,6 +403,7 @@ let detailScope='';
 const messageHistory=new Map();
 function focusIdentity(element){
   if(element?.id)return {id:element.id};
+  if(element?.dataset.graphKey)return {kind:'step',key:element.dataset.graphKey};
   if(element?.tagName==='SUMMARY'&&element.parentElement?.dataset.disclosure)return {kind:'disclosure',key:element.parentElement.dataset.disclosure};
   if(element?.dataset.prerequisite!==undefined)return {kind:'prerequisite',position:element.dataset.prerequisite};
   if(element?.dataset.messageKey)return {kind:'message',key:element.dataset.messageKey};
@@ -412,6 +413,10 @@ function focusIdentity(element){
 }
 function restoreFocus(identity){
   if(identity?.kind==='tray')toggleTray(true, false);
+  if(identity?.kind==='step'){
+    const element=[...document.querySelectorAll('[data-graph-key]')].find(item=>item.dataset.graphKey===identity.key&&item.tagName==='BUTTON');
+    (element??$('workflow-map')).focus({preventScroll:true});return;
+  }
   const element=identity?.id?$(identity.id):identity?.kind==='disclosure'?[...$('detail').querySelectorAll('details[data-disclosure]')].find(item=>item.dataset.disclosure===identity.key)?.querySelector('summary'):identity?.kind==='prerequisite'?[...$('detail').querySelectorAll('[data-prerequisite]')].find(item=>item.dataset.prerequisite===identity.position):identity?.kind==='message'?[...$('message-history').querySelectorAll('button')].find(item=>item.dataset.messageKey===identity.key):identity?.kind?document.querySelector(`${identity.kind==='map'?'.map-worker':'.worker'}[data-position="${identity.position}"]`):null;
   (element??$('workflow-map')).focus({preventScroll:true});
 }
@@ -436,7 +441,7 @@ function toggleTray(open,focus=true,origin='tray-toggle'){
 function chooseWorker(position,origin){
   if(!snapshot?.workers?.some(worker=>worker.position===position))return;
   if(origin)inspectorOrigin=focusIdentity(origin)??inspectorOrigin;
-  selected=position;extendedWorker=undefined;activityHistory=undefined;earlierEvidence=undefined;
+  selectedStep=null;selected=position;extendedWorker=undefined;activityHistory=undefined;earlierEvidence=undefined;
   $('status-filter').value='';$('phase-filter').value='';
   $('inspector-panel').hidden=false;
   layoutPanes();
@@ -476,7 +481,137 @@ $('focus-active').addEventListener('click',()=>{
 phoneLayout.addEventListener('change',()=>{mapKey='';renderMap();});
 const sameRun=(a,b)=>a?.dataInstanceId===b?.dataInstanceId&&a?.runId===b?.runId&&a?.runtimeId===b?.runtimeId;
 function controlsMatch(){return snapshot&&!stale&&(!snapshot.monitor?.run?viewRun===null:sameRun(controlTarget,snapshot.monitor.run)&&controlTarget.generation===snapshot.generation);}
-function scopedPath(path,runId=viewRun){return runId&&/^\/api\/(run(?:\?|$)|worker\/|patch\/|exclusions\/|activity(?:\?|$)|messages(?:\?|$)|script(?:\?|$)|result(?:\?|$)|control(?:\/|$)|resume$|restart$|lifecycle(?:\/|$))/.test(path)?`/api/runs/${encodeURIComponent(runId)}${path.slice(4)}`:path;}
+function scopedPath(path,runId=viewRun){return runId&&/^\/api\/(run(?:\?|$)|steps(?:\?|$)|worker\/|patch\/|exclusions\/|activity(?:\?|$)|messages(?:\?|$)|script(?:\?|$)|result(?:\?|$)|control(?:\/|$)|resume$|restart$|lifecycle(?:\/|$))/.test(path)?`/api/runs/${encodeURIComponent(runId)}${path.slice(4)}`:path;}
+
+// The public catalog is independent of clipped run metadata and worker discovery.
+// No declared step ever reserves or supplies a worker control identity.
+let selectedStep=null,stepState=null;
+const stepReadLimits={pages:64,bytes:16*1048576};
+const jsonBytes=value=>encodeURIComponent(JSON.stringify(value)).replace(/%[A-F\d]{2}/g,'x').length;
+const stepIdentity=ref=>JSON.stringify([[ref.run.dataInstanceId,ref.run.runId,ref.run.runtimeId],ref.scope.kind==='root'?'root':JSON.stringify(['child',ref.scope.invocation.invocationId]),ref.stepId]);
+const stepScope=ref=>JSON.stringify([ref.run.dataInstanceId,ref.run.runId,ref.run.runtimeId,ref.generation,ref.scope.kind,ref.scope.invocation?.invocationId??null]);
+const stepRun=()=>snapshot?.monitor?.run??snapshot?.experience?.run;
+const stepItems=()=>stepState?.items??[];
+const stepWorker=item=>item?.worker&&sameRun(item.worker.run,stepRun())&&item.worker.generation===snapshot.generation?snapshot.workers.find(worker=>worker.position===item.worker.position&&(worker.attempts??0)===item.worker.attempt):null;
+const selectedStepNode=()=>stepItems().find(item=>stepIdentity(item.ref)===selectedStep);
+const stepName=ref=>stepItems().find(item=>stepIdentity(item.ref)===stepIdentity(ref))?.label??`${ref.stepId} (not loaded)`;
+const stepStatus=item=>stepState?.stale?'Unknown':item.binding==='assigned'?item.execution:['completed','failed','stopped','unknown','blocked'].includes(snapshot.status)?'Incomplete':'Planned';
+function resetSteps(){stepState?.abort?.abort();stepState=null;}
+function orderSteps(items,complete=false){
+  const keyed=new Map(items.map((item,index)=>[stepIdentity(item.ref),{item,index,pending:0,next:[]}]));
+  for(const entry of keyed.values())for(const ref of entry.item.dependencies){const dependency=keyed.get(stepIdentity(ref));if(!dependency){if(complete)throw Error('A complete step catalog contains an unavailable dependency.');continue;}entry.pending++;dependency.next.push(entry);}
+  const ready=[...keyed.values()].filter(entry=>entry.pending===0),ordered=[];
+  while(ready.length){const entry=ready.shift();ordered.push(entry.item);for(const next of entry.next)if(--next.pending===0){let low=0,high=ready.length;while(low<high){const mid=(low+high)>>>1;if(ready[mid].index<next.index)low=mid+1;else high=mid;}ready.splice(low,0,next);}}
+  if(ordered.length!==items.length)throw Error('Step dependencies contain a cycle.');return ordered;
+}
+function validateStepPage(page,run,generation){
+  const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
+  const text=(value,max)=>typeof value==='string'&&value.length>0&&value.length<=max&&!value.includes('\0');
+  const id=value=>text(value,100)&&/^[A-Za-z0-9_-]+$/.test(value)&&!['__proto__','constructor','prototype'].includes(value.toLowerCase());
+  const count=value=>Number.isSafeInteger(value)&&value>=0;
+  const validRun=value=>exact(value,['dataInstanceId','runId','runtimeId'])&&Object.values(value).every(item=>text(item,200))&&sameRun(value,run);
+  const positive=value=>Number.isSafeInteger(value)&&value>0;
+  const ref=value=>exact(value,['run','generation','scope','stepId'])&&validRun(value.run)&&value.generation===generation&&id(value.stepId)&&
+    (exact(value.scope,['kind'])&&value.scope.kind==='root'||exact(value.scope,['kind','invocation'])&&value.scope.kind==='child'&&exact(value.scope.invocation,['run','generation','invocationId'])&&validRun(value.scope.invocation.run)&&value.scope.invocation.generation===generation&&id(value.scope.invocation.invocationId));
+  const worker=(value,current)=>exact(value,['run','generation','position','attempt'])&&validRun(value.run)&&positive(value.generation)&&(!current||value.generation===generation)&&Number.isInteger(value.position)&&value.position>=0&&value.position<1000&&count(value.attempt);
+  const fault=value=>value===null||exact(value,['code','evidence'])&&text(value.code,100)&&(value.evidence===null||exact(value.evidence,['kind','manifestId','sha256','bytes','entries'])&&value.evidence.kind==='manifest'&&[value.evidence.manifestId,value.evidence.sha256].every(hash=>typeof hash==='string'&&/^[a-f0-9]{64}$/.test(hash))&&count(value.evidence.bytes)&&count(value.evidence.entries));
+  const fail=()=>{throw Error('Step evidence is unavailable: invalid, stale or mismatched public projection.');};
+  if(!exact(page,['schemaVersion','run','generation','available','items','nextCursor','hasMore','coverage'])||page.schemaVersion!==1||!validRun(page.run)||page.generation!==generation||typeof page.available!=='boolean'||!Array.isArray(page.items)||page.items.length>100||typeof page.hasMore!=='boolean'||!(page.nextCursor===null||text(page.nextCursor,200))||page.hasMore!==(page.nextCursor!==null))fail();
+  const coverage=page.coverage;
+  if(!exact(coverage,['declared','assigned','unassigned','dynamicWorkers','futureWorkers'])||!['declared','assigned','unassigned','dynamicWorkers'].every(key=>count(coverage[key]))||coverage.declared>4096||coverage.assigned+coverage.unassigned!==coverage.declared||coverage.dynamicWorkers>1000||!['unknown','executionClosed'].includes(coverage.futureWorkers))fail();
+  if(!page.available&&(page.items.length||page.hasMore||coverage.futureWorkers!=='unknown'))fail();
+  if(page.hasMore&&!page.items.length)fail();
+  const seen=new Set(),bound=new Set();
+  for(const item of page.items){
+    if(!exact(item,['ref','label','phase','dependencies','binding','worker','sourceWorker','execution','displayBlockedBy','failure','acceptance'])||!ref(item.ref)||!text(item.label,500)||!(item.phase===null||text(item.phase,500))||!Array.isArray(item.dependencies)||item.dependencies.length>255||!Array.isArray(item.displayBlockedBy)||item.displayBlockedBy.length>255||!['unassigned','assigned'].includes(item.binding)||!['planned','queued','running','completed','failed','unknown'].includes(item.execution)||!['unverified','pass','fail'].includes(item.acceptance)||!fault(item.failure))fail();
+    const identity=stepIdentity(item.ref);if(seen.has(identity))fail();seen.add(identity);
+    const deps=new Set();
+    for(const dependency of item.dependencies){if(!ref(dependency)||stepScope(dependency)!==stepScope(item.ref)||stepIdentity(dependency)===identity||deps.has(stepIdentity(dependency)))fail();deps.add(stepIdentity(dependency));}
+    const blocked=new Set();for(const dependency of item.displayBlockedBy){if(!ref(dependency)||!deps.has(stepIdentity(dependency))||blocked.has(stepIdentity(dependency)))fail();blocked.add(stepIdentity(dependency));}
+    if(item.binding==='unassigned'){if(item.worker!==null||item.sourceWorker!==null||item.execution!=='planned'||item.acceptance!=='unverified')fail();}
+    else{if(!worker(item.worker,true)||item.sourceWorker!==null&&!worker(item.sourceWorker,false)||!stepWorker(item)||bound.has(item.worker.position))fail();bound.add(item.worker.position);}
+  }
+  return page;
+}
+function chooseStep(key,origin){
+  const item=stepItems().find(item=>stepIdentity(item.ref)===key);if(!item)return;
+  const worker=stepWorker(item);
+  if(worker)chooseWorker(worker.position,origin);
+  else{if(origin)inspectorOrigin=focusIdentity(origin);selected=undefined;extendedWorker=activityHistory=earlierEvidence=undefined;$('inspector-panel').hidden=false;layoutPanes();}
+  selectedStep=key;renderWorkers();renderDetail();renderMap();updateButtons();$('close-inspector').focus({preventScroll:true});
+}
+function renderStepEvidence(container,item){
+  container.append(node('p',stepState?.stale?'Step read failed; showing the previous step snapshot. Refresh to read current evidence.':'Declared plan relations are display evidence; no scheduler admission implied.','muted'));
+  container.append(node('p',`Step ${item.ref.stepId} · ${item.phase??'No phase'} · ${item.ref.scope.kind==='root'?'root scope':`child ${item.ref.scope.invocation.invocationId}`}`));
+  if(item.worker){
+    const identity=ref=>`${ref.run.runtimeId} · generation ${ref.generation} · position ${ref.position} · attempt ${ref.attempt}`;
+    container.append(node('p',`Worker target: ${identity(item.worker)}`));
+    if(item.sourceWorker)container.append(node('p',`Cached source: ${identity(item.sourceWorker)}`));
+  }else container.append(node('p','No worker assigned. Tool logs and execution evidence are unavailable.'));
+  container.append(node('p',`Acceptance: ${item.acceptance}. Execution completion does not establish delivery.`));
+  if(item.displayBlockedBy.length)container.append(node('p',`Waiting for ${item.displayBlockedBy.map(stepName).join(', ')}. Declared plan dependency incomplete; no scheduler admission implied.`));
+  const list=node('ul');for(const dependency of item.dependencies){const entry=node('li');const button=node('button',stepName(dependency));button.type='button';button.disabled=!stepItems().some(candidate=>stepIdentity(candidate.ref)===stepIdentity(dependency));button.addEventListener('click',()=>chooseStep(stepIdentity(dependency),button));entry.append(button);list.append(entry);}if(item.dependencies.length)container.append(list);
+  evidence(container,'Declared step identity and dependencies',{ref:item.ref,dependencies:item.dependencies,displayBlockedBy:item.displayBlockedBy,failure:item.failure});
+}
+function renderStepDetail(){
+  const item=selectedStepNode(),key=JSON.stringify([selectedStep,item,stepState?.stale,snapshot.status,item?.dependencies.map(stepName)]);if(key===detailKey)return;
+  const scope=JSON.stringify([runKey(),selectedStep]),sameScope=detailScope===scope,scroll=$('detail').scrollTop;
+  const expanded=sameScope?[...$('detail').querySelectorAll('details[data-disclosure][open]')].map(element=>element.dataset.disclosure):[],focused=focusIdentity(document.activeElement);detailScope=scope;
+  detailKey=key;$('detail').replaceChildren();$('detail-heading').textContent=item?.label??'Step evidence unavailable';$('detail-status').hidden=!item;
+  if(item){badge($('detail-status'),stepStatus(item));renderStepEvidence($('detail'),item);}else $('detail').append(node('p','Selected step evidence is not loaded for this run and generation.'));
+  for(const element of $('detail').querySelectorAll('details[data-disclosure]'))element.open=expanded.includes(element.dataset.disclosure);
+  if(sameScope){$('detail').scrollTop=scroll;if(focused?.kind==='disclosure')restoreFocus(focused);}
+}
+function renderStepList(){
+  const state=stepState,items=stepItems();
+  textChanged($('step-coverage'),!state?.available?'Declared step evidence unavailable.':`${items.length} of ${state.coverage.declared} declared steps loaded · ${state.coverage.unassigned} unassigned · ${state.coverage.assigned} assigned · ${state.coverage.dynamicWorkers} dynamic workers.${state.coverage.futureWorkers==='unknown'?' Future workers unknown.':' Execution admission closed; unassigned steps remain incomplete.'}${state.stale?' Step refresh failed; previous snapshot retained.':''}${state.hasMore?' More step pages remain.':''}`);
+  const limited=state?.hasMore&&state.pages>=stepReadLimits.pages;
+  textChanged($('step-read-status'),state?.error??(limited?'Step browsing request limit reached; unloaded catalog coverage remains unknown.':''));
+  $('load-more-steps').hidden=!state?.hasMore;$('load-more-steps').disabled=Boolean(state?.loading||state?.stale||limited);
+  const list=node('ol');list.id='declared-step-list';list.setAttribute('aria-label','Loaded declared steps');
+  for(const item of items){const worker=stepWorker(item);if(worker&&!$('show-hidden').checked&&visibilityFor(worker)!=='visible')continue;const entry=node('li');entry.dataset.graphKey=stepIdentity(item.ref);const button=node('button',`${item.label} · ${stepStatus(item)}`,'step-list-button');button.type='button';button.dataset.graphKey=stepIdentity(item.ref);button.setAttribute('aria-pressed',String(selectedStep===stepIdentity(item.ref)));button.addEventListener('click',event=>chooseStep(event.currentTarget.dataset.graphKey,event.currentTarget));entry.append(button);list.append(entry);}
+  patchMapNode($('declared-step-list'),list);
+}
+async function loadSteps(append=false,{force=false}={}){
+  const run=stepRun(),generation=snapshot?.generation;
+  if(!run||!Number.isSafeInteger(generation)||generation<1){resetSteps();renderStepList();return;}
+  if(!stepState||!sameRun(stepState.run,run)||stepState.generation!==generation){resetSteps();stepState={run,generation,items:[],pages:1,available:false,hasMore:false};}
+  const state=stepState;if(state.loading||append&&(!state.hasMore||state.stale||state.pages>=stepReadLimits.pages))return;
+  state.loading=true;state.abort=new AbortController();renderStepList();
+  const current=()=>stepState===state&&snapshot?.generation===generation&&sameRun(stepRun(),run)&&!disposed&&!closed&&authenticated&&!document.hidden;
+  const items=append?[...state.items]:[],cursors=new Set(append?state.cursors:[]);let cursor=append?state.nextCursor:null,page,coverage=append?state.coverage:null,loadedPages=0,bytes=append?state.bytes:0;
+  const reads=append?1:state.pages;
+  try{
+    const revision=snapshot.stepsRevision;
+    if(revision!==undefined&&(typeof revision!=='string'||!/^\s*[a-f0-9]{64}$/.test(revision)||revision.length!==64))throw Error('The recorded step revision is invalid.');
+    // New runtimes bind this revision to the complete verified projection.
+    // Older projections retain a conservative snapshot-based refresh key.
+    const identity=JSON.stringify([run,generation,revision??[snapshot.updatedAt,snapshot.status,snapshot.acceptingAdditions,snapshot.admissionRevision,snapshot.workers.map(worker=>[worker.position,worker.attempts,worker.status,worker.cached,worker.reusedFrom,worker.error,worker.step])]]);
+    if(!append&&!force&&state.readIdentity===identity)return;
+    if(!append)state.readIdentity=identity;
+    for(let index=0;index<reads;index++){
+      if(cursor!==null){if(cursors.has(cursor))throw Error('Repeated step cursor.');cursors.add(cursor);}
+      page=await api(`/api/steps?generation=${generation}&limit=100${cursor!==null?`&after=${encodeURIComponent(cursor)}`:''}`,{signal:state.abort.signal,maxBytes:1048576});
+      loadedPages++;
+      if(!current())return;validateStepPage(page,run,generation);
+      bytes+=jsonBytes(page.items);if(bytes>stepReadLimits.bytes)throw Error('Step browsing memory limit reached; remaining catalog pages are unloaded.');
+      if(coverage&&['declared','assigned','unassigned','dynamicWorkers','futureWorkers'].some(key=>coverage[key]!==page.coverage[key]))throw Error('Step coverage changed while paging. Refresh to read the catalog again.');
+      coverage=page.coverage;items.push(...page.items);cursor=page.nextCursor;
+      if(items.length>4096||items.length>coverage.declared||new Set(items.map(item=>stepIdentity(item.ref))).size!==items.length||new Set(items.filter(item=>item.worker).map(item=>item.worker.position)).size!==items.filter(item=>item.worker).length||cursor!==null&&cursors.has(cursor))throw Error('Invalid step pagination coverage.');
+      const scopes=new Map();for(const item of items){const scope=stepScope(item.ref);scopes.set(scope,(scopes.get(scope)??0)+1);if(scopes.get(scope)>256)throw Error('Step scope limit exceeded.');}
+      if(!page.hasMore)break;
+    }
+    if(!current())return;
+    if(page.available&&!page.hasMore&&items.length!==coverage.declared)throw Error('Step catalog is incomplete.');
+    orderSteps(items,!page.hasMore);
+    const assigned=items.filter(item=>item.binding==='assigned').length;
+    if(assigned>coverage.assigned||items.length-assigned>coverage.unassigned||page.available&&!page.hasMore&&assigned!==coverage.assigned)throw Error('Step association counts are inconsistent.');
+    Object.assign(state,{items,coverage,available:page.available,nextCursor:cursor,hasMore:page.hasMore,stale:false,error:null,bytes,cursors:[...cursors],pages:append?state.pages+1:loadedPages});
+    if(selectedStep)selected=stepWorker(selectedStepNode())?.position;
+  }catch(error){if(!current())return;state.error=`Declared step evidence unavailable. ${error.message} Use Refresh now to read from the first page.`;state.stale=true;state.pages=1;}
+  finally{state.loading=false;if(current()){renderStepList();renderWorkers();renderDetail();renderMap();updateButtons();}}
+}
+$('load-more-steps').addEventListener('click',()=>void loadSteps(true));
 function visibilityFor(worker){
   return snapshot.lifecycle?.workers?.find(item=>item.target?.generation===snapshot.generation&&item.target.position===worker.position&&item.target.attempt===(worker.attempts??0))?.visibility??'visible';
 }
@@ -493,7 +628,7 @@ function switchView(runId,authority=null){
   runDrafts.set(runKey(),{steerDraft,reconcileDraft,localReceipt,lifecycleReceipt,lifecycleUncertain,pruneReview});
   viewRun=runId;
   ({steerDraft,reconcileDraft,localReceipt,lifecycleReceipt,lifecycleUncertain=false,pruneReview}=runDrafts.get(runKey())??{});
-  snapshot=undefined;selected=undefined;extendedWorker=undefined;activityHistory=undefined;earlierEvidence=undefined;
+  resetSteps();selectedStep=null;snapshot=undefined;selected=undefined;extendedWorker=undefined;activityHistory=undefined;earlierEvidence=undefined;
   patchEvidence.clear();patchLoading.clear();listKey=detailKey=mapKey=phaseKey=resultKey=receiptKey='';stale=true;
   $('script').hidden=true;$('script').textContent='';$('detail').replaceChildren(node('p','Waiting for a fresh run snapshot.'));
   $('run-title').textContent='Loading selected run';$('run-status').textContent='Loading';
@@ -514,7 +649,7 @@ function patchMapNode(target,source){
   for(const attribute of [...target.attributes])if(!source.hasAttribute(attribute.name))target.removeAttribute(attribute.name);
   for(const attribute of source.attributes)if(target.getAttribute(attribute.name)!==attribute.value)target.setAttribute(attribute.name,attribute.value);
   const old=[...target.childNodes],used=new Set();
-  const key=element=>element.nodeType===1&&element.classList.contains('map-card')?`worker:${element.dataset.position}`:element.nodeType===1&&element.id?`id:${element.id}`:null;
+  const key=element=>element.nodeType===1&&element.dataset.graphKey?`step:${element.dataset.graphKey}`:element.nodeType===1&&element.classList.contains('map-card')?`worker:${element.dataset.position}`:element.nodeType===1&&element.id?`id:${element.id}`:null;
   for(const [index,child] of [...source.childNodes].entries()){
     const identity=key(child);
     const prior=identity?old.find(element=>key(element)===identity):old[index];
@@ -685,7 +820,14 @@ function evidence(container, title, value, failure = false) {
   pre.tabIndex = 0;
   section.append(pre);container.append(section);
 }
-async function api(path, { method = 'GET', body, text = false, runId = viewRun, signal } = {}) {
+async function boundedJson(response,maxBytes){
+  if(response.body?.getReader){
+    const reader=response.body.getReader(),decoder=new TextDecoder('utf-8',{fatal:true});let bytes=0,value='';
+    try{while(true){const chunk=await reader.read();if(chunk.done)break;bytes+=chunk.value.byteLength;if(bytes>maxBytes){await reader.cancel();throw Error('Step response exceeds the 1 MiB limit.');}value+=decoder.decode(chunk.value,{stream:true});}value+=decoder.decode();return JSON.parse(value);}finally{reader.releaseLock();}
+  }
+  const value=await response.json();if(jsonBytes(value)>maxBytes)throw Error('Step response exceeds the 1 MiB limit.');return value;
+}
+async function api(path, { method = 'GET', body, text = false, runId = viewRun, signal, maxBytes } = {}) {
   const selectedRun=viewRun,scoped=scopedPath(path,runId);path=scoped;
   const abort = new AbortController(); requests.add(abort);
   const relay=()=>abort.abort();if(signal?.aborted)abort.abort();else signal?.addEventListener('abort',relay,{once:true});
@@ -699,12 +841,13 @@ async function api(path, { method = 'GET', body, text = false, runId = viewRun, 
       textChanged($('connection'),'Authentication required');notice(authMessage);updateButtons();
       throw new Error(authMessage);
     }
+    const bounded=maxBytes?await boundedJson(response,maxBytes):undefined;
     if (!response.ok) {
       let message = `Request failed (${response.status}).`;
-      try { const error = await response.json(); message = error.error?.message ?? error.message ?? message; } catch { /* Keep the HTTP status. */ }
+      try { const error = maxBytes?bounded:await response.json(); message = quickText(error.error?.message ?? error.message ?? message); } catch { /* Keep the HTTP status. */ }
       const error = new Error(message); error.status = response.status; throw error;
     }
-    const result=text ? await response.text() : await response.json();
+    const result=maxBytes?bounded:text?await response.text():await response.json();
     if(method==='GET'&&selectedRun!==viewRun&&path!=='/api/health'&&!path.startsWith('/api/session/')){const error=new Error('Viewed run changed; earlier read was discarded.');error.code='VIEW_CHANGED';throw error;}
     return result;
   } finally { clearTimeout(timeout); requests.delete(abort);signal?.removeEventListener('abort',relay); }
@@ -852,7 +995,7 @@ function renderWorkers() {
   }
   const filtered = visible.filter(worker => (!$('status-filter').value || worker.status === $('status-filter').value) &&
     (!$('phase-filter').value || phaseLabel(worker) === $('phase-filter').value));
-  if (!workers.some(worker => worker.position === selected)) selected = filtered[0]?.position;
+  if (!selectedStep&&!workers.some(worker => worker.position === selected)) selected = filtered[0]?.position;
   const key = JSON.stringify([snapshot.generation, selected,snapshot.lifecycle, filtered.map(worker => [worker.position, worker.status, worker.cached, worker.options?.label,phaseLabel(worker)])]);
   if (key !== listKey) {
     listKey = key;
@@ -968,20 +1111,22 @@ function renderWorkspace(container, worker, sourceGeneration) {
 }
 function renderDetail() {
   if(!snapshot)return;
+  if(selectedStep&&!stepWorker(selectedStepNode())){renderStepDetail();return;}
   const base = snapshot.workers?.find(worker => worker.position === selected);
   const worker = extendedWorker?.generation === snapshot.generation && extendedWorker.position === selected ? extendedWorker.worker : base;
   const history = activityHistory?.generation === snapshot.generation && activityHistory.position === selected ? activityHistory : undefined;
   const task=snapshot.experience?.workers?.find(item=>item.ref.position===worker?.position)?.task;
   const artifacts=snapshot.experience?.artifacts?.filter(item=>item.worker.position===worker?.position)??[];
   const restart=snapshot.restartPreview?.position===worker?.position?snapshot.restartPreview:undefined;
-  const key = JSON.stringify([snapshot.generation, worker, history, activityLoading, activityFilter,restart,earlierEvidence,patchRevision,
+  const declaredStep=selectedStepNode();
+  const key = JSON.stringify([snapshot.generation, worker, history, activityLoading, activityFilter,restart,earlierEvidence,patchRevision,declaredStep,stepState?.stale,
     [task?.declaredOutcome,task?.verification,task?.reason],artifacts.map(item=>[item.claimId,item.integrity,item.acceptance]),worker?visibilityFor(worker):null, Array.isArray(worker?.dependencies)?worker.dependencies.map(position => {
     const prerequisite = snapshot.workers.find(item => item.position === position);
     return [position, prerequisite?.status, prerequisite?.options?.label,prerequisite?visibilityFor(prerequisite):null];
   }):null]);
   if (key === detailKey) return;
   detailKey = key;
-  const scope=JSON.stringify([runKey(),snapshot.generation,selected]);
+  const scope=selectedStep?JSON.stringify([runKey(),selectedStep]):JSON.stringify([runKey(),snapshot.generation,selected]);
   const sameScope=scope===detailScope;
   const expanded=sameScope?[...$('detail').querySelectorAll('details[data-disclosure][open]')].map(element=>element.dataset.disclosure):[];
   detailScope=scope;
@@ -993,6 +1138,7 @@ function renderDetail() {
   $('detail-heading').textContent = worker ? worker.options?.label || `Worker ${worker.position + 1}` : 'Worker details';
   if (!worker) { detail.append(node('p', snapshot.availability?.status==='unavailable'?'Worker evidence is unavailable. Original records were preserved.':'Select a worker to read its prompt, result and execution evidence.', 'empty')); return; }
   if(primaryFailure(worker))detail.append(failureCallout(worker));
+  if(declaredStep)renderStepEvidence(detail,declaredStep);
   badge($('detail-status'), worker.status);
   const meta = node('div', undefined, 'detail-meta');
   meta.append(node('span', `Slot ${worker.position + 1}`), node('span', worker.cached ? 'Result reused from saved evidence' : worker.status === 'queued' ? 'Awaiting dispatch' : 'Result not reused'));
@@ -1215,28 +1361,45 @@ function svgNode(tag, attributes = {}, text) {
 }
 function renderMap() {
   if(!snapshot)return;
-  const workers=snapshot.workers??[],coverage=snapshot.coverage??{};
-  const count=coverage.requested??workers.length,complete=coverage.completed??0;
+  const actual=snapshot.workers??[],coverage=snapshot.coverage??{},bound=new Set(),planned=[];
+  for(const item of stepItems()){
+    const worker=stepWorker(item);if(worker)bound.add(worker.position);
+    planned.push({...worker,position:worker?.position??stepIdentity(item.ref),status:worker?.status??stepStatus(item).toLowerCase(),options:{...worker?.options,label:item.label},phase:item.phase??'',dependencies:worker?.dependencies??[],planStep:item});
+  }
+  const workers=[...planned,...actual.filter(worker=>!bound.has(worker.position))];
+  const mapPhase=worker=>worker.planStep?JSON.stringify([stepScope(worker.planStep.ref),worker.planStep.phase]):workerPhaseKey(worker);
+  const mapPhaseLabel=worker=>worker.planStep?worker.planStep.phase??'':phaseLabel(worker);
+  const visible=workers.filter(worker=>worker.planStep?.binding==='unassigned'||$('show-hidden').checked||visibilityFor(worker)==='visible');
+  // Topological ordering is display-only; it cannot admit or block actual workers.
+  const rank=new Map(orderSteps(stepItems()).map((item,index)=>[stepIdentity(item.ref),index]));
+  const ordered=[...visible].sort((a,b)=>(a.planStep?rank.get(stepIdentity(a.planStep.ref)):4096)-(b.planStep?rank.get(stepIdentity(b.planStep.ref)):4096));
+  const count=coverage.requested??actual.length,complete=coverage.completed??0;
   const percent=count?Math.floor(complete/count*100):null;
-  const running=workers.filter(worker=>worker.status==='running').length;
-  const queued=workers.filter(worker=>worker.status==='queued').length;
+  const running=actual.filter(worker=>worker.status==='running').length;
+  const queued=actual.filter(worker=>worker.status==='queued').length;
   const unavailable=snapshot.availability?.status==='unavailable';
   $('flow-progress').textContent=unavailable?'Execution data unavailable':`${complete} / ${count} complete · ${running} active`;
   $('coverage-breakdown').textContent=unavailable?'Worker counts and execution progress are unavailable.':`${queued} queued · ${coverage.failed??0} failed · ${coverage.unknown??0} unknown · ${coverage.cached??0} reused results. Completed execution is not coordinator acceptance.${['running','pausing','stopping','finishing'].includes(snapshot.status)?' The workflow can still discover more workers.':''}`;
   $('progress-fill').style.width=`${unavailable?0:percent??0}%`;
   if(percent===null||unavailable)$('progress').removeAttribute('aria-valuenow');else $('progress').setAttribute('aria-valuenow',String(percent));
   $('progress').setAttribute('aria-valuetext',$('flow-progress').textContent+' '+$('coverage-breakdown').textContent);
-  const visible=visibleWorkers(),displayed=visible.slice(0,60),positions=new Set(displayed.map(worker=>worker.position));
+  const displayed=ordered.slice(0,60),positions=new Set(displayed.map(worker=>worker.position));
   const omittedEdges=displayed.flatMap(worker=>Array.isArray(worker.dependencies)?worker.dependencies.filter(position=>!positions.has(position)).map(position=>`Worker ${worker.position+1} depends on omitted prerequisite ${position+1}`):[]);
   const unknownDependencies=displayed.filter(worker=>!Array.isArray(worker.dependencies)).length;
-  const hidden=workers.filter(worker=>visibilityFor(worker)!=='visible').length;
+  const hidden=actual.filter(worker=>visibilityFor(worker)!=='visible').length;
   $('map-note').textContent=`Grouping does not imply execution order. ${unknownDependencies?`Dependency evidence is unavailable for ${unknownDependencies} displayed workers.`:'Arrows show recorded prerequisites.'}${visible.length>displayed.length?` Map shows the first ${displayed.length} of ${visible.length} visible workers; ${workers.length} recorded in total.`:''}${hidden?` ${hidden} hidden or archived records; ${displayed.length} workers shown. Show hidden retains list access.`:''}${workers.length>displayed.length?' The full ordered worker tray retains access.':''}${omittedEdges.length?` ${omittedEdges.length} omitted prerequisite links: ${omittedEdges.slice(0,8).join('; ')}${omittedEdges.length>8?'; additional links are disclosed in worker details.':''}.`:''}`;
+  if(stepItems().length){
+    const keys=new Set(displayed.filter(worker=>worker.planStep).map(worker=>stepIdentity(worker.planStep.ref)));
+    const omitted=displayed.flatMap(worker=>worker.planStep?.dependencies??[]).filter(ref=>!keys.has(stepIdentity(ref))).length;
+    $('map-note').textContent=`Grouping does not imply execution order. Solid arrows show recorded worker prerequisites; dashed arrows show declared plan dependencies, not scheduler guarantees. Map shows the first ${displayed.length} of ${visible.length} loaded visible nodes; ${actual.length} actual workers recorded.${unknownDependencies?` Dependency evidence is unavailable for ${unknownDependencies} displayed workers.`:''}${hidden?` ${hidden} hidden or archived worker records; Show hidden retains access.`:''}${omittedEdges.length?` ${omittedEdges.length} worker prerequisite links omitted from this map; the worker tray retains evidence.`:''}${omitted?` ${omitted} declared links omitted from this map; dependencies remain in step details.`:''}${visible.length>60?' The Declared steps list retains loaded steps outside the first 60 map cards.':''}${stepState?.hasMore?' Further catalog pages and their edges are not loaded.':''}${stepState?.stale?' Step evidence is from the previous snapshot; current catalog coverage is unavailable.':''}`;
+  }
+  renderStepList();
   const compact=phoneLayout.matches;
-  const key=JSON.stringify([compact,snapshot.generation,selected,$('show-hidden').checked,snapshot.lifecycle,snapshot.experience,workers]);
+  const key=JSON.stringify([compact,snapshot.generation,selected,selectedStep,stepState?.stale,$('show-hidden').checked,snapshot.lifecycle,snapshot.experience,workers]);
   if(key===mapKey)return;mapKey=key;
   const groups=new Map();
-  for(const worker of workers){const phase=workerPhaseKey(worker);if(!groups.has(phase))groups.set(phase,{name:phaseLabel(worker)||'Unassigned phase',members:[]});groups.get(phase).members.push(worker);}
-  const shownPhases=new Set(displayed.map(worker=>workerPhaseKey(worker)));
+  for(const worker of [...ordered,...workers.filter(worker=>!visible.includes(worker))]){const phase=mapPhase(worker);if(!groups.has(phase))groups.set(phase,{name:mapPhaseLabel(worker)||'Unassigned phase',members:[]});groups.get(phase).members.push(worker);}
+  const shownPhases=new Set(displayed.map(mapPhase));
   const placements=new Map(),width=compact?382:Math.max(800,shownPhases.size*210+40);
   let maxRows=1,column=0;
   for(const group of groups.values()){
@@ -1262,6 +1425,12 @@ function renderMap() {
     if(members.length)column++;
   }
   const cardWidth=compact?164:174;
+  const declaredPlacements=new Map([...placements.values()].filter(p=>p.worker.planStep).map(p=>[stepIdentity(p.worker.planStep.ref),p]));
+  for(const p of declaredPlacements.values())for(const ref of p.worker.planStep.dependencies){
+    const start=declaredPlacements.get(stepIdentity(ref));if(!start)continue;
+    const lane=Math.max(start.x,p.x)+cardWidth+12;
+    svg.append(svgNode('path',{d:`M ${start.x+cardWidth} ${start.y+65} H ${lane} V ${p.y+65} H ${p.x+cardWidth+4}`,class:'map-plan-dependency','marker-end':'url(#dependency-arrow)','data-from-step':stepIdentity(ref),'data-to-step':stepIdentity(p.worker.planStep.ref)}));
+  }
   for(const p of placements.values())for(const dependency of Array.isArray(p.worker.dependencies)?p.worker.dependencies:[]){
     const start=placements.get(dependency);if(!start)continue;
     const sy=start.y+49,ey=p.y+49;
@@ -1272,30 +1441,35 @@ function renderMap() {
     svg.append(svgNode('path',{d,class:'map-dependency','marker-end':'url(#dependency-arrow)','data-from':dependency,'data-to':p.worker.position}));
   }
   for(const {worker,x,y} of placements.values()){
-    const label=worker.options?.label||`Worker ${worker.position+1}`,card=node('button',undefined,'map-worker');
-    card.type='button';card.dataset.position=worker.position;card.dataset.status=worker.status;card.style.left=`${x}px`;card.style.top=`${y}px`;card.style.width=`${cardWidth}px`;
-    card.setAttribute('aria-pressed',String(selected===worker.position));
+    const plan=worker.planStep,unassigned=plan&&!plan.worker;
+    const label=worker.options?.label||`Worker ${worker.position+1}`,card=node('button',undefined,unassigned?'map-step':'map-worker');
+    card.type='button';if(!unassigned)card.dataset.position=worker.position;if(plan)card.dataset.graphKey=stepIdentity(plan.ref);card.dataset.status=worker.status;card.style.left=`${x}px`;card.style.top=`${y}px`;card.style.width=`${cardWidth}px`;
+    card.setAttribute('aria-pressed',String(plan?selectedStep===stepIdentity(plan.ref)||selected===worker.position:selected===worker.position));
     card.setAttribute('aria-label',`${label}, ${worker.status}${worker.cached?', reused result':''}${worker.origin?.kind==='append'?', added during run':''}, phase ${phaseLabel(worker)||'unassigned'}. ${Array.isArray(worker.dependencies)?worker.dependencies.length?`Prerequisites: ${worker.dependencies.map(position=>`worker ${position+1}${positions.has(position)?'':' omitted from map'}`).join(', ')}`:'No prerequisites declared':'Dependency evidence unavailable'}`);
-    const top=node('span',undefined,'node-top');top.append(node('span',`${worker.origin?.kind==='append'?'ADDED':'WORKER'} ${worker.position+1}`,'node-role'),node('span',worker.status,'node-status'));
-    card.append(top,node('strong',label,'map-worker-title'),node('span',primaryFailure(worker)||worker.activity?.summary||phaseLabel(worker)||'No activity recorded',primaryFailure(worker)?'node-note node-failure':'node-note'));
+    const top=node('span',undefined,'node-top');top.append(node('span',unassigned?'STEP':`${worker.origin?.kind==='append'?'ADDED':'WORKER'} ${worker.position+1}`,'node-role'),node('span',plan?stepStatus(plan):worker.status,'node-status'));
+    const waiting=plan?.displayBlockedBy.length?`Waiting for ${plan.displayBlockedBy.map(stepName).join(', ')}`:'';
+    card.append(top,node('strong',label,'map-worker-title'),node('span',primaryFailure(worker)||waiting||worker.activity?.summary||(unassigned?'No worker assigned':mapPhaseLabel(worker)||'No activity recorded'),primaryFailure(worker)?'node-note node-failure':'node-note'));
     if(primaryFailure(worker))card.setAttribute('aria-label',`${card.getAttribute('aria-label')}. ${primaryFailure(worker)}`);
-    card.title=primaryFailure(worker)?`${label}: ${primaryFailure(worker)}`:label;card.addEventListener('click',()=>chooseWorker(worker.position,card));
-    const wrapper=node('div',undefined,'map-card');wrapper.dataset.position=worker.position;
+    if(plan)card.setAttribute('aria-label',`${label}, ${stepStatus(plan)}, phase ${plan.phase??'unassigned'}, ${plan.ref.scope.kind==='root'?'root':plan.ref.scope.invocation.invocationId}. ${waiting}. ${primaryFailure(worker)||'Declared plan relation; no scheduler guarantee.'}`);
+    card.title=primaryFailure(worker)?`${label}: ${primaryFailure(worker)}`:label;card.addEventListener('click',event=>plan?chooseStep(event.currentTarget.dataset.graphKey,event.currentTarget):chooseWorker(Number(event.currentTarget.dataset.position),event.currentTarget));
+    const wrapper=node('div',undefined,'map-card');if(!unassigned)wrapper.dataset.position=worker.position;if(plan)wrapper.dataset.graphKey=stepIdentity(plan.ref);
+    wrapper.append(card);world.append(wrapper);if(unassigned)continue;
     const menu=node('button',undefined,'worker-menu-toggle');menu.type='button';menu.id=`worker-menu-${worker.position}`;menu.dataset.position=worker.position;menu.style.left=`${x+cardWidth-30}px`;menu.style.top=`${y+3}px`;
     menu.setAttribute('aria-label',`Open evidence menu for ${label}`);menu.setAttribute('aria-haspopup','menu');menu.setAttribute('aria-controls','worker-card-menu');menu.setAttribute('aria-expanded',String(quickView?.position===worker.position&&!$('worker-card-menu').hidden));
     const icon=svgNode('svg',{width:4,height:16,viewBox:'0 0 4 16','aria-hidden':'true',focusable:'false'});for(const cy of [2,8,14])icon.append(svgNode('circle',{cx:2,cy,r:1.6}));menu.append(icon);
-    menu.addEventListener('click',()=>openQuickMenu(worker.position));menu.addEventListener('keydown',event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();openQuickMenu(worker.position);if(event.key==='ArrowUp')$('worker-card-menu').lastElementChild?.focus();}});
-    wrapper.append(card,menu);world.append(wrapper);
+    menu.addEventListener('click',event=>openQuickMenu(Number(event.currentTarget.dataset.position)));menu.addEventListener('keydown',event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();openQuickMenu(Number(event.currentTarget.dataset.position));if(event.key==='ArrowUp')$('worker-card-menu').lastElementChild?.focus();}});
+    wrapper.append(menu);
   }
   if(!workers.length)world.append(node('p',unavailable?'Worker execution data unavailable.':'Workers appear as the workflow discovers them.','empty'));
   const focused=focusIdentity(document.activeElement);
   const retained=$('graph-world');
+  if(retained?.style.transform)world.style.transform=retained.style.transform;
   if(retained)patchMapNode(retained,world);else $('workflow-map').append(world);
-  if(focused?.kind==='map')restoreFocus(focused);
+  if(focused?.kind==='map'||focused?.kind==='step')restoreFocus(focused);
   if(quickView&&!quickOrigin())closeQuick(false);
   positionQuick();
 }
-function render() {
+function render(deferGraph=false) {
   const unavailable=snapshot.availability?.status==='unavailable';
   $('run-title').textContent = snapshot.meta?.name || snapshot.meta?.title || 'Workflow run';
   textChanged($('run-picker-title'),snapshot.meta?.name||snapshot.meta?.title||snapshot.monitor?.run?.runId||'Run unavailable');
@@ -1309,7 +1483,7 @@ function render() {
   const cleanup = snapshot.cleanup;
   $('cleanup').textContent = cleanup ? `${cleanup.serverExited === true ? 'Owned worker App Server exited' : 'Owned worker App Server exit unverified'}${cleanup.forced ? ' · forced' : ''}. ${cleanup.jobEmpty===true?'Owned Windows job empty; external effects unverified.':`Descendant processes ${cleanup.descendants === 'notVerified' ? 'not verified' : 'not reported'}.`}` : 'Awaiting owned worker cleanup evidence';
   $('updated').textContent = unavailable?snapshot.availability.reason:`Run updated ${dateText(snapshot.updatedAt)}`;
-  renderWorkers(); renderDetail(); renderMap(); renderReceipts();renderQuick();
+  if(!deferGraph){renderWorkers();renderDetail();renderMap();}renderReceipts();renderQuick();
   renderExperienceControls();
   const key = JSON.stringify([snapshot.generation, snapshot.result, snapshot.error, snapshot.truncations]);
   if (key !== resultKey) {
@@ -1422,7 +1596,7 @@ async function mutateLifecycle(action,target={kind:'run'}){
     actionNotice=`${error.message} The lifecycle request was not retried. Coordinator receipt inspection or reconciliation is required.`;
   }finally{busy=false;stale=true;notice(actionNotice);await poll();}
 }
-async function poll() {
+async function poll(forceSteps=false) {
   clearTimeout(timer);
   if (disposed || closed || polling || busy || !authenticated || document.hidden) return;
   polling = true; updateButtons();
@@ -1439,14 +1613,17 @@ async function poll() {
     if (snapshot?.generation !== next.generation) {extendedWorker = undefined;closeQuick(false);}
     if (extendedWorker && extendedWorker.previewKey !== JSON.stringify(next.workers.find(worker => worker.position === extendedWorker.position))) extendedWorker = undefined;
     if (snapshot?.generation !== next.generation) { $('script').hidden = true; $('script').textContent = ''; activityHistory=undefined; patchEvidence.clear(); patchLoading.clear(); }
+    const deferGraph=Boolean(stepState&&snapshot?.generation!==next.generation);
+    if(snapshot?.generation!==next.generation){resetSteps();if(selectedStep)selected=undefined;}
     snapshot = next; lastGood = Date.now(); stale = false;
     if(!unavailable&&!autoArmed&&snapshot.monitor?.run&&snapshot.monitor.run.runId===snapshot.monitor.pinnedRunId){selectedRunAuthority={...snapshot.monitor.run};autoArmed=true;}
     if(!unavailable&&health&&selectedRunAuthority&&sameRun(selectedRunAuthority,snapshot.monitor?.run))controlTarget={...snapshot.monitor.run,generation:snapshot.generation};
     $('connection').textContent = unavailable?health?'Dashboard connected; execution data unavailable':'Dashboard health and execution data unavailable':health?'Dashboard connected · run snapshot fresh':'Dashboard health unavailable · run snapshot fresh';
     if(!health)stale=true;
     if(actionNotice)notice(actionNotice);
-    notice(snapshot.error ? valueText(snapshot.error) : actionNotice); render();
-    await loadNavigation();
+    notice(snapshot.error ? valueText(snapshot.error) : actionNotice); render(deferGraph);
+    await Promise.allSettled([loadNavigation(),loadSteps(false,{force:forceSteps===true})]);
+    if(deferGraph&&viewed===viewRun)render();
   } catch (error) {
     if(viewed!==viewRun)return;
     stale = true;
@@ -1524,7 +1701,7 @@ $('close-monitor').addEventListener('click',async()=>{
   catch(error){$('connection').textContent='Dashboard close confirmation unavailable';notice(`${error.message} Close was not retried. Inspect service availability before another request.`);}
 });
 for (const id of ['status-filter', 'phase-filter']) $(id).addEventListener('change', () => { if (snapshot) { renderWorkers(); renderDetail(); renderMap(); } });
-$('refresh').addEventListener('click', () => { actionNotice = ''; poll(); });
+$('refresh').addEventListener('click', () => { actionNotice = ''; poll(true); });
 $('load-script').addEventListener('click', async () => {
   $('load-script').disabled = true;
   const generation = snapshot?.generation;
