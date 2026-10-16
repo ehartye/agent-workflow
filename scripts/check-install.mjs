@@ -61,9 +61,9 @@ try{
  const definitions=JSON.parse((await run('launch.mjs',['workflows','--cwd',project])).stdout);
  // Personal definitions are valid user input outside this owned installation.
  // Verify packaged definitions and the isolated project without counting them.
- assert.equal(definitions.filter(item=>item.scope==='plugin').length,7);
+ const packagedNames=['changed-file-review','criterion-review','cross-source-research','decomposition-delivery','evidence-research','fix-until-check-passes','isolated-migration','item-audit','loop-until-dry'];
+ assert.deepEqual(definitions.filter(item=>item.scope==='plugin').map(item=>item.name).sort(),packagedNames);
  assert.equal(definitions.filter(item=>item.scope==='project').length,0);
- assert(definitions.some(item=>item.scope==='plugin'&&item.name==='decomposition-delivery'));
  const script=path.join(base,'definition.mjs');await writeFile(script,'export const meta={name:"installed",description:"Clean installed definition"}; return args;');
  const saved=JSON.parse((await run('launch.mjs',['save','installed','--cwd',project,'--script',script,'--command'])).stdout);assert.match(await readFile(saved.skillPath,'utf8'),/agent-workflow:agent-workflow/);
  assert.equal(JSON.parse((await run('launch.mjs',['read','project:installed','--cwd',project])).stdout).meta.name,'installed');
@@ -76,7 +76,7 @@ try{
  await writeFile(path.join(launchRoot,'engine','monitor','style.css'),'\n/* verified update boundary */\n',{flag:'a'});await assert.rejects(run('launch.mjs',['workflows']),e=>/Plugin changed/.test(e.stderr));
  const upgraded=JSON.parse((await run('setup.mjs',['--data-dir',dataDir])).stdout);assert.notEqual(upgraded.id,record.id);assert((await stat(record.path)).isDirectory());
  const upgradedDefinitions=JSON.parse((await run('launch.mjs',['workflows','--cwd',project])).stdout);
- assert.equal(upgradedDefinitions.filter(item=>item.scope==='plugin').length,7);
+ assert.deepEqual(upgradedDefinitions.filter(item=>item.scope==='plugin').map(item=>item.name).sort(),packagedNames);
  assert.deepEqual(upgradedDefinitions.filter(item=>item.scope==='project').map(item=>item.name),['installed']);
 }catch(error){primary=error;}
 await cleanupInstall(base,{error:primary,safeToRemove:commandsSettled&&ownership.safe});

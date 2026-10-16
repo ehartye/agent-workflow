@@ -216,6 +216,13 @@ test('parent isolated writer retains full execution policy and exact owned workt
  assert.match(thread.cwd,/source-worktrees[\\/]workflow-/);assert.deepEqual(thread.runtimeWorkspaceRoots,[thread.cwd]);
  assert.equal(thread.sandbox,'danger-full-access');assert.equal(turn.cwd,thread.cwd);assert.deepEqual(turn.runtimeWorkspaceRoots,[thread.cwd]);
  assert.deepEqual(turn.sandboxPolicy,{type:'dangerFullAccess'});assert.equal(report.workerEvidence.settings.workspace,'isolated');
+ // This is the actual native thread payload. Owned regression fixtures need a
+ // scoped exception; project metadata and cross-workspace links stay forbidden.
+ assert.match(thread.developerInstructions,/temporary fixture repositories explicitly authorized by the coordinator inside your assigned worktree/);
+ assert.match(thread.developerInstructions,/both the link and its target must remain inside the same owned fixture directory/);
+ assert.match(thread.developerInstructions,/Never link assigned project source, retained inputs or another workspace/);
+ assert.match(thread.developerInstructions,/Do not commit or merge, or change the assigned project's Git metadata/);
+ assert.doesNotMatch(thread.developerInstructions,/Do not commit, merge, change Git metadata or create filesystem links/);
  assert.equal(report.workerEvidence.cleanup.nativeTerminals.inventoryEmpty,true);assert.equal(report.workerEvidence.cleanup.jobEmpty,true);
 });
 

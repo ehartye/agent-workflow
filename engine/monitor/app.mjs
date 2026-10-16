@@ -65,6 +65,8 @@ let lastGood = 0, stale = true, listKey = '', detailKey = '', phaseKey = '', res
 let extendedWorker, localReceipt, actionNotice = '', mapKey = '';
 let activityHistory, activityLoading = false, activityFilter = 'tools';
 let steerDraft;
+let deadlineDialog=null;
+const deadlineRequests=new Map();
 let reconcileDraft,earlierEvidence;
 const patchEvidence = new Map(), patchLoading = new Set();
 let patchRevision = 0;
@@ -91,6 +93,7 @@ function quickOrigin(context=quickView){return context?document.querySelector(`.
 function closeQuick(returnFocus=true){
   const context=quickView;quickView=null;
   context?.abort?.abort();
+  context?.messageAbort?.abort();
   $('worker-card-menu').hidden=true;$('worker-card-menu').replaceChildren();
   $('worker-quick-view').hidden=true;$('worker-quick-body').replaceChildren();$('worker-quick-tabs').replaceChildren();
   for(const button of document.querySelectorAll('.worker-menu-toggle'))button.setAttribute('aria-expanded','false');
@@ -141,6 +144,29 @@ function openQuickTab(kind){
   $('worker-quick-view').hidden=false;renderQuick();positionQuick();
   (fromMenu?$('close-worker-quick'):$(`worker-tab-${kind}`))?.focus({preventScroll:true});
   if(['messages','tools'].includes(kind)&&!quickView.history&&!quickView.loading&&!quickView.error)void loadQuick('activity');
+  if(kind==='messages'&&!quickView.messages&&!quickView.messagesLoading&&!quickView.messagesError)void loadCompletedMessages();
+}
+async function loadCompletedMessages(){
+  const context=quickView;if(!context||context.messagesLoading||!authenticated||closed||disposed||document.hidden)return;
+  const after=context.messages?.nextCursor??0;context.messageAbort=new AbortController();context.messagesLoading=true;context.messagesError=null;renderQuick();
+  try{
+    const value=await api(`/api/messages?generation=${context.generation}&position=${context.position}&after=${after}&limit=50`,{signal:context.messageAbort.signal});
+    if(quickView!==context||context.messageAbort.signal.aborted||context.run!==runKey()||context.runIdentity!==JSON.stringify(snapshot?.monitor?.run??null)||context.generation!==snapshot?.generation)return;
+    if(value.available===false&&value.coverage==='legacyRawOnly'&&Number.isSafeInteger(value.priorActivityUncovered)&&value.priorActivityUncovered>=0){context.messages=value;return;}
+    const counts=value.counts;
+    const fields=['terminalNotificationsObserved','insertions','replacements','duplicateNoops','retained','retainedBytes','evictedCountLimit','evictedByteLimit','priorActivityUncovered'];
+    if(value.available!==true||value.coverage!=='terminalNotificationsOnly'||!counts||Object.keys(counts).length!==fields.length||!fields.every(key=>Number.isSafeInteger(counts[key])&&counts[key]>=0)||counts.retained>64||counts.retainedBytes>1048576||counts.terminalNotificationsObserved!==counts.insertions+counts.replacements+counts.duplicateNoops||counts.retained!==counts.insertions-counts.evictedCountLimit-counts.evictedByteLimit||!Array.isArray(value.records)||value.records.length>50||value.records.length>counts.retained||!Number.isSafeInteger(value.nextCursor)||value.nextCursor<after||typeof value.hasMore!=='boolean'||value.hasMore&&value.nextCursor<=after)throw Error('Completed message coverage is invalid.');
+    let cursor=after;
+    for(const record of value.records){
+      if(!record||!Number.isSafeInteger(record.bytes)||record.bytes<1||record.bytes>36864||!Number.isSafeInteger(record.terminalSeq)||record.terminalSeq<=cursor||record.terminalSeq>value.nextCursor||typeof record.id!=='string'||!/^[a-f0-9]{64}$/.test(record.id)||typeof record.text!=='string'||record.text.length>32768||record.terminalObserved!==true||typeof record.complete!=='boolean'||!Array.isArray(record.truncations)||record.truncations.length>3||record.truncations.some(key=>!['sourceTruncated','textBytes','recordBytes'].includes(key))||record.complete!==(record.truncations.length===0)||![record.threadId,record.turnId,record.itemId].every(value=>typeof value==='string'&&value.length>0&&value.length<=200)||!Number.isSafeInteger(record.attempt)||record.attempt<0||record.generation!==(value.sourceGeneration??context.generation)||record.position!==(value.sourcePosition??context.position))throw Error('Completed message identity or terminal provenance is invalid.');cursor=record.terminalSeq;
+    }
+    if(value.nextCursor!==cursor)throw Error('Completed message cursor does not match its records.');
+    const records=new Map((context.messages?.records??[]).map(record=>[record.id,record]));for(const record of value.records)records.set(record.id,record);
+    const bounded=[...records.values()].sort((a,b)=>a.terminalSeq-b.terminalSeq);let bytes=bounded.reduce((sum,record)=>sum+record.bytes,0),discarded=0;
+    while(bounded.length>64||bytes>1048576){bytes-=bounded.shift().bytes;discarded++;}
+    context.messages={...value,records:bounded,displayDropped:(context.messages?.displayDropped??0)+discarded};
+  }catch(error){if(quickView===context&&!context.messageAbort.signal.aborted)context.messagesError=error.message;}
+  finally{if(quickView===context){context.messagesLoading=false;renderQuick();}}
 }
 function quickValue(value){
   if(value===undefined)return 'Not retained in this worker preview.';
@@ -176,13 +202,14 @@ function renderQuick(){
   if(context.full&&context.full.previewKey!==JSON.stringify(base))context.full=null;
   const worker=context.full?.worker??base;
   const receipts=(snapshot.controls??[]).filter(item=>item.position===context.position&&item.generation===context.generation);
-  const key=JSON.stringify([context.tab,worker,context.tab==='actions'?[receipts,snapshot.controlCount,snapshot.controls?.length,quickRestart(context.position),typeof snapshot.restart==='string']:null,context.history,context.loading,context.error]);if(context.renderKey===key)return;context.renderKey=key;
+  const key=JSON.stringify([context.tab,worker,context.tab==='actions'?[receipts,snapshot.controlCount,snapshot.controls?.length,quickRestart(context.position),typeof snapshot.restart==='string']:null,context.history,context.loading,context.error,context.messages,context.messagesLoading,context.messagesError]);if(context.renderKey===key)return;context.renderKey=key;
   const title=quickItems(worker).find(([kind])=>kind===context.tab)?.[1]??'Worker evidence';
   $('worker-quick-heading').textContent=`${title} · ${worker.options?.label||`Worker ${worker.position+1}`}`;
   $('worker-quick-context').textContent=`Run ${context.run} · generation ${context.generation} · worker ${context.position+1} · attempt ${worker.attempts??'unverified'} · execution ${worker.status}`;
   reconcileQuickChoices($('worker-quick-tabs'),worker);
   for(const tab of $('worker-quick-tabs').children){tab.setAttribute('aria-selected',String(tab.dataset.quickKind===context.tab));tab.tabIndex=tab.dataset.quickKind===context.tab?0:-1;}
-  const body=$('worker-quick-body'),scroll=body.scrollTop,focused=body.contains(document.activeElement)?document.activeElement.id:null;
+  const body=$('worker-quick-body'),scroll=body.scrollTop,focused=body.contains(document.activeElement)?document.activeElement:null;
+  const textScroll=[...body.querySelectorAll('pre[id]')].map(pre=>({id:pre.id,top:pre.scrollTop,left:pre.scrollLeft}));
   body.setAttribute('aria-labelledby',`worker-tab-${context.tab}`);body.replaceChildren();
   if(context.error)body.append(node('p',`Evidence read failed: ${quickText(context.error)} No read was retried.`,'failure'));
   if(worker.truncations?.length)body.append(node('p',`Worker preview shortened: ${worker.truncations.join(', ')}.`,'truncation'));
@@ -218,6 +245,25 @@ function renderQuick(){
     else body.append(node('p',typeof snapshot.restart==='string'?'Restart preview shortened; worker target unverified.':'No worker-targeted restart receipt retained in this snapshot.','muted'));
   }else if(['messages','tools'].includes(context.tab)){
     const history=context.history;
+    if(context.tab==='messages'){
+      const messages=context.messages;
+      body.append(node('h3','Retained terminal messages'));
+      if(messages?.available===false)body.append(node('p',`Legacy raw-only history: completed storage unavailable. ${messages.priorActivityUncovered} raw notifications are uncovered; no terminal messages were reconstructed.`,'truncation'));
+      else if(messages?.available){
+        const c=messages.counts;
+        body.append(node('p',`${messages.records.length} loaded · ${c.retained} retained · ${c.terminalNotificationsObserved} terminal notifications observed (${c.insertions} insertions, ${c.replacements} improvements, ${c.duplicateNoops} duplicates). ${c.evictedCountLimit} count-limit and ${c.evictedByteLimit} byte-limit evictions. ${c.priorActivityUncovered} prior raw notifications uncovered.`,'muted'));
+        if(messages.displayDropped)body.append(node('p',`${messages.displayDropped} messages left this bounded local view.`,'truncation'));
+        if(messages.sourceGeneration!==undefined&&messages.sourceGeneration!==context.generation)body.append(node('p',`Retained source generation ${messages.sourceGeneration} · worker ${(messages.sourcePosition??context.position)+1}.`,'muted'));
+        for(const record of messages.records){
+          const article=node('article',undefined,'quick-record');article.append(node('h3',record.complete?'Terminal message · complete':'Terminal message · incomplete'),node('p',`Terminal event ${record.terminalSeq} · attempt ${record.attempt} · turn ${record.turnId}`,'utility'));
+          if(record.truncations.length)article.append(node('p',`Shortened: ${record.truncations.join(', ')}. No complete text is implied.`,'truncation'));
+          const text=node('pre',record.text);text.id=`quick-message-${record.id}`;text.tabIndex=0;article.append(text);body.append(article);
+        }
+      }else body.append(node('p',context.messagesLoading?'Reading terminal storage…':'Completed storage coverage unverified.','muted'));
+      if(context.messagesError)body.append(node('p',`${context.messagesError} No read was retried. Raw evidence remains separately available.`,'truncation'));
+      if(messages?.available!==false){const load=node('button',context.messagesLoading?'Reading…':messages?.hasMore?'Load next terminal page':'Check terminal messages');load.id='quick-load-messages';load.type='button';load.disabled=Boolean(context.messagesLoading);load.addEventListener('click',loadCompletedMessages);body.append(load);}
+      body.append(node('h3','Raw message events'));
+    }
     body.append(node('p','Filters apply to the loaded event pages only. Private reasoning is excluded.','muted'));
     if(history){
       body.append(node('p',`${history.records.length} loaded · ${history.retained??'unverified'} retained of ${history.observed??'unverified'} observed · ${history.dropped??'unverified'} older events discarded.`,history.dropped?'truncation':'muted'));
@@ -267,7 +313,8 @@ function renderQuick(){
   if(['failure','prompt','workspace'].includes(context.tab)&&!context.full){
     const load=node('button',context.loading?'Reading…':'Read full worker evidence');load.id='quick-load-worker';load.type='button';load.disabled=Boolean(context.loading);load.addEventListener('click',()=>loadQuick('worker'));body.append(load);
   }
-  body.scrollTop=scroll;if(focused&&$(focused))$(focused).focus({preventScroll:true});
+  for(const saved of textScroll){const pre=$(saved.id);if(pre&&body.contains(pre)){pre.scrollTop=saved.top;pre.scrollLeft=saved.left;}}
+  body.scrollTop=scroll;if(focused){const replacement=focused.id&&$(focused.id);(replacement&&body.contains(replacement)?replacement:body).focus({preventScroll:true});}
 }
 $('close-worker-quick').addEventListener('click',()=>closeQuick());
 for(const id of ['worker-card-menu','worker-quick-tabs'])$(id).addEventListener('keydown',event=>{
@@ -406,7 +453,8 @@ $('close-inspector').addEventListener('click',closeInspector);
 document.addEventListener('keydown',event=>{
   if(event.key!=='Escape'||event.defaultPrevented)return;
   event.preventDefault();
-  if(quickView)closeQuick();
+  if(deadlineDialog)closeDeadline();
+  else if(quickView)closeQuick();
   else if(!$('run-popover').hidden)toggleRunPicker(false,true);
   else if(!$('more-panel').hidden)toggleDrawer('more-panel',false);
   else if(!$('messages-panel').hidden)toggleDrawer('messages-panel',false);
@@ -428,7 +476,7 @@ $('focus-active').addEventListener('click',()=>{
 phoneLayout.addEventListener('change',()=>{mapKey='';renderMap();});
 const sameRun=(a,b)=>a?.dataInstanceId===b?.dataInstanceId&&a?.runId===b?.runId&&a?.runtimeId===b?.runtimeId;
 function controlsMatch(){return snapshot&&!stale&&(!snapshot.monitor?.run?viewRun===null:sameRun(controlTarget,snapshot.monitor.run)&&controlTarget.generation===snapshot.generation);}
-function scopedPath(path,runId=viewRun){return runId&&/^\/api\/(run(?:\?|$)|worker\/|patch\/|exclusions\/|activity(?:\?|$)|script(?:\?|$)|result(?:\?|$)|control$|resume$|restart$|lifecycle(?:\/|$))/.test(path)?`/api/runs/${encodeURIComponent(runId)}${path.slice(4)}`:path;}
+function scopedPath(path,runId=viewRun){return runId&&/^\/api\/(run(?:\?|$)|worker\/|patch\/|exclusions\/|activity(?:\?|$)|messages(?:\?|$)|script(?:\?|$)|result(?:\?|$)|control(?:\/|$)|resume$|restart$|lifecycle(?:\/|$))/.test(path)?`/api/runs/${encodeURIComponent(runId)}${path.slice(4)}`:path;}
 function visibilityFor(worker){
   return snapshot.lifecycle?.workers?.find(item=>item.target?.generation===snapshot.generation&&item.target.position===worker.position&&item.target.attempt===(worker.attempts??0))?.visibility??'visible';
 }
@@ -667,6 +715,106 @@ function readError(error) {
   notice(actionNotice); updateButtons();
   if (error.status === 409) { stale = true; updateButtons(); poll(); }
 }
+function deadlineSupported(worker){
+  const value=worker?.deadline;
+  return Boolean(snapshot?.deadlineControls?.available===true&&worker?.status==='running'&&!worker.cancelRequested&&value?.status==='active'&&Number.isSafeInteger(value.revision)&&value.revision>=0&&(value.remainingMs===null||Number.isSafeInteger(value.remainingMs)&&value.remainingMs>0));
+}
+function deadlineCurrent(context){
+  if(!context||context.run!==runKey()||context.runIdentity!==JSON.stringify(snapshot?.monitor?.run??null)||snapshot?.generation!==context.body.generation)return null;
+  const worker=snapshot.workers.find(item=>item.position===context.body.position);
+  return worker&&(worker.attempts??0)===context.body.attempt&&(worker.activeTurn?.turnId??null)===context.body.turnId?worker:null;
+}
+function deadlineKey(position){return JSON.stringify([snapshot?.monitor?.run??runKey(),snapshot?.generation,position]);}
+function openDeadline(position){
+  const worker=snapshot?.workers.find(item=>item.position===position),key=deadlineKey(position),remembered=deadlineRequests.get(key);
+  if(busy||!authenticated||closed||disposed||document.hidden||!controlsMatch()||!worker||!remembered&&!deadlineSupported(worker))return;
+  if(!deadlineRequests.has(key)&&deadlineRequests.size>=32){notice('Deadline request history is full. Reconcile the retained requests before another action.');return;}
+  const body={generation:snapshot.generation,action:'worker-deadline',position,attempt:worker.attempts??0,turnId:worker.activeTurn?.turnId??null};
+  const target=snapshot.monitor?.run?{...controlTarget,position,attempt:body.attempt,turnId:body.turnId}:null;if(target)body.target=target;
+  deadlineDialog=remembered??{key,body,revision:worker.deadline.revision,run:runKey(),runIdentity:JSON.stringify(snapshot.monitor?.run??null),runId:target?.runId??viewRun,receiptId:null,locked:false,pending:false,status:''};
+  deadlineDialog.origin={position,run:runKey(),generation:snapshot.generation};
+  $('deadline-operation').value='set';$('deadline-value').value='';
+  $('deadline-heading').textContent='Worker deadline';
+  $('deadline-context').textContent=`${worker.options?.label||`Worker ${position+1}`} · Run ${deadlineDialog.run} · generation ${body.generation} · worker ${position+1} · attempt ${deadlineDialog.body.attempt} · revision ${deadlineDialog.revision}`;
+  $('deadline-backdrop').hidden=false;$('deadline-dialog').hidden=false;updateDeadlineDialog();$('deadline-operation').focus({preventScroll:true});
+}
+function closeDeadline(){
+  const context=deadlineDialog;deadlineDialog=null;$('deadline-backdrop').hidden=true;$('deadline-dialog').hidden=true;
+  if(context?.origin?.run===runKey()&&context.origin.generation===snapshot?.generation){
+    if(context.origin.position===selected)$('worker-deadline')?.focus({preventScroll:true});
+    else document.querySelector(`.worker-menu-toggle[data-position="${context.origin.position}"]`)?.focus({preventScroll:true});
+  }
+}
+function updateDeadlineDialog(){
+  const context=deadlineDialog;if(!context)return;
+  const worker=deadlineCurrent(context),deadline=worker?.deadline;
+  const current=Boolean(controlsMatch()&&deadlineSupported(worker)&&deadline.revision===context.revision);
+  textChanged($('deadline-budget'),deadline?.remainingMs===null?'Recorded budget: no worker deadline · snapshot, not a live countdown':Number.isSafeInteger(deadline?.remainingMs)?`Recorded remaining: ${deadline.remainingMs} ms · revision ${deadline.revision} · snapshot, not a live countdown`:'Recorded budget unavailable for the original target');
+  const operation=$('deadline-operation').value,clear=operation==='clear';
+  $('deadline-value-label').hidden=clear;$('deadline-value').disabled=context.pending||clear;
+  $('deadline-operation').disabled=context.pending;
+  textChanged($('deadline-cancel'),context.locked?'Close':'Cancel');
+  const extend=[...$('deadline-operation').options].find(item=>item.value==='extend');if(extend)extend.disabled=deadline?.remainingMs===null;
+  $('deadline-submit').disabled=busy||context.locked||!current;
+  $('deadline-inspect').hidden=!context.receiptId;$('deadline-inspect').disabled=context.pending||busy||snapshot?.deadlineControls?.receipts!==true;
+  $('deadline-reconcile').hidden=!context.unknown;$('deadline-reconcile-help').hidden=!context.unknown;
+  $('deadline-reconcile').disabled=busy||!controlsMatch();
+  const changed=!current&&!context.locked?'The worker, run or deadline revision changed. Close and open Deadline again. ':'';
+  textChanged($('deadline-status'),changed+context.status);
+}
+function receiptMatches(context,receipt){
+  return receipt?.id===context.receiptId&&receipt.action==='worker-deadline'&&receipt.generation===context.body.generation&&receipt.position===context.body.position&&receipt.attempt===context.body.attempt&&receipt.turnId===context.body.turnId&&JSON.stringify(receipt.deadline)===JSON.stringify(context.body.deadline)&&['pending','applying','applied','rejected','unknown'].includes(receipt.status);
+}
+$('deadline-form').addEventListener('submit',async event=>{
+  event.preventDefault();const context=deadlineDialog;if(!context||busy||context.locked)return;
+  const worker=deadlineCurrent(context),operation=$('deadline-operation').value,text=$('deadline-value').value;
+  const reject=message=>{context.status=message;updateDeadlineDialog();};
+  if(!controlsMatch()||!deadlineSupported(worker)||worker.deadline.revision!==context.revision){reject('Target changed. Close and open Deadline again.');return;}
+  const valueMs=Number(text);
+  if(!['set','extend','clear'].includes(operation)||operation!=='clear'&&(!/^[1-9][0-9]*$/.test(text)||!Number.isSafeInteger(valueMs))){reject('Enter a positive safe integer in milliseconds.');return;}
+  if(operation==='extend'&&(worker.deadline.remainingMs===null||!Number.isSafeInteger(worker.deadline.remainingMs+valueMs))){reject('Extend requires a finite budget without overflow. Use Set remaining.');return;}
+  context.body.deadline={operation,expectedRevision:context.revision,...(operation==='clear'?{}:{valueMs})};
+  context.pending=true;context.locked=true;context.status='Sending deadline request…';deadlineRequests.set(context.key,context);
+  busy=true;clearTimeout(timer);updateButtons();
+  try{
+    const receipt=await api('/api/control',{method:'POST',body:context.body,runId:context.runId});
+    // Retain a received ID before validating, refreshing or rendering anything.
+    if(typeof receipt?.id==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(receipt.id))context.receiptId=receipt.id;
+    if(!receiptMatches(context,receipt))throw Error('Control confirmation did not match the original target.');
+    context.receipt=receipt;localReceipt=receipt;context.status=`Receipt ${receipt.id} · ${receipt.status}. Inspect this ID for confirmation; no request is replayed.`;
+    context.unknown=receipt.status==='unknown';
+    if(['applied','rejected'].includes(receipt.status))deadlineRequests.delete(context.key);
+    renderReceipts();notice(context.status);$('announcement').textContent=context.status;
+  }catch(error){
+    const refused=[400,409].includes(error.status)&&!context.receiptId;
+    context.unknown=!refused;context.status=refused?`${error.message} Request rejected; close and open Deadline again.`:`Outcome unknown. ${context.receiptId?`Received receipt ID ${context.receiptId}.`:'No receipt ID reached this page.'} ${error.message} The request was not retried. Inspect and reconcile before another action.`;
+    if(refused)deadlineRequests.delete(context.key);
+    notice(context.status);
+  }finally{context.pending=false;busy=false;stale=true;updateButtons();await poll();}
+});
+$('deadline-inspect').addEventListener('click',async()=>{
+  const context=deadlineDialog;if(!context?.receiptId||busy)return;
+  busy=true;updateButtons();
+  try{
+    const receipt=await api(`/api/control/receipts/${encodeURIComponent(context.receiptId)}?generation=${context.body.generation}`,{runId:context.runId});
+    if(!receiptMatches(context,receipt))throw Error('Receipt does not match the original request.');
+    context.receipt=receipt;localReceipt=receipt;context.status=`Receipt ${context.receiptId} · ${receipt.status}.`;context.unknown=receipt.status==='unknown';
+    if(['applied','rejected'].includes(receipt.status))deadlineRequests.delete(context.key);
+    renderReceipts();$('announcement').textContent=context.status;
+  }catch(error){context.unknown=true;context.status=`Receipt ${context.receiptId} · ${error.message}. The read was not retried. Outcome remains unverified; inspect this same ID again.`;}
+  finally{busy=false;updateButtons();schedulePoll();}
+});
+$('deadline-reconcile').addEventListener('click',()=>{const context=deadlineDialog;if(!context?.unknown||busy||!controlsMatch())return;deadlineRequests.delete(context.key);notice('Deadline request marked reconciled by the operator. Open Deadline again to review a fresh target.');closeDeadline();});
+for(const id of ['deadline-close','deadline-cancel'])$(id).addEventListener('click',closeDeadline);
+$('deadline-operation').addEventListener('change',()=>{if(deadlineDialog&&!deadlineDialog.locked)deadlineDialog.status='';updateDeadlineDialog();});
+$('deadline-dialog').addEventListener('keydown',event=>{
+  if(event.key==='Escape'){event.preventDefault();closeDeadline();return;}
+  if(event.key!=='Tab')return;
+  const items=[...$('deadline-dialog').querySelectorAll('button,input,select')].filter(item=>!item.disabled&&!item.hidden&&!item.closest('[hidden]'));
+  const first=items[0],last=items.at(-1);
+  if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
+  else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
+});
 function updateButtons() {
   const enabled = authenticated && !busy && !closed && !disposed && !document.hidden && controlsMatch()&&(!snapshot.monitor?.run||snapshot.monitor.capabilities?.scopedControls===true);
   const accepts = enabled && snapshot.acceptingControls === true;
@@ -680,6 +828,8 @@ function updateButtons() {
   if($('worker-cancel'))$('worker-cancel').disabled=!workerEnabled;
   if($('worker-steer'))$('worker-steer').disabled=!workerEnabled||!worker.activeTurn?.turnId||!$('steer-text')?.value.trim();
   if($('worker-restart'))$('worker-restart').disabled=!enabled||!snapshot.restartPreview?.eligible||snapshot.restartPreview.position!==selected||!$('reconcile-text')?.value.trim();
+  if($('worker-deadline'))$('worker-deadline').disabled=worker&&deadlineRequests.has(deadlineKey(worker.position))?!(authenticated&&!busy&&!closed&&!disposed&&!document.hidden&&controlsMatch()):!accepts||snapshot.status==='stopping'||!deadlineSupported(worker);
+  updateDeadlineDialog();
   $('close-monitor').disabled=closed||busy||!authenticated;
   $('run-picker').disabled=busy||closed||!authenticated||!snapshot?.monitor?.capabilities?.sessionNavigation;
   $('follow-run').disabled=$('run-picker').disabled;
@@ -853,10 +1003,14 @@ function renderDetail() {
     meta.append(node('span',`Addition request ${worker.origin.requestId} · generation ${worker.origin.generation}`));
   }
   if(worker.reusedFrom)meta.append(node('span',`Source generation ${worker.reusedFrom.generation} · slot ${worker.reusedFrom.position+1}`));
-  if(worker.deadline){
-    const deadline=worker.deadline;
+  if(worker.deadline||deadlineRequests.has(deadlineKey(worker.position))){
+    const deadline=worker.deadline??{};
     const label=deadline.status==='expired'?'Worker deadline expired':deadline.status==='closed'?'Worker deadline controls closed':deadline.status==='active'&&deadline.remainingMs===null&&deadline.expiresAt===null?'No worker deadline · orchestrator controls this session':deadline.status==='active'&&typeof deadline.expiresAt==='number'&&Number.isFinite(deadline.expiresAt)?`Worker deadline at ${dateText(deadline.expiresAt)}`:'Worker deadline evidence unavailable';
-    detail.append(node('p',label,'worker-deadline'));
+    const row=node('div',undefined,'deadline-row');row.append(node('p',label,'worker-deadline'));
+    const action=node('button','Deadline…');action.id='worker-deadline';action.type='button';action.setAttribute('aria-haspopup','dialog');action.setAttribute('aria-controls','deadline-dialog');
+    action.title=deadlineRequests.has(deadlineKey(worker.position))?'Inspect the retained deadline request':deadlineSupported(worker)?'Change this worker’s remaining time':'Deadline controls unavailable for this retained runtime or worker';
+    action.addEventListener('click',()=>openDeadline(worker.position));row.append(action);detail.append(row);
+    if(!deadlineSupported(worker))detail.append(node('p','Deadline changes unavailable for this runtime or worker.','muted'));
   }
   const taskPanel=node('section',undefined,'task-evidence');taskPanel.append(node('h3','Task outcome'),node('p',`Execution: ${worker.status}. Task outcome: ${task?.declaredOutcome??'unverified'}. Verification: ${task?.verification??'unverified'}.`));
   const taskEvidence=disclosure('acceptance','Verification & acceptance evidence');

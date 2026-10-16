@@ -17,6 +17,106 @@ import {AppServer} from '../foundation/client.mjs';
 async function setup(t){const module=await import('../engine/activity.mjs').catch(()=>null);assert.ok(module?.recordActivity,'Activity store must exist');const db=new DatabaseSync(':memory:');t.after(()=>db.close());module.createActivityTable(db);return{...module,db};}
 const event=(method,params={})=>({method,params:{threadId:'thread',turnId:'turn',...params}});
 
+test('completed messages survive raw-tail pressure without changing raw counts or cursors',async t=>{
+  const {db,recordActivity,readActivity,readCompletedMessages}=await setup(t);
+  assert.equal(typeof readCompletedMessages,'function','Completed messages need independent bounded retention');
+  const worker={position:2,attempts:7,activeTurn:{threadId:'thread',turnId:'turn'}};
+  recordActivity(db,{generation:3,worker,message:event('item/completed',{item:{id:'answer',type:'agentMessage',text:'Retained terminal answer'}})});
+  for(let i=0;i<300;i++)recordActivity(db,{generation:3,worker,message:event('item/agentMessage/delta',{itemId:'noise',delta:String(i)})});
+  const raw=readActivity(db,{generation:3,position:2,after:0,limit:100,expectedObserved:301});
+  assert.equal(worker.activityCount,301);assert.equal(raw.observed,301);assert.equal(raw.retained,256);assert.equal(raw.dropped,45);
+  assert.equal(raw.records[0].seq,46);assert.equal(raw.nextCursor,145);assert.equal(raw.hasMore,true);
+  const messages=readCompletedMessages(db,{generation:3,position:2});
+  assert.equal(messages.available,true);assert.equal(messages.records.length,1);
+  assert.equal(messages.records[0].text,'Retained terminal answer');assert.equal(messages.records[0].terminalSeq,1);
+  assert.equal(messages.records[0].attempt,7);assert.equal(messages.records[0].complete,true);
+  assert.equal(messages.nextCursor,1);assert.equal(messages.hasMore,false);
+  assert.equal(messages.counts.terminalNotificationsObserved,1);assert.equal(messages.counts.insertions,1);
+  db.exec('UPDATE activity_counts SET observed=256 WHERE generation=3 AND position=2');
+  assert.throws(()=>readActivity(db,{generation:3,position:2,expectedObserved:301}),{code:'ACTIVITY_CORRUPT'},'Keeping messages must not conceal a reset raw counter');
+  db.exec('UPDATE activity_counts SET observed=301 WHERE generation=3 AND position=2');
+});
+
+test('completed history bounds UTF-8 bytes and discloses duplicates replacements and conflicts',async t=>{
+  const {db,recordActivity,readActivity,readCompletedMessages}=await setup(t);
+  assert.equal(typeof readCompletedMessages,'function');
+  const worker={position:0,attempts:1},terminal=(id,text,extra={})=>event('item/completed',{item:{id,type:'agentMessage',text,...extra}});
+  recordActivity(db,{generation:1,worker,message:terminal('answer','prefix',{truncated:['text']})});
+  recordActivity(db,{generation:1,worker,message:terminal('answer','prefix',{truncated:['text']})});
+  recordActivity(db,{generation:1,worker,message:terminal('answer','prefix complete')});
+  const accepted=readCompletedMessages(db,{generation:1,position:0});
+  assert.deepEqual([accepted.counts.terminalNotificationsObserved,accepted.counts.insertions,accepted.counts.replacements,accepted.counts.duplicateNoops],[3,1,1,1]);
+  assert.equal(accepted.records[0].terminalSeq,3);assert.equal(accepted.records[0].complete,true);
+  const before=structuredClone(worker);
+  db.exec('BEGIN IMMEDIATE');
+  assert.throws(()=>recordActivity(db,{generation:1,worker,message:terminal('answer','contradiction')}),{code:'ACTIVITY_CORRUPT'});db.exec('ROLLBACK');
+  assert.deepEqual(worker,before);assert.deepEqual(readCompletedMessages(db,{generation:1,position:0}),accepted);
+  recordActivity(db,{generation:1,worker,message:terminal('large','💡'.repeat(9000))});
+  recordActivity(db,{generation:1,worker,message:event('item/agentMessage/delta',{itemId:'large',delta:'never completes a terminal'})});
+  const page=readCompletedMessages(db,{generation:1,position:0,limit:1});assert.equal(page.hasMore,true);assert.equal(page.nextCursor,3);
+  const next=readCompletedMessages(db,{generation:1,position:0,after:page.nextCursor});const large=next.records[0];
+  assert.equal(Buffer.byteLength(large.text),32768);assert.equal(large.text.isWellFormed(),true);assert.equal(large.complete,false);assert.ok(large.truncations.includes('textBytes'));
+  assert.equal(Buffer.byteLength(JSON.stringify(large)),large.bytes);assert.ok(large.bytes<=36864);
+  const stored=db.prepare('SELECT * FROM completed_messages WHERE id=?').get(large.id),forged={...large,complete:true};
+  forged.bytes=Buffer.byteLength(JSON.stringify(forged));const body=JSON.stringify(forged);db.prepare('UPDATE completed_messages SET bytes=?,value=? WHERE id=?').run(Buffer.byteLength(body),body,large.id);
+  assert.throws(()=>readCompletedMessages(db,{generation:1,position:0}),{code:'ACTIVITY_CORRUPT'},'A truncated terminal cannot be relabeled complete');
+  db.prepare('UPDATE completed_messages SET bytes=?,value=? WHERE id=?').run(stored.bytes,stored.value,large.id);
+  assert.equal(next.nextCursor,4);assert.equal(next.hasMore,false);assert.equal(next.counts.terminalNotificationsObserved,4);
+  worker.attempts=2;recordActivity(db,{generation:1,worker,message:terminal('answer','another attempt')});
+  recordActivity(db,{generation:1,worker,message:{...terminal('answer','another turn'),params:{...terminal('answer','another turn').params,turnId:'other'}}});
+  assert.equal(readCompletedMessages(db,{generation:1,position:0}).counts.retained,4);
+  assert.equal(readActivity(db,{generation:1,position:0}).observed,7);
+});
+
+test('completed message count and byte eviction preserve accounting on reopen and old storage stays read-only',async t=>{
+  const directory=await mkdtemp(fileURLToPath(new URL('./.command-facts-',import.meta.url))),filename=join(directory,'messages.sqlite');let db;
+  t.after(async()=>{if(db?.isOpen)db.close();await rm(directory,{recursive:true,force:true});});
+  const {createActivityTable,recordActivity,readCompletedMessages}=await import('../engine/activity.mjs');assert.equal(typeof readCompletedMessages,'function');
+  db=new DatabaseSync(filename);createActivityTable(db);const worker={position:0,attempts:1};
+  const add=(id,text='terminal')=>recordActivity(db,{generation:1,worker,message:event('item/completed',{item:{id,type:'agentMessage',text}})});
+  for(let i=0;i<70;i++)add(`count-${i}`);
+  let page=readCompletedMessages(db,{generation:1,position:0});assert.equal(page.counts.retained,64);assert.equal(page.counts.evictedCountLimit,6);assert.equal(page.counts.evictedByteLimit,0);
+  for(let i=0;i<40;i++)add(`bytes-${i}`,'💡'.repeat(8192));
+  page=readCompletedMessages(db,{generation:1,position:0});assert.ok(page.counts.evictedByteLimit>0);assert.ok(page.counts.retainedBytes<=1048576);
+  const c=page.counts;assert.equal(c.retained,c.insertions-c.evictedCountLimit-c.evictedByteLimit);assert.equal(c.terminalNotificationsObserved,c.insertions+c.replacements+c.duplicateNoops);
+  add('count-0');assert.equal(readCompletedMessages(db,{generation:1,position:0}).counts.insertions,111,'Evicted identities reobserved count as new insertions');
+  const saved=readCompletedMessages(db,{generation:1,position:0});db.close();db=new DatabaseSync(filename);createActivityTable(db);assert.deepEqual(readCompletedMessages(db,{generation:1,position:0}),saved);
+  db.exec('DROP TABLE completed_messages;DROP TABLE completed_message_counts');db.close();db=new DatabaseSync(filename,{readOnly:true});
+  const legacy=readCompletedMessages(db,{generation:1,position:0});assert.equal(legacy.available,false);assert.equal(legacy.coverage,'legacyRawOnly');assert.equal(legacy.priorActivityUncovered,111);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'completed_message%'").get().n,0);
+  db.close();db=new DatabaseSync(filename);createActivityTable(db);add('new');createActivityTable(db);
+  assert.equal(readCompletedMessages(db,{generation:1,position:0}).counts.priorActivityUncovered,111);
+});
+
+test('generation message budgets and corrupt metadata cannot claim complete coverage',async t=>{
+  const {db,recordActivity,readCompletedMessages}=await setup(t);assert.equal(typeof readCompletedMessages,'function');
+  for(let position=0;position<5;position++)for(let i=0;i<64;i++)recordActivity(db,{generation:1,worker:{position,attempts:1},message:event('item/completed',{item:{id:`small-${i}`,type:'agentMessage',text:'small'}})});
+  assert.equal(db.prepare('SELECT count(*) AS n FROM completed_messages').get().n,256);
+  assert.equal(readCompletedMessages(db,{generation:1,position:0}).counts.evictedCountLimit,64);
+  for(let position=5;position<10;position++)for(let i=0;i<31;i++)recordActivity(db,{generation:1,worker:{position,attempts:1},message:event('item/completed',{item:{id:`large-${i}`,type:'agentMessage',text:'💡'.repeat(8192)}})});
+  assert.ok(db.prepare('SELECT sum(bytes) AS n FROM completed_messages').get().n<=4194304);
+  const row=db.prepare('SELECT * FROM completed_messages LIMIT 1').get();
+  db.prepare('UPDATE completed_messages SET bytes=1,value=? WHERE id=?').run('x'.repeat(40000),row.id);
+  assert.throws(()=>readCompletedMessages(db,{generation:1,position:row.position}),{code:'ACTIVITY_CORRUPT'});
+  db.prepare('UPDATE completed_messages SET bytes=?,value=? WHERE id=?').run(row.bytes,row.value,row.id);
+  db.prepare('UPDATE completed_message_counts SET insertions=insertions+1 WHERE generation=1 AND position=?').run(row.position);
+  assert.throws(()=>readCompletedMessages(db,{generation:1,position:row.position}),{code:'ACTIVITY_CORRUPT'});
+});
+
+test('JSON expansion truncates terminal text explicitly and message responses stay bounded',async t=>{
+  const {db,recordActivity,readCompletedMessages}=await setup(t),worker={position:0,attempts:1};
+  recordActivity(db,{generation:1,worker,message:event('item/completed',{item:{id:'escaped',type:'agentMessage',text:'\u0000'.repeat(10000)}})});
+  let page=readCompletedMessages(db,{generation:1,position:0});const escaped=page.records[0];
+  assert.equal(escaped.complete,false);assert.ok(escaped.truncations.includes('recordBytes'));assert.ok(escaped.bytes<=36864);assert.equal(escaped.bytes,Buffer.byteLength(JSON.stringify(escaped)));
+  recordActivity(db,{generation:1,worker,message:event('item/completed',{item:{id:'escaped',type:'agentMessage',text:'\u0000'.repeat(10000)}})});
+  assert.equal(readCompletedMessages(db,{generation:1,position:0}).counts.duplicateNoops,1);
+  for(let i=0;i<40;i++)recordActivity(db,{generation:1,worker,message:event('item/completed',{item:{id:`large-${i}`,type:'agentMessage',text:'💡'.repeat(8192)}})});
+  page=readCompletedMessages(db,{generation:1,position:0,limit:100});assert.ok(Buffer.byteLength(JSON.stringify(page))<1048576);assert.equal(page.hasMore,true,'Large pages split before the JSON response bound');
+  let loaded=page.records.length;
+  while(page.hasMore){const next=readCompletedMessages(db,{generation:1,position:0,after:page.nextCursor,limit:100});assert.ok(next.records[0].terminalSeq>page.nextCursor);assert.ok(Buffer.byteLength(JSON.stringify(next))<1048576);loaded+=next.records.length;page=next;}
+  assert.equal(loaded,page.counts.retained);assert.equal(readCompletedMessages(db,{generation:1,position:0,after:page.nextCursor}).nextCursor,page.nextCursor);
+});
+
 test('command facts survive delta pressure and database reopen without retaining command bodies',async t=>{
   const directory=await mkdtemp(fileURLToPath(new URL('./.command-facts-',import.meta.url)));
   let db; t.after(async()=>{if(db?.isOpen)db.close();await rm(directory,{recursive:true,force:true});});

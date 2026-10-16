@@ -9,6 +9,14 @@ import {validateCapturePolicy} from './workspace-policy.mjs';
 const maxFiles=20000,maxBytes=512*1024*1024,maxPatch=512*1024*1024;
 const maxMetadata=32*1024*1024,maxPreview=32*1024*1024;
 const maxExcludedEntries=100000,maxInventoryBytes=16*1024*1024,maxTraversalEntries=100000;
+const captureLimits=Object.freeze({includedFiles:maxFiles,includedBytes:maxBytes,patchBytes:maxPatch,metadataBytes:maxMetadata,previewBytes:maxPreview,
+  excludedEntries:maxExcludedEntries,traversalEntries:maxTraversalEntries,excludedInventoryBytes:maxInventoryBytes});
+const captureCauses=new WeakMap();
+const gitFailures=new WeakSet();
+function captureFault(code,message,category){
+  const error=fault(code,message);captureCauses.set(error,category??({WORKSPACE_PATH:'unsafePath',WORKSPACE_CHANGED:'sourceChanged',WORKSPACE_NESTED_GIT:'nestedGit',WORKSPACE_LIMIT:'byteLimit',WORKSPACE_POLICY:'policy'}[code]??'unknown'));return error;
+}
+function gitFault(code,message,category){const error=captureFault(code,message,category);gitFailures.add(error);return error;}
 const noHooks=join(tmpdir(),`workflow-no-hooks-${randomUUID()}`);
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 const canonical=value=>JSON.stringify(value,(_,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a<b?-1:a>b?1:0)):item);
@@ -18,22 +26,36 @@ const gitEnv=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key
 async function boundedRead(path,limit=maxBytes){
   const handle=await open(path,'r');
   try{
-    if((await handle.stat()).size>limit)throw fault('WORKSPACE_LIMIT','Workspace file exceeds its capture limit');
+    if((await handle.stat()).size>limit)throw captureFault('WORKSPACE_LIMIT','Workspace file exceeds its capture limit');
     let size=0;const chunks=[];
-    while(true){const chunk=Buffer.alloc(Math.min(1024*1024,limit-size+1));const {bytesRead}=await handle.read(chunk);if(!bytesRead)break;size+=bytesRead;if(size>limit)throw fault('WORKSPACE_LIMIT','Workspace file grew beyond its capture limit');chunks.push(chunk.subarray(0,bytesRead));}
+    while(true){const chunk=Buffer.alloc(Math.min(1024*1024,limit-size+1));const {bytesRead}=await handle.read(chunk);if(!bytesRead)break;size+=bytesRead;if(size>limit)throw captureFault('WORKSPACE_LIMIT','Workspace file grew beyond its capture limit');chunks.push(chunk.subarray(0,bytesRead));}
     return Buffer.concat(chunks,size);
   }finally{await handle.close();}
 }
 function git(cwd,args,{input,index,maxBuffer=maxMetadata,raw=false}={}){
   return new Promise((done,reject)=>{
+    const fail=(code,message,category)=>reject(gitFault(code,message,category));
     const child=execFile('git',['--no-pager','--no-replace-objects','-c',`core.hooksPath=${noHooks}`,'-c','core.fsmonitor=false',...args],
-      {cwd,env:{...gitEnv,...(index?{GIT_INDEX_FILE:index}:{})},windowsHide:true,timeout:20000,maxBuffer,encoding:'buffer'},
-      (error,stdout)=>{if(error)reject(fault('WORKSPACE_GIT','Git workspace operation failed'));else if(raw)done(stdout);else{try{done(new TextDecoder('utf-8',{fatal:true}).decode(stdout));}catch{reject(fault('WORKSPACE_GIT','Git paths or output are not valid UTF-8'));}}});
+      {cwd,env:{...gitEnv,GIT_OPTIONAL_LOCKS:'0',...(index?{GIT_INDEX_FILE:index}:{})},windowsHide:true,timeout:20000,maxBuffer,encoding:'buffer'},
+      (error,stdout)=>{
+        if(error){
+          // Inspect only local execFile facts, never stderr/message signatures or
+          // caller-supplied WORKSPACE_* strings. The projection is privately marked.
+          if(error.code==='ERR_CHILD_PROCESS_STDIO_MAXBUFFER')fail('WORKSPACE_GIT_BUFFER','Git workspace output exceeded its bounded buffer','gitBuffer');
+          else if(error.killed===true&&error.signal==='SIGTERM')fail('WORKSPACE_GIT_TIMEOUT','Git workspace operation exceeded its execution timeout','gitTimeout');
+          else if(Number.isInteger(error.code))fail('WORKSPACE_GIT_EXIT','Git workspace operation exited unsuccessfully','gitExit');
+          else if(['ENOENT','EACCES','EPERM','ENOEXEC','ENOTDIR','EAGAIN','ENOMEM'].includes(error.code)&&typeof error.syscall==='string'&&error.syscall.startsWith('spawn '))fail('WORKSPACE_GIT_LAUNCH','Git workspace process could not be launched','gitLaunch');
+          else fail('WORKSPACE_GIT','Git workspace operation failed','unknown');
+        }else if(raw){done(stdout);}else{
+          try{done(new TextDecoder('utf-8',{fatal:true}).decode(stdout));}
+          catch{fail('WORKSPACE_GIT_ENCODING','Git workspace output is not valid UTF-8','gitEncoding');}
+        }
+      });
     child.stdin.on('error',()=>{});child.stdin.end(input);
   });
 }
 function safeName(name){
-  if(typeof name!=='string'||!name||name.includes('\\')||name.includes(':')||name.includes('\0')||isAbsolute(name)||name.split('/').some(part=>!part||part==='.'||part==='..'||part.toLowerCase()==='.git'))throw fault('WORKSPACE_PATH','Workspace path is unsafe');
+  if(typeof name!=='string'||!name||name.includes('\\')||name.includes(':')||name.includes('\0')||isAbsolute(name)||name.split('/').some(part=>!part||part==='.'||part==='..'||part.toLowerCase()==='.git'))throw captureFault('WORKSPACE_PATH','Workspace path is unsafe');
   return name;
 }
 async function file(root,name,{optional=false,allowHardlinks=false}={}){
@@ -41,35 +63,35 @@ async function file(root,name,{optional=false,allowHardlinks=false}={}){
   for(const part of name.split('/')){
     path=join(path,part);
     let entry;try{entry=await lstat(path);}catch(error){if(optional&&error.code==='ENOENT')return null;throw error;}
-    if(entry.isSymbolicLink()||!(entry.isDirectory()||entry.isFile()))throw fault('WORKSPACE_PATH','Workspace links and special files are not supported');
+    if(entry.isSymbolicLink()||!(entry.isDirectory()||entry.isFile()))throw captureFault('WORKSPACE_PATH','Workspace links and special files are not supported');
   }
   const entry=await lstat(path);
-  if(!entry.isFile()||!inside(root,await realpath(path)))throw fault('WORKSPACE_PATH','Workspace input must be a contained regular file');
-  if(!allowHardlinks&&entry.nlink!==1)throw fault('WORKSPACE_PATH','Writer files cannot have hardlink aliases');
+  if(!entry.isFile()||!inside(root,await realpath(path)))throw captureFault('WORKSPACE_PATH','Workspace input must be a contained regular file');
+  if(!allowHardlinks&&entry.nlink!==1)throw captureFault('WORKSPACE_PATH','Writer files cannot have hardlink aliases');
   return{path,size:entry.size,mode:entry.mode};
 }
 async function directory(path,source){
-  if(!isAbsolute(path))throw fault('WORKSPACE_PATH','Workspace artifact directory must be absolute');
+  if(!isAbsolute(path))throw captureFault('WORKSPACE_PATH','Workspace artifact directory must be absolute');
   const parent=await realpath(dirname(path));const canonical=join(parent,basename(path));
-  if(source&&inside(source,canonical))throw fault('WORKSPACE_PATH','Artifacts must live outside the source checkout');
+  if(source&&inside(source,canonical))throw captureFault('WORKSPACE_PATH','Artifacts must live outside the source checkout');
   await mkdir(canonical);return canonical;
 }
 async function list(cwd,index,{sourceInputs=false}={}){
   const entries=new Map();
   for(const record of names(await git(cwd,['ls-files','--stage','-z'],{index}))){
     const tab=record.indexOf('\t'),[mode,object,stage]=record.slice(0,tab).split(' '),name=safeName(record.slice(tab+1));
-    if(tab<0||stage!=='0'||!['100644','100755'].includes(mode)||!object)throw fault('WORKSPACE_PATH','Conflicts, symlinks and submodules cannot be captured');
+    if(tab<0||stage!=='0'||!['100644','100755'].includes(mode)||!object)throw captureFault('WORKSPACE_PATH','Conflicts, symlinks and submodules cannot be captured');
     entries.set(name,mode);
   }
   for(const name of names(await git(cwd,['ls-files','--others',...(sourceInputs?['--exclude-standard']:[]),'-z'],{index})))entries.set(safeName(name),entries.get(name)??null);
-  if(entries.size>maxFiles)throw fault('WORKSPACE_LIMIT','Workspace exceeds the file capture limit');
+  if(entries.size>maxFiles)throw captureFault('WORKSPACE_LIMIT','Workspace exceeds the file capture limit','fileLimit');
   return entries;
 }
 
 function explicitName(name){
   safeName(name);
   if(Buffer.byteLength(name)>1024||name!==name.normalize('NFC')||/[\x00-\x1f\x7f*?<>|"~]/.test(name)
-    ||name.split('/').some(part=>/[. ]$/.test(part)||/^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(part)))throw fault('WORKSPACE_PATH','Explicit capture path is ambiguous');
+    ||name.split('/').some(part=>/[. ]$/.test(part)||/^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(part)))throw captureFault('WORKSPACE_PATH','Explicit capture path is ambiguous');
   return name;
 }
 const exclusion=(name,policy)=>policy.excludeDirs.find(prefix=>(name+'/').toLowerCase().startsWith(prefix.toLowerCase()))??null;
@@ -82,54 +104,56 @@ async function trackedFiles(cwd,index,policy){
   const tracked=new Map(),folded=new Set();
   for(const record of names(await git(cwd,['ls-files','--stage','-z'],{index}))){
     const tab=record.indexOf('\t'),[mode,object,stage]=record.slice(0,tab).split(' '),name=explicitName(record.slice(tab+1)),key=name.toLowerCase();
-    if(tab<0||stage!=='0'||!['100644','100755'].includes(mode)||!object||folded.has(key))throw fault('WORKSPACE_PATH','Conflicts, links and colliding tracked paths cannot be captured');
-    if(exclusion(name,policy))throw fault('WORKSPACE_POLICY','Capture exclusions cannot cover tracked paths');
+    if(tab<0||stage!=='0'||!['100644','100755'].includes(mode)||!object||folded.has(key))throw captureFault('WORKSPACE_PATH','Conflicts, links and colliding tracked paths cannot be captured');
+    if(exclusion(name,policy))throw captureFault('WORKSPACE_POLICY','Capture exclusions cannot cover tracked paths');
     tracked.set(name,mode);folded.add(key);
-    if(tracked.size>maxFiles)throw fault('WORKSPACE_LIMIT','Workspace exceeds the file capture limit');
+    if(tracked.size>maxFiles)throw captureFault('WORKSPACE_LIMIT','Workspace exceeds the file capture limit','fileLimit');
   }
   return tracked;
 }
 // Stream directory entries; Git ignores (including global and worker edits) have no say.
 // Excluded files are inventoried by lstat only, never opened or followed.
 async function explicitList(cwd,index,policy){
-  const tracked=await trackedFiles(cwd,index,policy),trackedNames=new Map([...tracked.keys()].map(name=>[name.toLowerCase(),name])),entries=new Map(tracked),excluded=[],seen=new Set();
+  const tracked=await trackedFiles(cwd,index,policy),trackedNames=new Map([...tracked.keys()].map(name=>[name.toLowerCase(),name])),entries=new Map(tracked),excluded=[],metadata=[],seen=new Set();
   let traversed=0,fileCount=0,bytes=0,inventoryBytes=Buffer.byteLength('{"version":1,"entries":[]}');
   const visit=async(name,inherited=null)=>{
     const path=name?join(cwd,name):cwd,before=await lstat(path);
-    if(before.isSymbolicLink()||!before.isDirectory()||await realpath(path)!==path)throw fault('WORKSPACE_PATH','Capture traversal requires contained real directories');
+    if(before.isSymbolicLink()||!before.isDirectory()||await realpath(path)!==path)throw captureFault('WORKSPACE_PATH','Capture traversal requires contained real directories');
     const directory=await opendir(path);
     for await(const entry of directory){
       if(!name&&entry.name==='.git')continue;
+      if(entry.name.toLowerCase()==='.git')throw captureFault('WORKSPACE_NESTED_GIT','Nested Git administration cannot be captured');
       const relativeName=explicitName(name?name+'/'+entry.name:entry.name),key=relativeName.toLowerCase();
-      if(seen.has(key))throw fault('WORKSPACE_PATH','Capture paths collide');seen.add(key);
-      if(trackedNames.has(key)&&trackedNames.get(key)!==relativeName)throw fault('WORKSPACE_PATH','Tracked and live capture paths collide');
+      if(seen.has(key))throw captureFault('WORKSPACE_PATH','Capture paths collide');seen.add(key);
+      if(trackedNames.has(key)&&trackedNames.get(key)!==relativeName)throw captureFault('WORKSPACE_PATH','Tracked and live capture paths collide');
       const info=await lstat(join(cwd,relativeName));
-      if(info.isSymbolicLink()||!(info.isDirectory()||info.isFile())||!inside(cwd,await realpath(join(cwd,relativeName))))throw fault('WORKSPACE_PATH','Capture links, reparse points and special files are not supported');
+      if(info.isSymbolicLink()||!(info.isDirectory()||info.isFile())||!inside(cwd,await realpath(join(cwd,relativeName))))throw captureFault('WORKSPACE_PATH','Capture links, reparse points and special files are not supported');
       const excludedBy=inherited??exclusion(relativeName,policy);
       if(excludedBy){
         // A prefix is a directory contract, not permission to omit a same-name file.
-        if(!inherited&&!info.isDirectory())throw fault('WORKSPACE_PATH','An excluded directory prefix names a file');
+        if(!inherited&&!info.isDirectory())throw captureFault('WORKSPACE_PATH','An excluded directory prefix names a file');
         const item={name:relativeName+(info.isDirectory()?'/':''),type:info.isDirectory()?'directory':'file',size:info.isDirectory()?0:info.size,excludedBy};
+        metadata.push({name:item.name,dev:info.dev,ino:info.ino,size:info.size,mtimeMs:info.mtimeMs,ctimeMs:info.ctimeMs,mode:info.mode,nlink:info.nlink});
         inventoryBytes+=Buffer.byteLength(JSON.stringify(item))+1;
-        if(excluded.length>=maxExcludedEntries||inventoryBytes>maxInventoryBytes)throw fault('WORKSPACE_LIMIT','Workspace excluded inventory exceeds its entry or byte limit');
-        if(!Number.isSafeInteger(item.size)||item.size<0||!Number.isSafeInteger(bytes+item.size))throw fault('WORKSPACE_LIMIT','Workspace excluded byte count exceeds its safe limit');
+        if(excluded.length>=maxExcludedEntries||inventoryBytes>maxInventoryBytes)throw captureFault('WORKSPACE_LIMIT','Workspace excluded inventory exceeds its entry or byte limit','inventoryLimit');
+        if(!Number.isSafeInteger(item.size)||item.size<0||!Number.isSafeInteger(bytes+item.size))throw captureFault('WORKSPACE_LIMIT','Workspace excluded byte count exceeds its safe limit');
         excluded.push(item);if(info.isFile()){fileCount++;bytes+=item.size;}
       }else{
-        if(++traversed>maxTraversalEntries)throw fault('WORKSPACE_LIMIT','Workspace directory enumeration exceeds its entry limit');
+        if(++traversed>maxTraversalEntries)throw captureFault('WORKSPACE_LIMIT','Workspace directory enumeration exceeds its entry limit','inventoryLimit');
         if(info.isFile())entries.set(relativeName,tracked.get(relativeName)??null);
-        if(entries.size>maxFiles)throw fault('WORKSPACE_LIMIT','Workspace exceeds the file capture limit');
+        if(entries.size>maxFiles)throw captureFault('WORKSPACE_LIMIT','Workspace exceeds the file capture limit','fileLimit');
       }
       if(info.isDirectory())await visit(relativeName,excludedBy);
     }
     const after=await lstat(path);
-    if(before.dev!==after.dev||before.ino!==after.ino||before.mtimeMs!==after.mtimeMs||await realpath(path)!==path)throw fault('WORKSPACE_CHANGED','Directory changed during capture enumeration');
+    if(before.dev!==after.dev||before.ino!==after.ino||before.mtimeMs!==after.mtimeMs||await realpath(path)!==path)throw captureFault('WORKSPACE_CHANGED','Directory changed during capture enumeration');
   };
   await visit('');excluded.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
-  return{entries,inventory:{version:1,entries:excluded},fileCount,bytes};
+  return{entries,inventory:{version:1,entries:excluded},fileCount,bytes,metadata:JSON.stringify(metadata.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0))};
 }
 async function saveInventory(destination,enumeration){
   const path=join(destination,'exclusions.json'),json=JSON.stringify(enumeration.inventory)+'\n';
-  if(Buffer.byteLength(json)>maxInventoryBytes)throw fault('WORKSPACE_LIMIT','Workspace excluded inventory exceeds its byte limit');
+  if(Buffer.byteLength(json)>maxInventoryBytes)throw captureFault('WORKSPACE_LIMIT','Workspace excluded inventory exceeds its byte limit','inventoryLimit');
   await writeFile(path,json,{flag:'wx'});
   return{path,sha256:digest(json),entryCount:enumeration.inventory.entries.length,fileCount:enumeration.fileCount,bytes:enumeration.bytes};
 }
@@ -185,9 +209,9 @@ async function captureFiles(cwd,entries,destination,{sourceInputs=false}={}){
   await mkdir(join(destination,'blobs'));let size=0;const files=[];
   for(const [name,mode] of [...entries].sort(([a],[b])=>a<b?-1:a>b?1:0)){
     const entry=await file(cwd,name,{optional:true,allowHardlinks:sourceInputs});if(!entry)continue;
-    if(entry.size>maxBytes-size)throw fault('WORKSPACE_LIMIT','Workspace exceeds the byte capture limit');
+    if(entry.size>maxBytes-size)throw captureFault('WORKSPACE_LIMIT','Workspace exceeds the byte capture limit');
     const bytes=await boundedRead(entry.path,maxBytes-size);size+=bytes.length;
-    if(size>maxBytes)throw fault('WORKSPACE_LIMIT','Workspace exceeds the byte capture limit');
+    if(size>maxBytes)throw captureFault('WORKSPACE_LIMIT','Workspace exceeds the byte capture limit');
     const sha256=digest(bytes),blobPath=join(destination,'blobs',sha256);
     await writeFile(blobPath,bytes,{flag:'wx'}).catch(error=>{if(error.code!=='EEXIST')throw error;});
     files.push({name,mode:mode??(process.platform!=='win32'&&entry.mode&0o111?'100755':'100644'),size:bytes.length,sha256,blobPath});
@@ -218,30 +242,96 @@ async function checkIndex(record){
   const info=await lstat(record.inputIndex);
   if(!info.isFile()||record.version===2&&(info.nlink!==1||await realpath(record.inputIndex)!==record.inputIndex)||digest(await boundedRead(record.inputIndex,maxMetadata))!==record.inputIndexHash)throw fault('WORKSPACE_ARTIFACT','Captured input index is missing or changed');
 }
+const fileIdentity=files=>JSON.stringify(files.map(({name,mode,size,sha256})=>({name,mode,size,sha256})));
+async function inspectFiles(source,entries,included){
+  const files=[];let bytes=0;
+  for(const [name,mode] of [...entries].sort(([a],[b])=>a<b?-1:a>b?1:0)){
+    const entry=await file(source,name,{optional:true,allowHardlinks:true});if(!entry)continue;
+    included.files=files.length+1;included.bytes=bytes+entry.size;
+    if(!Number.isSafeInteger(included.bytes)||included.bytes>maxBytes)throw captureFault('WORKSPACE_LIMIT','Workspace exceeds the byte capture limit');
+    const handle=await open(entry.path,'r'),hash=createHash('sha256');let size=0;
+    try{
+      const before=await handle.stat();
+      if(!before.isFile())throw captureFault('WORKSPACE_PATH','Workspace input must be a contained regular file');
+      const chunk=Buffer.alloc(1024*1024);
+      while(true){
+        const {bytesRead}=await handle.read(chunk,0,Math.min(chunk.length,maxBytes-bytes-size+1));if(!bytesRead)break;
+        size+=bytesRead;if(bytes+size>maxBytes)throw captureFault('WORKSPACE_LIMIT','Workspace exceeds the byte capture limit');
+        hash.update(chunk.subarray(0,bytesRead));
+      }
+      const after=await handle.stat(),live=await lstat(entry.path);
+      if(before.dev!==after.dev||before.ino!==after.ino||before.size!==after.size||before.mtimeMs!==after.mtimeMs||before.ctimeMs!==after.ctimeMs
+        ||live.dev!==after.dev||live.ino!==after.ino||live.isSymbolicLink()||size!==after.size||await realpath(entry.path)!==entry.path)
+        throw captureFault('WORKSPACE_CHANGED','Source changed while inputs were inspected');
+    }finally{await handle.close();}
+    bytes+=size;included.bytes=bytes;
+    files.push({name,mode:mode??(process.platform!=='win32'&&entry.mode&0o111?'100755':'100644'),size,sha256:hash.digest('hex')});
+  }
+  included.files=files.length;included.bytes=bytes;return files;
+}
+// Admission only: no object/index writes, artifact destinations, hooks or worktrees.
+// The error is for capture's existing outer failure channel; public preflight
+// returns only report and never serializes this internal cause or file inventory.
+export async function inspectCaptureInputs(options){
+  let stage='policy',frozen=null,source,capturePolicy;
+  const report={schemaVersion:1,status:'blocked',policyHash:null,base:null,limits:{...captureLimits},included:{files:null,bytes:null},
+    excluded:{entries:null,files:null,bytes:null,inventoryBytes:null},coverage:'partial',failure:null,inferenceStarted:false,writerWorkspaceCreated:false};
+  try{
+    if(!options||Object.getPrototypeOf(options)!==Object.prototype||!Object.hasOwn(options,'source')
+      ||Reflect.ownKeys(options).some(key=>!['source','capturePolicy'].includes(key)||!Object.hasOwn(Object.getOwnPropertyDescriptor(options,key),'value')))
+      throw captureFault('WORKSPACE_POLICY','Capture inspection requires only source and an optional capture policy');
+    ({source,capturePolicy=null}=options);
+    if(capturePolicy!==null){
+      try{frozen=validateCapturePolicy(capturePolicy);}catch{throw captureFault('WORKSPACE_POLICY','Capture policy requires bounded, unambiguous relative paths and disjoint source ownership');}
+      report.policyHash=frozen.policyHash;
+    }
+    stage='source';
+    if(typeof source!=='string'||!isAbsolute(source))throw captureFault('WORKSPACE_PATH','Writer source must be an absolute repository root');
+    source=await realpath(source);
+    if(await realpath((await git(source,['rev-parse','--show-toplevel'])).trim())!==source)throw captureFault('WORKSPACE_PATH','Writer source must be the repository root');
+    const base=(await git(source,['rev-parse','--verify','HEAD^{commit}'])).trim();
+    if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(base))throw gitFault('WORKSPACE_GIT','Git did not identify a valid source commit','unknown');
+    report.base=base;
+    const common=await realpath((await git(source,['rev-parse','--path-format=absolute','--git-common-dir'])).trim());
+    const roots=names(await git(source,['worktree','list','--porcelain','-z'])),main=roots.find(item=>item.startsWith('worktree '))?.slice(9);
+    if(!main)throw captureFault('WORKSPACE_PATH','Cannot identify the main checkout');
+    const mainRoot=await realpath(main),parent=join(dirname(mainRoot),basename(mainRoot)+'-worktrees');
+    stage='inventory';const enumeration=frozen?await explicitList(source,undefined,frozen.policy):null;
+    const entries=enumeration?.entries??await list(source,undefined,{sourceInputs:true});
+    if(enumeration)report.excluded={entries:enumeration.inventory.entries.length,files:enumeration.fileCount,bytes:enumeration.bytes,inventoryBytes:Buffer.byteLength(JSON.stringify(enumeration.inventory)+'\n')};
+    stage='included';report.included={files:0,bytes:0};const files=await inspectFiles(source,entries,report.included);
+    stage='consistency';const again=frozen?await explicitList(source,undefined,frozen.policy):null;
+    if(entryIdentity(entries)!==entryIdentity(again?.entries??await list(source,undefined,{sourceInputs:true}))
+      ||frozen&&(JSON.stringify(enumeration.inventory)!==JSON.stringify(again.inventory)||enumeration.metadata!==again.metadata)||(await git(source,['rev-parse','HEAD'])).trim()!==base
+      ||fileIdentity(files)!==fileIdentity(await inspectFiles(source,entries,{files:0,bytes:0})))throw captureFault('WORKSPACE_CHANGED','Source changed while inputs were inspected');
+    report.status='ready';report.coverage=frozen?'complete':'partial';
+    return{report,source,base,common,parent,frozen,entries,enumeration,files};
+  }catch(error){
+    report.failure={stage:gitFailures.has(error)?'git':stage,code:captureCauses.has(error)?error.code:'CHECK_FAILED',category:captureCauses.get(error)??'unknown'};
+    return{report,error,captureStage:({policy:'repository',source:'repository',included:'files',excluded:'inventory',git:'repository'}[stage]??stage)};
+  }
+}
 export async function captureInputs({source,artifactsDir,capturePolicy}){
   let stage='repository';
   try{
-    const frozen=capturePolicy===undefined?null:validateCapturePolicy(capturePolicy);
-    source=await realpath(source);
-    if(await realpath((await git(source,['rev-parse','--show-toplevel'])).trim())!==source)throw fault('WORKSPACE_PATH','Writer source must be the repository root');
-    const base=(await git(source,['rev-parse','--verify','HEAD^{commit}'])).trim();
-    const common=await realpath((await git(source,['rev-parse','--path-format=absolute','--git-common-dir'])).trim());
-    const roots=names(await git(source,['worktree','list','--porcelain','-z']));
-    const main=roots.find(item=>item.startsWith('worktree '))?.slice(9);
-    if(!main)throw fault('WORKSPACE_PATH','Cannot identify the main checkout');
-    const mainRoot=await realpath(main),parent=join(dirname(mainRoot),basename(mainRoot)+'-worktrees');
+    // Existing capture callers select legacy admission by omission. The public
+    // read-only preflight has its separately specified null default.
+    if(capturePolicy===null)validateCapturePolicy(capturePolicy);
+    const inspected=await inspectCaptureInputs({source,capturePolicy:capturePolicy??null});
+    if(inspected.error){stage=inspected.captureStage;throw inspected.error;}
+    const {frozen,base,common,parent,entries,enumeration}=inspected;source=inspected.source;
     await mkdir(parent,{recursive:true});
-    if((await lstat(parent)).isSymbolicLink()||await realpath(dirname(parent))!==dirname(mainRoot))throw fault('WORKSPACE_PATH','Worktrees require a real sibling directory');
+    if((await lstat(parent)).isSymbolicLink()||await realpath(dirname(parent))!==dirname(parent))throw captureFault('WORKSPACE_PATH','Worktrees require a real sibling directory');
     artifactsDir=await directory(artifactsDir,source);
-    stage='inventory';const enumeration=frozen?await explicitList(source,undefined,frozen.policy):null;
-    const entries=enumeration?.entries??await list(source,undefined,{sourceInputs:true});stage='files';const captured=await captureFiles(source,entries,artifactsDir,{sourceInputs:true});
+    stage='files';const captured=await captureFiles(source,entries,artifactsDir,{sourceInputs:true});
     // Detect edits or index changes during capture before blessing a coherent input set.
     stage='consistency';const again=frozen?await explicitList(source,undefined,frozen.policy):null;
     if(entryIdentity(entries)!==entryIdentity(again?.entries??await list(source,undefined,{sourceInputs:true}))
-      ||frozen&&JSON.stringify(enumeration.inventory)!==JSON.stringify(again.inventory)||(await git(source,['rev-parse','HEAD'])).trim()!==base)throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
+      ||frozen&&(JSON.stringify(enumeration.inventory)!==JSON.stringify(again.inventory)||enumeration.metadata!==again.metadata)||(await git(source,['rev-parse','HEAD'])).trim()!==base
+      ||fileIdentity(inspected.files)!==fileIdentity(captured.files))throw captureFault('WORKSPACE_CHANGED','Source changed while inputs were captured');
     const capturedNames=new Set(captured.files.map(item=>item.name));
-    for(const name of entries.keys())if(!capturedNames.has(name)&&await file(source,name,{optional:true,allowHardlinks:true}))throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
-    for(const item of captured.files)if(digest(await boundedRead((await file(source,item.name,{allowHardlinks:true})).path))!==item.sha256)throw fault('WORKSPACE_CHANGED','Source changed while inputs were captured');
+    for(const name of entries.keys())if(!capturedNames.has(name)&&await file(source,name,{optional:true,allowHardlinks:true}))throw captureFault('WORKSPACE_CHANGED','Source changed while inputs were captured');
+    for(const item of captured.files)if(digest(await boundedRead((await file(source,item.name,{allowHardlinks:true})).path))!==item.sha256)throw captureFault('WORKSPACE_CHANGED','Source changed while inputs were captured');
     stage='tree';const built=await tree(source,captured,artifactsDir);
     const result={version:frozen?2:1,source,common,base,parent:await realpath(parent),artifactsDir,inputTree:built.tree,inputIndex:built.index,inputIndexHash:digest(await boundedRead(built.index,maxMetadata)),...captured,
       ...(frozen?{...frozen,excludedInventory:await saveInventory(artifactsDir,enumeration)}:{})};
@@ -277,7 +367,7 @@ export async function createWorkspace({inputs,artifactsDir}){
       inputs=retained;
     }else await checkCapture(inputs);
     artifactsDir=await directory(artifactsDir,inputs.source);
-    if(await realpath(inputs.parent)!==inputs.parent||(await lstat(inputs.parent)).isSymbolicLink())throw fault('WORKSPACE_PATH','Worktree parent changed');
+    if(await realpath(inputs.parent)!==inputs.parent||(await lstat(inputs.parent)).isSymbolicLink())throw captureFault('WORKSPACE_PATH','Worktree parent changed');
     cwd=join(inputs.parent,'workflow-'+randomUUID());
     await git(inputs.source,['worktree','add','--no-checkout','--detach',cwd,inputs.base]);
     for(const item of inputs.files){
@@ -303,10 +393,10 @@ export async function collectWorkspace(workspace){
     const captured=await captureFiles(workspace.cwd,entries,capturedDir);
     if(enumeration){
       const again=await explicitList(workspace.cwd,workspace.inputIndex,inputs.policy);
-      if(entryIdentity(entries)!==entryIdentity(again.entries)||JSON.stringify(enumeration.inventory)!==JSON.stringify(again.inventory))throw fault('WORKSPACE_CHANGED','Workspace changed while outputs were captured');
+      if(entryIdentity(entries)!==entryIdentity(again.entries)||JSON.stringify(enumeration.inventory)!==JSON.stringify(again.inventory)||enumeration.metadata!==again.metadata)throw captureFault('WORKSPACE_CHANGED','Workspace changed while outputs were captured');
       const capturedNames=new Set(captured.files.map(item=>item.name));
-      for(const name of entries.keys())if(!capturedNames.has(name)&&await file(workspace.cwd,name,{optional:true}))throw fault('WORKSPACE_CHANGED','Workspace changed while outputs were captured');
-      for(const item of captured.files)if(digest(await boundedRead((await file(workspace.cwd,item.name)).path))!==item.sha256)throw fault('WORKSPACE_CHANGED','Workspace changed while outputs were captured');
+      for(const name of entries.keys())if(!capturedNames.has(name)&&await file(workspace.cwd,name,{optional:true}))throw captureFault('WORKSPACE_CHANGED','Workspace changed while outputs were captured');
+      for(const item of captured.files)if(digest(await boundedRead((await file(workspace.cwd,item.name)).path))!==item.sha256)throw captureFault('WORKSPACE_CHANGED','Workspace changed while outputs were captured');
     }
     stage='tree';
     const built=await tree(workspace.cwd,captured,capturedDir);
@@ -340,8 +430,8 @@ async function verifyIdentity(workspace,{verifyBlobs=true}={}){
     }catch(error){throw Object.assign(fault('WORKSPACE_ARTIFACT','Workspace capture policy or input identity changed'),{cause:error});}
   }else if(workspace.version!==1||workspace.policyHash!==undefined||workspace.inputs!==undefined)throw fault('WORKSPACE_ARTIFACT','Workspace version or legacy identity changed');
   await checkIndex(workspace);
-  if(await realpath(workspace.cwd)!==workspace.cwd||(await lstat(workspace.cwd)).isSymbolicLink()||(await lstat(join(workspace.cwd,'.git'))).isSymbolicLink()||digest(await boundedRead(join(workspace.cwd,'.git'),8192))!==workspace.gitPointerHash)throw fault('WORKSPACE_PATH','Worker workspace identity changed');
-  if(await realpath((await git(workspace.cwd,['rev-parse','--path-format=absolute','--git-common-dir'])).trim())!==workspace.common)throw fault('WORKSPACE_PATH','Worker Git metadata changed');
+  if(await realpath(workspace.cwd)!==workspace.cwd||(await lstat(workspace.cwd)).isSymbolicLink()||(await lstat(join(workspace.cwd,'.git'))).isSymbolicLink()||digest(await boundedRead(join(workspace.cwd,'.git'),8192))!==workspace.gitPointerHash)throw captureFault('WORKSPACE_PATH','Worker workspace identity changed');
+  if(await realpath((await git(workspace.cwd,['rev-parse','--path-format=absolute','--git-common-dir'])).trim())!==workspace.common)throw captureFault('WORKSPACE_PATH','Worker Git metadata changed');
   return inputs;
 }
 export async function assertWorkspaceReady(workspace){

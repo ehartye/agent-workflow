@@ -2,10 +2,11 @@
  * @subject engine/workspaces.mjs
  * @subject engine/workspace-run.mjs
  * @subject engine/controller.mjs
+ * @subject engine/capture-preflight.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm,unlink,symlink,realpath,link,open,stat,readdir} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm,unlink,symlink,realpath,link,open,stat,readdir,utimes} from 'node:fs/promises';
 import {join,dirname,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash,randomFillSync} from 'node:crypto';
@@ -19,6 +20,7 @@ import * as workspaces from '../engine/workspaces.mjs';
 import {runWorkspaces} from '../engine/workspace-run.mjs';
 import {createSettings} from '../engine/settings.mjs';
 import {runWorkerSession} from '../engine/worker-session.mjs';
+import {preflightCapture} from '../engine/capture-preflight.mjs';
 
 // Controller-only cases require installed dependencies; capture cases use Node/Git only.
 const runWorkflow=async options=>(await import('../engine/controller.mjs')).runWorkflow(options);
@@ -164,6 +166,50 @@ test('explicit capture rejects tracked exclusion conflicts including locally del
   const {source,artifacts}=await fixture(t);await mkdir(join(source,'generated'));await writeFile(join(source,'generated','tracked.txt'),'tracked');
   await git(source,'add','generated/tracked.txt');await git(source,'commit','-qm','tracked generated');await unlink(join(source,'generated','tracked.txt'));
   await assert.rejects(captureInputs({source,artifactsDir:join(artifacts,'inputs'),capturePolicy}),error=>error.code==='WORKSPACE_INPUT'&&error.cause?.code==='WORKSPACE_POLICY');
+});
+
+test('explicit input capture identifies nested Git even inside excluded directories',async t=>{
+  const {source,artifacts}=await fixture(t);
+  await mkdir(join(source,'generated','nested','.git'),{recursive:true});
+  await assert.rejects(captureInputs({source,artifactsDir:join(artifacts,'inputs'),capturePolicy}),error=>{
+    assert.equal(error.code,'WORKSPACE_INPUT');assert.equal(error.captureFailure.stage,'inventory');
+    assert.equal(error.captureFailure.cause.code,'WORKSPACE_NESTED_GIT');return true;
+  });
+});
+
+test('CRLF-heavy local inputs retain exact bytes while base diff expansion remains a later observation',async t=>{
+  const {source,artifacts}=await fixture(t),text='line\r\n'.repeat(8192);
+  await writeFile(join(source,'note.txt'),text);const report=await preflightCapture({source,capturePolicy});
+  assert.equal(report.status,'ready');assert.equal(report.failure,null);
+  const inputs=await captureInputs({source,artifactsDir:join(artifacts,'inputs'),capturePolicy});
+  assert.equal(report.included.bytes,inputs.bytes);assert.equal(inputs.files.find(item=>item.name==='note.txt').size,Buffer.byteLength(text));
+  const worker=await createWorkspace({inputs,artifactsDir:join(artifacts,'worker')});
+  assert.equal(await readFile(join(worker.cwd,'note.txt'),'utf8'),text);
+  const result=await collectWorkspace(worker);assert.equal((await stat(result.patchPath)).size,0);
+  assert.ok((await stat(result.basePatchPath)).size>Buffer.byteLength(text));assert.equal(await verifyWorkspace(result),true);
+});
+
+test('captureInputs preserves explicit null policy refusal instead of reinterpreting it as legacy admission',async t=>{
+  const {source,artifacts}=await fixture(t);
+  await assert.rejects(captureInputs({source,artifactsDir:join(artifacts,'inputs'),capturePolicy:null}),error=>error.code==='WORKSPACE_INPUT'&&error.cause.code==='WORKSPACE_POLICY');
+});
+
+test('actual capture keeps independent excluded consistency checks after shared input inspection',async t=>{
+  const {source,artifacts}=await fixture(t);await mkdir(join(source,'generated'));
+  const path=join(source,'generated','cache.bin');await writeFile(path,'old');
+  const original=childProcess.execFile;let inventories=0;
+  childProcess.execFile=function(file,args,options,callback){
+    if(file==='git'&&options?.cwd===source&&args.includes('--stage'))return original.call(this,file,args,options,async(...result)=>{
+      if(++inventories===3){await writeFile(path,'new');await utimes(path,2000000000,2000000000);}callback(...result);
+    });
+    return original.apply(this,arguments);
+  };syncBuiltinESMExports();
+  try{
+    await assert.rejects(captureInputs({source,artifactsDir:join(artifacts,'inputs'),capturePolicy}),error=>{
+      assert.equal(inventories,3);assert.equal(error.code,'WORKSPACE_INPUT');assert.equal(error.captureFailure.stage,'consistency');
+      assert.equal(error.captureFailure.cause.code,'WORKSPACE_CHANGED');return true;
+    });
+  }finally{childProcess.execFile=original;syncBuiltinESMExports();}
 });
 
 test('an explicit empty policy includes repository, private and configured global ignored inputs',async t=>{

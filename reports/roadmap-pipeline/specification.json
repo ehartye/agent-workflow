@@ -1,0 +1,2680 @@
+{
+  "schemaVersion": 1,
+  "kind": "implementationSpecificationPackage",
+  "date": "2026-10-15",
+  "status": "authoredForIndependentReview",
+  "workspace": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\workflow-6295012e-ade4-4163-a44b-5a9d5b73beff",
+  "source": {
+    "base": "95c8e037cac498cebfcab15da29c650b74642ff8",
+    "launchCommit": "0f016326836af49756c6d73895bca6b4a35a648b",
+    "root": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-spec-pipeline-v2",
+    "verifiedOwnHead": "0f016326836af49756c6d73895bca6b4a35a648b",
+    "script": {
+      "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\workflow-6295012e-ade4-4163-a44b-5a9d5b73beff\\.agents\\workflows\\roadmap-spec-delivery.js",
+      "sha256": "2c1c74daba8e62b9fe53d76b01551c6239dab22d27640253bbcb5aebce7aad68",
+      "bytes": 14909
+    }
+  },
+  "actualRun": {
+    "id": "4814c759-2fc4-40ba-beca-025fdde866f8",
+    "generation": 1,
+    "originatingSessionId": "01a136e1-c85f-76a2-bb71-09d41fc8ed63",
+    "dataDir": "C:/Users/ehart/AppData/Local/agent-workflow",
+    "runtime": {
+      "id": "0.4.1-1c58382054fe026c-node24.18.0",
+      "digest": "1c58382054fe026c68594f31920875a21f5b7c0b41f9b2cd6e84aa7fdf79c4e3"
+    },
+    "control": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02",
+    "integrationRoot": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-delivery-v2-integration",
+    "nonce": "6618abe6-6cdb-471c-825c-1f0f518a3371",
+    "writable": true,
+    "concurrency": 3,
+    "workerDeadline": null,
+    "inputMode": "snapshotted args-file",
+    "savedInputs": [
+      {
+        "path": "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/args.json",
+        "sha256": "4d8707c105ca40ce66e31304b3a81dfc2bdf0b8c5ecf7c0302e60a3328583150",
+        "bytes": 7039
+      },
+      {
+        "path": "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/parent-access.json",
+        "sha256": "2f8a7f73a4b2882bcb4d1de271ef88c09c1c89b1ccb982960d5b4fb421123f7b",
+        "bytes": 176
+      },
+      {
+        "path": "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/capabilities.json",
+        "sha256": "e7e8ac09d494ff75a57a0fee0c14eed19873cd35cf79d243d2fb712d88a69117",
+        "bytes": 14583
+      },
+      {
+        "path": "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/capture-policy.json",
+        "sha256": "fe502631373225e94e64d82590a72a93675365cac2869d4a8eb88156d2ebeb8c",
+        "bytes": 1697
+      },
+      {
+        "path": "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/start.json",
+        "sha256": "7e70a88f3ac151361f1ce1a3439c3a3be518f27b341af32adc4e2a2e8e6e0589",
+        "bytes": 1011
+      },
+      {
+        "path": "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/scout-evidence.json",
+        "sha256": "b4a997695e1466f310b698aa9d61902f7d53cd40c47fc570dafdb51f6b1ac5fa",
+        "bytes": 6113
+      },
+      {
+        "path": "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/gate.mjs",
+        "sha256": "f1b87bc198b50c361c54f562bd098fbc51c25c40b6128044d39992dd4ea24e0d",
+        "bytes": 1548
+      }
+    ],
+    "append": {
+      "mode": "originalCapturedInputs",
+      "requiresOriginalIsolatedDefault": true,
+      "requiresLoadInputsVerification": true,
+      "allowedOptions": [
+        "label",
+        "phase",
+        "skills",
+        "requireTools",
+        "timeoutMs",
+        "schema"
+      ],
+      "cannotSet": [
+        "workspace",
+        "permissions",
+        "maxAttempts",
+        "dependsOn"
+      ],
+      "accountEveryAppendBeforeSubmission": true,
+      "uncertainResponse": "Inspect same requestId receipt; never automatically repeat."
+    },
+    "singleRunAdaptation": "Five existing external coordinator gates; three fresh combined verifier calls inspect independently frozen integrated paths and exact before/after snapshot identity. Dependencies do not transfer files."
+  },
+  "authority": {
+    "workerScope": "Only assigned paths; no remote/publication/merge/Actions/signing/global policy changes, delegation or nested runtime.",
+    "rootStandingAuthority": "Owner already authorizes deploy/merge/release Workflow all PRs/versions and marketplace. Root runs audit and required release/native/browser/install/protection gates, then publishes verified work without asking again.",
+    "actions": "Remain owner-disabled; no hosted pass fabricated."
+  },
+  "policy": {
+    "primaryCalls": 30,
+    "maximumStarts": 40,
+    "maximumExplicitCorrectionWaves": 2,
+    "engineLifetimeCap": false,
+    "maxAttempts": 1,
+    "workerTimeoutMs": null,
+    "runTimeoutMs": null,
+    "concurrency": 3,
+    "sourceReaders": "explicit read-only/no-network/never",
+    "verifiers": "Inherited isolated default for owned disposable test temporaries; integrated source remains read-only by task scope.",
+    "noAutomaticUncertainEffectRetry": true,
+    "priorStartsConservativelyCounted": 6,
+    "plannedWithOriginalRoster": 36,
+    "r1ReReviewStarts": 1,
+    "nativeDeadlineFixtureReserved": 1,
+    "r2ReReviewStarts": 1,
+    "plannedWithBothReviews": 38
+  },
+  "skills": {
+    "activationMethod": "Genuine executor skills.list with cursor pagination, then skills.read returned package/main_resource at exact original root.",
+    "requiredInitialMains": [
+      "authoring",
+      "workflow",
+      "test-strategy",
+      "wiki-core",
+      "wiki-search"
+    ],
+    "observedInitialMains": [
+      "authoring",
+      "workflow",
+      "test-strategy",
+      "wiki-core",
+      "wiki-search"
+    ],
+    "missingInitialMains": [],
+    "bodyAdherence": "notVerified",
+    "bindings": [
+      {
+        "id": "yoda",
+        "name": "yoda",
+        "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\hartye-skills\\0.4.0",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\hartye-skills\\0.4.0\\skills\\yoda\\SKILL.md",
+        "sha256": "d0da34e6c34c3494c679f5f42c4415a84d7236c0160b44211f05a2c5df14691d",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\hartye-skills\\0.4.0\\skills\\yoda",
+        "activatedInThisAuthor": false
+      },
+      {
+        "id": "beautiful",
+        "name": "beautiful",
+        "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\hartye-skills\\0.4.0",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\hartye-skills\\0.4.0\\skills\\beautiful\\SKILL.md",
+        "sha256": "03d5dcbcbc5d7c074b1e945e2309dd2358cfe153532e110d20d2a2840d0a9d5a",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\hartye-skills\\0.4.0\\skills\\beautiful",
+        "activatedInThisAuthor": false
+      },
+      {
+        "id": "test-strategy",
+        "name": "test-strategy",
+        "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-tests\\0.4.1",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-tests\\0.4.1\\skills\\test-strategy\\SKILL.md",
+        "sha256": "e0a3cf2ecc24ce0238ef706ee4d7794aea3907cc607869e97e2924d4c415929c",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-tests\\0.4.1\\skills\\test-strategy",
+        "activatedInThisAuthor": true
+      },
+      {
+        "id": "test-audit",
+        "name": "test-audit",
+        "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-tests\\0.4.1",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-tests\\0.4.1\\skills\\test-audit\\SKILL.md",
+        "sha256": "0d3608c63142a2156389a105372b2896f3798697b98e420a246959fc02fed01e",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-tests\\0.4.1\\skills\\test-audit",
+        "activatedInThisAuthor": false
+      },
+      {
+        "id": "tdd",
+        "name": "test-driven-development",
+        "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\h-superpowers\\4.16.0",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\h-superpowers\\4.16.0\\skills\\test-driven-development\\SKILL.md",
+        "sha256": "9cb9850122e1f8a1c58be9e47fb82d59c0c4c46ca72782c3c24ddf13242d64c5",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\h-superpowers\\4.16.0\\skills\\test-driven-development",
+        "activatedInThisAuthor": false
+      },
+      {
+        "id": "debug",
+        "name": "systematic-debugging",
+        "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\h-superpowers\\4.16.0",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\h-superpowers\\4.16.0\\skills\\systematic-debugging\\SKILL.md",
+        "sha256": "33e3155ef5c6492209560d61e42c735d3129acd7f2d39ede44e7dcca700fd407",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\h-superpowers\\4.16.0\\skills\\systematic-debugging",
+        "activatedInThisAuthor": false
+      },
+      {
+        "id": "workflow",
+        "name": "agent-workflow",
+        "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-workflow\\0.4.1",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-workflow\\0.4.1\\skills\\agent-workflow\\SKILL.md",
+        "sha256": "7b6e69a652d98e335d1129b75c62dd7604996e691f50627496b70a36cfc514df",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-workflow\\0.4.1\\skills\\agent-workflow",
+        "activatedInThisAuthor": true
+      },
+      {
+        "id": "authoring",
+        "name": "workflow-authoring",
+        "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-workflow\\0.4.1",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-workflow\\0.4.1\\skills\\workflow-authoring\\SKILL.md",
+        "sha256": "711b0e9e5833cdfe8265b8c8ea83f98842cc28833f6458903588e43403abfe1c",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-workflow\\0.4.1\\skills\\workflow-authoring",
+        "activatedInThisAuthor": true
+      },
+      {
+        "id": "setup",
+        "name": "workflow-setup",
+        "root": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-workflow\\0.4.1",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-workflow\\0.4.1\\skills\\workflow-setup\\SKILL.md",
+        "sha256": "a975d8bbf58f556aa5534d84844c97a50b64bc6eb785d8c512b43fe178fa43fa",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\agent-workflow\\0.4.1\\skills\\workflow-setup",
+        "activatedInThisAuthor": false
+      },
+      {
+        "id": "wiki-core",
+        "name": "wiki-maintainer",
+        "root": "C:/Users/ehart/.codex/plugins/cache/hartye-plugins/wiki-master/0.41.1",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\wiki-master\\0.41.1\\skills\\wiki-maintainer\\SKILL.md",
+        "sha256": "be4701cf87bb62c3a2c14f065ff24fc5431aa8f87a23f2aea20f10b271a237e1",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\wiki-master\\0.41.1\\skills\\wiki-maintainer",
+        "activatedInThisAuthor": true
+      },
+      {
+        "id": "wiki-search",
+        "name": "wiki-search",
+        "root": "C:/Users/ehart/.codex/plugins/cache/hartye-plugins/wiki-master/0.41.1",
+        "path": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\wiki-master\\0.41.1\\skills\\wiki-search\\SKILL.md",
+        "sha256": "f52d097aa743af31c8f70070c86b8b3be9a641789aaec0febcfb1b0dd53455a4",
+        "skillRoot": "C:\\Users\\ehart\\.codex\\plugins\\cache\\hartye-plugins\\wiki-master\\0.41.1\\skills\\wiki-search",
+        "activatedInThisAuthor": true
+      }
+    ],
+    "associatedToolReadiness": "No managed tool IDs declared; bundle tools array empty. Exact Node/npm/Git and actual operation prerequisites remain separate."
+  },
+  "evidence": {
+    "scoutEvidence": {
+      "path": "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/scout-evidence.json",
+      "sha256": "b4a997695e1466f310b698aa9d61902f7d53cd40c47fc570dafdb51f6b1ac5fa",
+      "bytes": 6113
+    },
+    "scoutArtifacts": [
+      {
+        "id": "scout-execution",
+        "position": 0,
+        "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\scouts\\scout-execution.json",
+        "sha256": "3f2e11290a7ced05cf19dd436d176d5473f791d4b64fed1a8435469db81b8ed4",
+        "bytes": 14142,
+        "read": "complete retained JSON",
+        "status": "partial",
+        "missing": [
+          "HEAD verification blocked by Git dubious ownership; coordinator must reconcile checkout admission. No safe.directory or ownership changes attempted.",
+          "No tests or native process probes executed under this read-only assignment. Existing node_modules presence does not establish dependency readiness.",
+          "Fresh signature-chain admission, long command budgets, environment forwarding, and actual Windows command-job lifecycle require coordinator verification.",
+          "No report file written under the read-only policy; files above are inspected identities, not generated artifacts. Wiki discover/ingest and roadmap edits were not performed."
+        ],
+        "abridgedOrAbruptFindingsPreserved": true,
+        "semanticAcceptance": false
+      },
+      {
+        "id": "scout-delivery",
+        "position": 1,
+        "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\scouts\\scout-delivery.json",
+        "sha256": "10c46615b29aa01db363f937c9b80b32343b60f929ec93ad00341fc41b543940",
+        "bytes": 15061,
+        "read": "complete retained JSON",
+        "status": "partial",
+        "missing": [
+          "Full specification artifacts could not be persisted under this worker's read-only policy.",
+          "Tests, native command-job qualification and integration verification remain coordinator-owned. Discovered Node/npm paths were not supplied as coordinator-verified execution paths.",
+          "Wiki discover/ingest and roadmap writes were not performed under the read-only, no-remote-call scope."
+        ],
+        "abridgedOrAbruptFindingsPreserved": true,
+        "semanticAcceptance": false
+      },
+      {
+        "id": "scout-interfaces",
+        "position": 2,
+        "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\scouts\\scout-interfaces.json",
+        "sha256": "fdec339edae6e30a37155606cfc13c225698680537b62c62e6c37956f5c22a2c",
+        "bytes": 8359,
+        "read": "complete retained JSON",
+        "status": "partial",
+        "missing": [
+          "No writable owned artifact destination was authorized; findings are returned here.",
+          "Node/npm paths were discovered at C:\\Program Files\\nodejs\\node.exe and npm.cmd, but were not coordinator-verified. No Node/npm commands, skill runtime checks or tests were invoked.",
+          "Static source review only: native process, painted-browser, second-client remote access and live protection verification remain unperformed.",
+          "Wiki retrieval used bounded local files. Hybrid search coverage and discovery/ingest were not performed under the read-only/no-remote policy."
+        ],
+        "abridgedOrAbruptFindingsPreserved": true,
+        "semanticAcceptance": false
+      }
+    ],
+    "scoutStatus": "All partial source context only; parent reconciled Git identity separately.",
+    "canonicalWiki": [
+      {
+        "path": "C:\\Users\\ehart\\.wiki-master-vault\\wiki\\authored\\agent-workflow\\roadmap.md",
+        "sha256": "cbd46530c1b4102b187d4786a05a5c2ebfb88e14e0ce1f98b5c42106e838f212",
+        "bytes": 6780,
+        "wikiCommit": "878bc802f419670a1ed9770eb5638510002dffe7"
+      },
+      {
+        "path": "C:\\Users\\ehart\\.wiki-master-vault\\wiki\\authored\\agent-workflow\\architecture.md",
+        "sha256": "6ffbb38695231929a4a9a9b6e7dde96a7f88e36be415c0e78cb54a023ebd2937",
+        "bytes": 12279,
+        "wikiCommit": "878bc802f419670a1ed9770eb5638510002dffe7"
+      }
+    ],
+    "indexedWikiSearch": "notPerformed",
+    "wikiDiscoverIngest": "Root-owned follow-through; not performed by three-file worker.",
+    "previousAttempt": {
+      "id": "acf2bfe3-6b45-4f3c-89a6-9230e8b6c314",
+      "generation": 1,
+      "status": "failed",
+      "preAttemptPosition": 3,
+      "error": "WORKSPACE_INPUT",
+      "originalInnerCause": "notRetained",
+      "reconciliation": "Three completed scouts and positive owned-job drain preserved. Unauthorized partial scout spec quarantined and rejected. No writer/native attempt at failed position. New run uses published0.4.1, external controls and explicit source-reader policy; old run is not rewritten."
+    }
+  },
+  "objectiveIds": [
+    "capture.preflight",
+    "capture.causes",
+    "capture.integrity",
+    "acceptance.assembly",
+    "acceptance.checkpoints",
+    "acceptance.recovery",
+    "jobs.durable",
+    "jobs.output",
+    "jobs.ownership",
+    "inspection.plan",
+    "inspection.usage",
+    "dashboard.deadlines",
+    "dashboard.messages",
+    "dashboard.presentation",
+    "recipes.criteria",
+    "recipes.research",
+    "recipes.skills",
+    "recipes.guidance",
+    "maintenance.protection",
+    "maintenance.remote",
+    "maintenance.browser",
+    "interfaces.public",
+    "interfaces.runtime"
+  ],
+  "tracks": [
+    {
+      "id": "capture",
+      "objective": "Actionable bounded writer-input preflight and causal failure categories; preserve 512MiB output and all strict integrity/drain checks.",
+      "skills": [
+        "debug",
+        "tdd"
+      ],
+      "paths": [
+        "engine/workspaces.mjs",
+        "engine/workspace-policy.mjs",
+        "engine/capture-preflight.mjs",
+        "test/engine-workspaces.test.mjs",
+        "test/engine-workspace-policy.test.mjs",
+        "test/engine-capture-preflight.test.mjs",
+        "docs/capture-preflight.md"
+      ],
+      "objectiveIds": [
+        "capture.preflight",
+        "capture.causes",
+        "capture.integrity"
+      ],
+      "dependencies": [],
+      "exports": {
+        "engine/workspaces.mjs": [
+          "inspectCaptureInputs({source,capturePolicy=null})"
+        ],
+        "engine/capture-preflight.mjs": [
+          "preflightCapture({source,capturePolicy=null})"
+        ]
+      },
+      "tests": [
+        "test/engine-workspaces.test.mjs",
+        "test/engine-workspace-policy.test.mjs",
+        "test/engine-capture-preflight.test.mjs"
+      ],
+      "red": "No-effect preflight rejects excluded nested Git and detects source drift.",
+      "negativeControl": "Calling captureInputs from preflight must fail no-effects inventory.",
+      "fresh": "Real public clean/oversize/nested-Git preflight plus unchanged strict actual input/output capture.",
+      "boundaries": [
+        "512MiB payload/each diff; 32MiB metadata/previews; 20000 files; 100000 excluded entries; 16MiB inventory",
+        "No new controller/foundation ownership; persist fixed trusted causal codes through existing diagnostic channel",
+        "No historical recapture or integrity/drain relaxation"
+      ],
+      "dispatchDependencies": [
+        "gate-spec-approved"
+      ],
+      "writeOwnership": [
+        "engine/workspaces.mjs",
+        "engine/workspace-policy.mjs",
+        "engine/capture-preflight.mjs",
+        "test/engine-workspaces.test.mjs",
+        "test/engine-workspace-policy.test.mjs",
+        "test/engine-capture-preflight.test.mjs",
+        "docs/capture-preflight.md"
+      ],
+      "readScope": [
+        "assigned paths",
+        "dependency sources in engine/foundation/bin/test/workflows/skills/docs",
+        "package.json",
+        "package-lock.json",
+        "AGENTS.md",
+        ".testing/risk.yml",
+        "frozen specifications and declared external evidence"
+      ],
+      "deadlinePolicy": {
+        "workerTimeoutMs": null,
+        "maxAttempts": 1
+      },
+      "artifactGate": "Root verifies exact saved producer, positive cleanup, complete retained capture/blobs/tree/patch/ownership before integration.",
+      "designSection": "Track capture",
+      "requireTools": [],
+      "prerequisites": [
+        {
+          "id": "node24",
+          "executablePath": "C:/Program Files/nodejs/node.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "source checks",
+          "expected": "v24.18.0 or coordinator-admitted compatible Node24+",
+          "observedHere": "v24.18.0; other workers need own readiness"
+        },
+        {
+          "id": "dependencies",
+          "executablePath": "C:/Program Files/nodejs/npm.cmd",
+          "argv": [
+            "ci",
+            "--ignore-scripts",
+            "--offline"
+          ],
+          "cachePath": null,
+          "requiredFor": "affected tests",
+          "expected": "Explicitly authorized offline preparation or coordinator-prepared lock-resolved dependencies in actual worktree",
+          "observedHere": "35 packages installed exit0 in specification worktree only"
+        },
+        {
+          "id": "git",
+          "executablePath": "C:/Program Files/Git/cmd/git.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "real workspace/managed process checks",
+          "expected": "Coordinator-verified hash and admitted actual-worker execution",
+          "observedHere": "Discovery and source rev-parse passed; hash admission belongs to coordinator"
+        }
+      ]
+    },
+    {
+      "id": "acceptance",
+      "objective": "Authoritative read-only delivery acceptance assembly plus immutable coordinator checkpoint records, resolving real producer identities/captures and fresh integrated checks; reject forged, stale and uncertain evidence.",
+      "skills": [
+        "workflow",
+        "tdd"
+      ],
+      "paths": [
+        "engine/delivery-acceptance.mjs",
+        "engine/stage-checkpoints.mjs",
+        "test/engine-delivery-acceptance.test.mjs",
+        "test/engine-stage-checkpoints.test.mjs",
+        "docs/delivery-acceptance.md",
+        "docs/stage-checkpoints.md"
+      ],
+      "objectiveIds": [
+        "acceptance.assembly",
+        "acceptance.checkpoints",
+        "acceptance.recovery"
+      ],
+      "dependencies": [
+        "capture",
+        "jobs"
+      ],
+      "exports": {
+        "engine/delivery-acceptance.mjs": [
+          "assembleDeliveryAcceptance({dataDir,sessionId,request})"
+        ],
+        "engine/stage-checkpoints.mjs": [
+          "recordStageCheckpoint({dataDir,runId,sessionId,expectedPreviousId,requestId,record})",
+          "readStageCheckpoint({dataDir,runId,id})",
+          "listStageCheckpoints({dataDir,runId,after=null,limit=50})",
+          "recordVerificationCheck({dataDir,runId,sessionId,checkpointId,checkId,jobId})"
+        ]
+      },
+      "tests": [
+        "test/engine-delivery-acceptance.test.mjs",
+        "test/engine-stage-checkpoints.test.mjs"
+      ],
+      "red": "Reject forged passed evidence, stale cumulative attempts and cross-checkpoint answers.",
+      "negativeControl": "Trusting submitted passed or omitting final snapshot check must fail.",
+      "fresh": "Actual two-producer captures, integrated snapshot, internally recorded jobs/checks and fresh noncached verifier identities.",
+      "boundaries": [
+        "Assembler is read-only and never migrates or executes",
+        "Append-only checkpoint/check ledger; exact predecessor/request replay conflicts",
+        "Unknown/cancelled effects preserved; recovered work can satisfy objective only after admission and fresh checks"
+      ],
+      "dispatchDependencies": [
+        "gate-spec-approved"
+      ],
+      "writeOwnership": [
+        "engine/delivery-acceptance.mjs",
+        "engine/stage-checkpoints.mjs",
+        "test/engine-delivery-acceptance.test.mjs",
+        "test/engine-stage-checkpoints.test.mjs",
+        "docs/delivery-acceptance.md",
+        "docs/stage-checkpoints.md"
+      ],
+      "readScope": [
+        "assigned paths",
+        "dependency sources in engine/foundation/bin/test/workflows/skills/docs",
+        "package.json",
+        "package-lock.json",
+        "AGENTS.md",
+        ".testing/risk.yml",
+        "frozen specifications and declared external evidence"
+      ],
+      "deadlinePolicy": {
+        "workerTimeoutMs": null,
+        "maxAttempts": 1
+      },
+      "artifactGate": "Root verifies exact saved producer, positive cleanup, complete retained capture/blobs/tree/patch/ownership before integration.",
+      "designSection": "Track acceptance",
+      "requireTools": [],
+      "prerequisites": [
+        {
+          "id": "node24",
+          "executablePath": "C:/Program Files/nodejs/node.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "source checks",
+          "expected": "v24.18.0 or coordinator-admitted compatible Node24+",
+          "observedHere": "v24.18.0; other workers need own readiness"
+        },
+        {
+          "id": "dependencies",
+          "executablePath": "C:/Program Files/nodejs/npm.cmd",
+          "argv": [
+            "ci",
+            "--ignore-scripts",
+            "--offline"
+          ],
+          "cachePath": null,
+          "requiredFor": "affected tests",
+          "expected": "Explicitly authorized offline preparation or coordinator-prepared lock-resolved dependencies in actual worktree",
+          "observedHere": "35 packages installed exit0 in specification worktree only"
+        },
+        {
+          "id": "git",
+          "executablePath": "C:/Program Files/Git/cmd/git.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "real workspace/managed process checks",
+          "expected": "Coordinator-verified hash and admitted actual-worker execution",
+          "observedHere": "Discovery and source rev-parse passed; hash admission belongs to coordinator"
+        }
+      ]
+    },
+    {
+      "id": "jobs",
+      "objective": "Durable command-only jobs owned by Workflow without a waiting model session: original parent policy, exact argv/cwd identity, bounded file-backed output, reconnectable receipts, explicit cancel/deadline and positive Windows job drain. Reuse signed existing host; no unsigned helper or weaker fallback.",
+      "skills": [
+        "workflow",
+        "debug",
+        "tdd"
+      ],
+      "paths": [
+        "engine/command-jobs/",
+        "test/engine-command-jobs.test.mjs",
+        "test/fixtures/command-job-child.mjs",
+        "docs/command-jobs.md"
+      ],
+      "objectiveIds": [
+        "jobs.durable",
+        "jobs.output",
+        "jobs.ownership"
+      ],
+      "dependencies": [],
+      "exports": {
+        "engine/command-jobs/index.mjs": [
+          "startCommandJob({dataDir,runId,sessionId,request})",
+          "readCommandJob({dataDir,runId,sessionId,jobId})",
+          "readCommandJobOutput({dataDir,runId,sessionId,jobId,stream,after=0,limitBytes=65536})",
+          "cancelCommandJob({dataDir,runId,sessionId,jobId,requestId,expectedRevision})",
+          "verifyIntegrationSnapshot(snapshot)"
+        ]
+      },
+      "tests": [
+        "test/engine-command-jobs.test.mjs"
+      ],
+      "red": "Detached child reconnect must retain exact argv/cwd/both streams without redispatch.",
+      "negativeControl": "PID-only success or replayed request execution must fail ownership/idempotency tests.",
+      "fresh": "Actual signed-host/AppServer zero-model Windows run, both streams, long command beyond30min, cancel/deadline, reconnect, heavy lease and positive owned drain.",
+      "boundaries": [
+        "Original saved runtime/session/access policy; no authority override, unsigned helper, signing or weaker fallback",
+        "Explicit job deadline1..86400000 independent of unbounded worker wall time; qualify native range",
+        "Output combined max16MiB, pages<=65536 bytes; continue drain after cap; transport/spool loss unknown",
+        "Owner death/uncertain heavy lease blocks redispatch; reader loss does not cancel"
+      ],
+      "dispatchDependencies": [
+        "gate-spec-approved"
+      ],
+      "writeOwnership": [
+        "engine/command-jobs/",
+        "test/engine-command-jobs.test.mjs",
+        "test/fixtures/command-job-child.mjs",
+        "docs/command-jobs.md"
+      ],
+      "readScope": [
+        "assigned paths",
+        "dependency sources in engine/foundation/bin/test/workflows/skills/docs",
+        "package.json",
+        "package-lock.json",
+        "AGENTS.md",
+        ".testing/risk.yml",
+        "frozen specifications and declared external evidence"
+      ],
+      "deadlinePolicy": {
+        "workerTimeoutMs": null,
+        "maxAttempts": 1
+      },
+      "artifactGate": "Root verifies exact saved producer, positive cleanup, complete retained capture/blobs/tree/patch/ownership before integration.",
+      "designSection": "Track jobs",
+      "requireTools": [],
+      "prerequisites": [
+        {
+          "id": "node24",
+          "executablePath": "C:/Program Files/nodejs/node.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "source checks",
+          "expected": "v24.18.0 or coordinator-admitted compatible Node24+",
+          "observedHere": "v24.18.0; other workers need own readiness"
+        },
+        {
+          "id": "dependencies",
+          "executablePath": "C:/Program Files/nodejs/npm.cmd",
+          "argv": [
+            "ci",
+            "--ignore-scripts",
+            "--offline"
+          ],
+          "cachePath": null,
+          "requiredFor": "affected tests",
+          "expected": "Explicitly authorized offline preparation or coordinator-prepared lock-resolved dependencies in actual worktree",
+          "observedHere": "35 packages installed exit0 in specification worktree only"
+        },
+        {
+          "id": "git",
+          "executablePath": "C:/Program Files/Git/cmd/git.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "real workspace/managed process checks",
+          "expected": "Coordinator-verified hash and admitted actual-worker execution",
+          "observedHere": "Discovery and source rev-parse passed; hash admission belongs to coordinator"
+        },
+        {
+          "id": "native-job",
+          "executablePath": "foundation/native/win32-x64/workflow-job-host.exe",
+          "cachePath": null,
+          "requiredFor": "native acceptance",
+          "expected": "Exact retained signed host/native Codex/runtime/account/policy and long command range admitted",
+          "observedHere": "Not performed; source and scout identity only"
+        }
+      ]
+    },
+    {
+      "id": "inspection",
+      "objective": "Inert AST workflow plan preview with honest unknown dynamic topology, and observed usage aggregation across attempts/replay without claiming a native hard spending cap.",
+      "skills": [
+        "tdd",
+        "test-strategy"
+      ],
+      "paths": [
+        "engine/plan-preview.mjs",
+        "engine/usage-summary.mjs",
+        "test/engine-plan-preview.test.mjs",
+        "test/engine-usage-summary.test.mjs",
+        "docs/plan-preview.md",
+        "docs/usage-summary.md"
+      ],
+      "objectiveIds": [
+        "inspection.plan",
+        "inspection.usage"
+      ],
+      "dependencies": [],
+      "exports": {
+        "engine/plan-preview.mjs": [
+          "previewPlan({script})"
+        ],
+        "engine/usage-summary.mjs": [
+          "readUsageSummary({dataDir,runId,generation})"
+        ]
+      },
+      "tests": [
+        "test/engine-plan-preview.test.mjs",
+        "test/engine-usage-summary.test.mjs"
+      ],
+      "red": "Hostile script cannot run; repeated replay usage cannot double count.",
+      "negativeControl": "Summing cached thread totals or evaluating script must fail.",
+      "fresh": "Public inert plan on literal/dynamic/hostile fixtures and saved usage across attempts/replay with explicit unknown allocations.",
+      "boundaries": [
+        "Source1MiB; AST200000 nodes/depth256; callSites/edges4096; output512KiB",
+        "Dynamic/shadowed/aliased topology unknown; phases do not create dependencies",
+        "Observed monotonic thread totals only; no native hard spending cap, quota wait, provider-cache or shared pool claims"
+      ],
+      "dispatchDependencies": [
+        "gate-spec-approved"
+      ],
+      "writeOwnership": [
+        "engine/plan-preview.mjs",
+        "engine/usage-summary.mjs",
+        "test/engine-plan-preview.test.mjs",
+        "test/engine-usage-summary.test.mjs",
+        "docs/plan-preview.md",
+        "docs/usage-summary.md"
+      ],
+      "readScope": [
+        "assigned paths",
+        "dependency sources in engine/foundation/bin/test/workflows/skills/docs",
+        "package.json",
+        "package-lock.json",
+        "AGENTS.md",
+        ".testing/risk.yml",
+        "frozen specifications and declared external evidence"
+      ],
+      "deadlinePolicy": {
+        "workerTimeoutMs": null,
+        "maxAttempts": 1
+      },
+      "artifactGate": "Root verifies exact saved producer, positive cleanup, complete retained capture/blobs/tree/patch/ownership before integration.",
+      "designSection": "Track inspection",
+      "requireTools": [],
+      "prerequisites": [
+        {
+          "id": "node24",
+          "executablePath": "C:/Program Files/nodejs/node.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "source checks",
+          "expected": "v24.18.0 or coordinator-admitted compatible Node24+",
+          "observedHere": "v24.18.0; other workers need own readiness"
+        },
+        {
+          "id": "dependencies",
+          "executablePath": "C:/Program Files/nodejs/npm.cmd",
+          "argv": [
+            "ci",
+            "--ignore-scripts",
+            "--offline"
+          ],
+          "cachePath": null,
+          "requiredFor": "affected tests",
+          "expected": "Explicitly authorized offline preparation or coordinator-prepared lock-resolved dependencies in actual worktree",
+          "observedHere": "35 packages installed exit0 in specification worktree only"
+        }
+      ]
+    },
+    {
+      "id": "dashboard",
+      "objective": "Accessible compact interactive deadline controls over existing revision/session/generation/attempt/turn guards; preserve Map+inspector space, phone readability, data-only polling and saved theme. One browser owner; no new header bloat. Add separately bounded completed-message retention with exact raw cursor/count invariants, truthful truncation/eviction/prior-uncovered coverage, and read-only old-runtime fallback; root0.4.1 grouping remains preserved.",
+      "skills": [
+        "beautiful",
+        "tdd"
+      ],
+      "paths": [
+        "engine/monitor-server.mjs",
+        "engine/monitor-adapters.mjs",
+        "engine/monitor-data.mjs",
+        "engine/monitor/",
+        "test/engine-monitor.test.mjs",
+        "test/engine-monitor-ui.test.mjs",
+        "docs/dashboard-deadlines.md",
+        "engine/activity.mjs",
+        "test/engine-activity.test.mjs",
+        "docs/message-history.md"
+      ],
+      "objectiveIds": [
+        "dashboard.deadlines",
+        "dashboard.messages",
+        "dashboard.presentation"
+      ],
+      "dependencies": [],
+      "exports": {
+        "engine/activity.mjs": [
+          "readCompletedMessages(db,{generation,position,after=0,limit=50})"
+        ],
+        "engine/monitor-data.mjs": [
+          "monitorData existing signature plus kind messages"
+        ],
+        "engine/monitor-adapters.mjs": [
+          "createSessionServices existing signature plus retained deadline/receipt capability"
+        ],
+        "engine/monitor-server.mjs": [
+          "createMonitor existing signature plus strict deadline/message routes"
+        ]
+      },
+      "tests": [
+        "test/engine-monitor.test.mjs",
+        "test/engine-monitor-ui.test.mjs",
+        "test/engine-activity.test.mjs"
+      ],
+      "red": "Stale deadline revision rejected and terminal text retained under raw-tail pressure.",
+      "negativeControl": "Resetting raw counts/cursor or treating truncated terminal as complete must fail.",
+      "fresh": "Real HTTP/DOM/storage checks plus actual native deadline fixture and single-owner painted desktop/390x844 light/dark keyboard pass over exact served hashes.",
+      "boundaries": [
+        "Exact session/data-instance/run/runtime/generation/attempt/turn/deadline revision; no POST retry",
+        "Raw256/4096 retention/counts/seq/cursor unchanged; root0.4.1 grouping preserved",
+        "Messages64/1MiB worker,256/4MiB generation; max32768 text bytes; terminal provenance/truncation/eviction/prior-uncovered facts",
+        "Read-only legacy fallback; no old database migration or fabricated backfill"
+      ],
+      "dispatchDependencies": [
+        "gate-spec-approved"
+      ],
+      "writeOwnership": [
+        "engine/monitor-server.mjs",
+        "engine/monitor-adapters.mjs",
+        "engine/monitor-data.mjs",
+        "engine/monitor/",
+        "test/engine-monitor.test.mjs",
+        "test/engine-monitor-ui.test.mjs",
+        "docs/dashboard-deadlines.md",
+        "engine/activity.mjs",
+        "test/engine-activity.test.mjs",
+        "docs/message-history.md"
+      ],
+      "readScope": [
+        "assigned paths",
+        "dependency sources in engine/foundation/bin/test/workflows/skills/docs",
+        "package.json",
+        "package-lock.json",
+        "AGENTS.md",
+        ".testing/risk.yml",
+        "frozen specifications and declared external evidence"
+      ],
+      "deadlinePolicy": {
+        "workerTimeoutMs": null,
+        "maxAttempts": 1
+      },
+      "artifactGate": "Root verifies exact saved producer, positive cleanup, complete retained capture/blobs/tree/patch/ownership before integration.",
+      "designSection": "Track dashboard",
+      "requireTools": [],
+      "prerequisites": [
+        {
+          "id": "node24",
+          "executablePath": "C:/Program Files/nodejs/node.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "source checks",
+          "expected": "v24.18.0 or coordinator-admitted compatible Node24+",
+          "observedHere": "v24.18.0; other workers need own readiness"
+        },
+        {
+          "id": "dependencies",
+          "executablePath": "C:/Program Files/nodejs/npm.cmd",
+          "argv": [
+            "ci",
+            "--ignore-scripts",
+            "--offline"
+          ],
+          "cachePath": null,
+          "requiredFor": "affected tests",
+          "expected": "Explicitly authorized offline preparation or coordinator-prepared lock-resolved dependencies in actual worktree",
+          "observedHere": "35 packages installed exit0 in specification worktree only"
+        },
+        {
+          "id": "browser",
+          "executablePath": null,
+          "cachePath": null,
+          "requiredFor": "painted acceptance",
+          "expected": "Root-owned genuine integration/binary/cache/transport and exclusive instance handoff",
+          "observedHere": "Not performed; no browser owner claimed by this specification worker"
+        }
+      ]
+    },
+    {
+      "id": "recipes",
+      "objective": "Criterion QA and bounded research recipes plus genuine role-skill selection, complete artifacts/recovery guidance and real pipeline-friction lessons. Keep independent skeptic/null coverage and coordinator acceptance; no fabricated delivery.",
+      "skills": [
+        "authoring",
+        "yoda",
+        "test-strategy",
+        "tdd"
+      ],
+      "paths": [
+        "workflows/criterion-review.js",
+        "workflows/evidence-research.js",
+        "skills/workflow-authoring/",
+        "skills/workflow-setup/",
+        "test/engine-recipes.test.mjs",
+        "docs/criterion-recipes.md",
+        "docs/pipeline-friction.md"
+      ],
+      "objectiveIds": [
+        "recipes.criteria",
+        "recipes.research",
+        "recipes.skills",
+        "recipes.guidance"
+      ],
+      "dependencies": [
+        "acceptance"
+      ],
+      "exports": {
+        "workflows/criterion-review.js": [
+          "literal meta; QuickJS top-level JSON result"
+        ],
+        "workflows/evidence-research.js": [
+          "literal meta; QuickJS top-level JSON result"
+        ]
+      },
+      "tests": [
+        "test/engine-recipes.test.mjs"
+      ],
+      "red": "Missing skeptic or unforwarded role selections cannot produce reported pass.",
+      "negativeControl": "Removing skeptic/null preservation or arithmetic reconciliation must fail.",
+      "fresh": "Actual evaluator fixture recipes with source/hash drift, unavailable modality/null skeptic, exact role forwarding and bounded stop conditions; separate native tool evidence where operated.",
+      "boundaries": [
+        "Criterion1..32, rounds1..2, starts2*C*R+1<=128",
+        "Research1..64 sources, rounds1..2, starts2*S*R+R<=256; expected equals disposition counts",
+        "Genuine original skill activation, required tool readiness; no live grants or arbitrary workflow/budget APIs",
+        "Complete false/coordinator authority; all null/partial/sampled/dropped/dissent evidence retained"
+      ],
+      "dispatchDependencies": [
+        "gate-spec-approved"
+      ],
+      "writeOwnership": [
+        "workflows/criterion-review.js",
+        "workflows/evidence-research.js",
+        "skills/workflow-authoring/",
+        "skills/workflow-setup/",
+        "test/engine-recipes.test.mjs",
+        "docs/criterion-recipes.md",
+        "docs/pipeline-friction.md"
+      ],
+      "readScope": [
+        "assigned paths",
+        "dependency sources in engine/foundation/bin/test/workflows/skills/docs",
+        "package.json",
+        "package-lock.json",
+        "AGENTS.md",
+        ".testing/risk.yml",
+        "frozen specifications and declared external evidence"
+      ],
+      "deadlinePolicy": {
+        "workerTimeoutMs": null,
+        "maxAttempts": 1
+      },
+      "artifactGate": "Root verifies exact saved producer, positive cleanup, complete retained capture/blobs/tree/patch/ownership before integration.",
+      "designSection": "Track recipes",
+      "requireTools": [],
+      "prerequisites": [
+        {
+          "id": "node24",
+          "executablePath": "C:/Program Files/nodejs/node.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "source checks",
+          "expected": "v24.18.0 or coordinator-admitted compatible Node24+",
+          "observedHere": "v24.18.0; other workers need own readiness"
+        },
+        {
+          "id": "dependencies",
+          "executablePath": "C:/Program Files/nodejs/npm.cmd",
+          "argv": [
+            "ci",
+            "--ignore-scripts",
+            "--offline"
+          ],
+          "cachePath": null,
+          "requiredFor": "affected tests",
+          "expected": "Explicitly authorized offline preparation or coordinator-prepared lock-resolved dependencies in actual worktree",
+          "observedHere": "35 packages installed exit0 in specification worktree only"
+        }
+      ]
+    },
+    {
+      "id": "maintenance",
+      "objective": "Reusable release protection snapshot/restore preflight with dry-run default and exact restored-setting evidence; better supported remote SSH dashboard guidance and browser ownership protocol. No live GH settings changes, signing, firewall edits or remote login.",
+      "skills": [
+        "debug",
+        "tdd",
+        "test-audit"
+      ],
+      "paths": [
+        "scripts/release-protection.mjs",
+        "test/release-protection.test.mjs",
+        "docs/release-protection.md",
+        "docs/remote-dashboard.md",
+        "docs/browser-ownership.md"
+      ],
+      "objectiveIds": [
+        "maintenance.protection",
+        "maintenance.remote",
+        "maintenance.browser"
+      ],
+      "dependencies": [],
+      "exports": {
+        "scripts/release-protection.mjs": [
+          "buildProtectionRestorePlan({snapshot,repository,branch})",
+          "compareProtectionSettings({expected,actual})",
+          "main(argv)"
+        ]
+      },
+      "tests": [
+        "test/release-protection.test.mjs"
+      ],
+      "red": "Both check representations, wrong restoration method or ignored admin flag must be rejected.",
+      "negativeControl": "Omitting enforce_admins comparison or emitting checks+contexts must fail.",
+      "fresh": "Offline exact plan/verify fixtures and review of supported tunnel/browser ownership guidance; root retains actual release/restoration gates.",
+      "boundaries": [
+        "Dry-run offline snapshot/preflight/verify; no worker live GH settings calls, signing, firewall edit or remote login",
+        "Exact restored settings and provenance; unknown fields block complete restore plan",
+        "One browser owner, busy handoff and service shutdown evidence; no lock takeover",
+        "Root standing release authority is preserved; worker restrictions do not revoke it"
+      ],
+      "dispatchDependencies": [
+        "gate-spec-approved"
+      ],
+      "writeOwnership": [
+        "scripts/release-protection.mjs",
+        "test/release-protection.test.mjs",
+        "docs/release-protection.md",
+        "docs/remote-dashboard.md",
+        "docs/browser-ownership.md"
+      ],
+      "readScope": [
+        "assigned paths",
+        "dependency sources in engine/foundation/bin/test/workflows/skills/docs",
+        "package.json",
+        "package-lock.json",
+        "AGENTS.md",
+        ".testing/risk.yml",
+        "frozen specifications and declared external evidence"
+      ],
+      "deadlinePolicy": {
+        "workerTimeoutMs": null,
+        "maxAttempts": 1
+      },
+      "artifactGate": "Root verifies exact saved producer, positive cleanup, complete retained capture/blobs/tree/patch/ownership before integration.",
+      "designSection": "Track maintenance",
+      "requireTools": [],
+      "prerequisites": [
+        {
+          "id": "node24",
+          "executablePath": "C:/Program Files/nodejs/node.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "source checks",
+          "expected": "v24.18.0 or coordinator-admitted compatible Node24+",
+          "observedHere": "v24.18.0; other workers need own readiness"
+        },
+        {
+          "id": "dependencies",
+          "executablePath": "C:/Program Files/nodejs/npm.cmd",
+          "argv": [
+            "ci",
+            "--ignore-scripts",
+            "--offline"
+          ],
+          "cachePath": null,
+          "requiredFor": "affected tests",
+          "expected": "Explicitly authorized offline preparation or coordinator-prepared lock-resolved dependencies in actual worktree",
+          "observedHere": "35 packages installed exit0 in specification worktree only"
+        }
+      ]
+    },
+    {
+      "id": "interfaces",
+      "objective": "Own all shared public CLI wiring and help/API documentation for accepted modules. Agree exact exports with specs, implement strict bounded file input and original runtime/session selection; no silent installation or broad argument forwarding.",
+      "skills": [
+        "workflow",
+        "tdd"
+      ],
+      "paths": [
+        "bin/arguments.mjs",
+        "bin/command.mjs",
+        "engine/cli.mjs",
+        "test/managed-entry.test.mjs",
+        "docs/api.md",
+        "docs/roadmap-command-contracts.md"
+      ],
+      "objectiveIds": [
+        "interfaces.public",
+        "interfaces.runtime"
+      ],
+      "dependencies": [
+        "capture",
+        "acceptance",
+        "jobs",
+        "inspection",
+        "dashboard",
+        "recipes",
+        "maintenance"
+      ],
+      "exports": {
+        "bin/arguments.mjs": [
+          "parseCommand existing; strict new per-command allowlists and help"
+        ],
+        "bin/command.mjs": [
+          "main(tokens=process.argv.slice(2)) existing; exact public module dispatch"
+        ],
+        "engine/cli.mjs": [
+          "strict --inspect mapping to bin/command main; no new mutation bypass"
+        ]
+      },
+      "tests": [
+        "test/managed-entry.test.mjs"
+      ],
+      "red": "Unknown flags, invalid/oversize file and saved-runtime mismatch cannot dispatch.",
+      "negativeControl": "Selecting current runtime for saved evidence or forwarding arbitrary fields must fail.",
+      "fresh": "Real managed launcher commands/help through current/retained-runtime fixtures and clean install, with actual integrated provider modules.",
+      "boundaries": [
+        "All jobs are run-bound ID first; reuse existing unowned launch-v2 run routing",
+        "Strict bounded regular no-link fatal-UTF8 input; original runtime/session; workers cannot mutate",
+        "No silent install, broad forwarding, policy override or unsupported-old-runtime fallback"
+      ],
+      "dispatchDependencies": [
+        "gate-spec-approved"
+      ],
+      "writeOwnership": [
+        "bin/arguments.mjs",
+        "bin/command.mjs",
+        "engine/cli.mjs",
+        "test/managed-entry.test.mjs",
+        "docs/api.md",
+        "docs/roadmap-command-contracts.md"
+      ],
+      "readScope": [
+        "assigned paths",
+        "dependency sources in engine/foundation/bin/test/workflows/skills/docs",
+        "package.json",
+        "package-lock.json",
+        "AGENTS.md",
+        ".testing/risk.yml",
+        "frozen specifications and declared external evidence"
+      ],
+      "deadlinePolicy": {
+        "workerTimeoutMs": null,
+        "maxAttempts": 1
+      },
+      "artifactGate": "Root verifies exact saved producer, positive cleanup, complete retained capture/blobs/tree/patch/ownership before integration.",
+      "designSection": "Track interfaces",
+      "requireTools": [],
+      "prerequisites": [
+        {
+          "id": "node24",
+          "executablePath": "C:/Program Files/nodejs/node.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "source checks",
+          "expected": "v24.18.0 or coordinator-admitted compatible Node24+",
+          "observedHere": "v24.18.0; other workers need own readiness"
+        },
+        {
+          "id": "dependencies",
+          "executablePath": "C:/Program Files/nodejs/npm.cmd",
+          "argv": [
+            "ci",
+            "--ignore-scripts",
+            "--offline"
+          ],
+          "cachePath": null,
+          "requiredFor": "affected tests",
+          "expected": "Explicitly authorized offline preparation or coordinator-prepared lock-resolved dependencies in actual worktree",
+          "observedHere": "35 packages installed exit0 in specification worktree only"
+        },
+        {
+          "id": "git",
+          "executablePath": "C:/Program Files/Git/cmd/git.exe",
+          "argv": [
+            "--version"
+          ],
+          "cachePath": null,
+          "requiredFor": "real workspace/managed process checks",
+          "expected": "Coordinator-verified hash and admitted actual-worker execution",
+          "observedHere": "Discovery and source rev-parse passed; hash admission belongs to coordinator"
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "logicalSlot": 1,
+      "id": "scout-execution",
+      "phase": "01 Roadmap and source scouts",
+      "skills": [
+        "debug",
+        "workflow",
+        "wiki-core",
+        "wiki-search"
+      ],
+      "requireTools": [],
+      "dependsOn": [],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "recordedProducer": {
+        "runId": "4814c759-2fc4-40ba-beca-025fdde866f8",
+        "generation": 1,
+        "position": 0,
+        "attempt": 1
+      },
+      "contextOnly": true
+    },
+    {
+      "logicalSlot": 2,
+      "id": "scout-delivery",
+      "phase": "01 Roadmap and source scouts",
+      "skills": [
+        "test-strategy",
+        "wiki-core",
+        "wiki-search"
+      ],
+      "requireTools": [],
+      "dependsOn": [],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "recordedProducer": {
+        "runId": "4814c759-2fc4-40ba-beca-025fdde866f8",
+        "generation": 1,
+        "position": 1,
+        "attempt": 1
+      },
+      "contextOnly": true
+    },
+    {
+      "logicalSlot": 3,
+      "id": "scout-interfaces",
+      "phase": "01 Roadmap and source scouts",
+      "skills": [
+        "beautiful",
+        "test-audit",
+        "wiki-core",
+        "wiki-search"
+      ],
+      "requireTools": [],
+      "dependsOn": [],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "recordedProducer": {
+        "runId": "4814c759-2fc4-40ba-beca-025fdde866f8",
+        "generation": 1,
+        "position": 2,
+        "attempt": 1
+      },
+      "contextOnly": true
+    },
+    {
+      "logicalSlot": 4,
+      "id": "gate-scout-evidence",
+      "phase": "Coordinator checkpoint",
+      "skills": [
+        "workflow"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "scout-execution",
+        "scout-delivery",
+        "scout-interfaces"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "gate": "scout-evidence",
+      "argv": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/gate.mjs",
+        "scout-evidence"
+      ]
+    },
+    {
+      "logicalSlot": 5,
+      "id": "specification",
+      "phase": "02 Complete specification and plan",
+      "skills": [
+        "authoring",
+        "workflow",
+        "test-strategy",
+        "wiki-core",
+        "wiki-search"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-scout-evidence"
+      ],
+      "policy": "isolated parent writer",
+      "writeOwnership": [
+        "docs/superpowers/specs/2026-10-15-roadmap-pipeline-design.md",
+        "docs/superpowers/plans/2026-10-15-roadmap-pipeline.md",
+        "reports/roadmap-pipeline/specification.json"
+      ],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null
+    },
+    {
+      "logicalSlot": 6,
+      "id": "gate-spec-capture",
+      "phase": "Coordinator checkpoint",
+      "skills": [
+        "workflow"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "specification"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "gate": "spec-capture",
+      "argv": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/gate.mjs",
+        "spec-capture"
+      ]
+    },
+    {
+      "logicalSlot": 7,
+      "id": "spec-review",
+      "phase": "03 Independent specification review",
+      "skills": [
+        "workflow",
+        "test-audit"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-spec-capture"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null
+    },
+    {
+      "logicalSlot": 8,
+      "id": "gate-spec-approved",
+      "phase": "Coordinator checkpoint",
+      "skills": [
+        "workflow"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "spec-review"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "gate": "spec-approved",
+      "argv": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/gate.mjs",
+        "spec-approved"
+      ]
+    },
+    {
+      "logicalSlot": 9,
+      "id": "build-capture",
+      "phase": "05 Eight isolated implementation tracks",
+      "skills": [
+        "debug",
+        "tdd"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-spec-approved"
+      ],
+      "policy": "explicit isolated parent writer",
+      "writeOwnership": [
+        "engine/workspaces.mjs",
+        "engine/workspace-policy.mjs",
+        "engine/capture-preflight.mjs",
+        "test/engine-workspaces.test.mjs",
+        "test/engine-workspace-policy.test.mjs",
+        "test/engine-capture-preflight.test.mjs",
+        "docs/capture-preflight.md"
+      ],
+      "objectiveIds": [
+        "capture.preflight",
+        "capture.causes",
+        "capture.integrity"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "capture"
+    },
+    {
+      "logicalSlot": 10,
+      "id": "build-acceptance",
+      "phase": "05 Eight isolated implementation tracks",
+      "skills": [
+        "workflow",
+        "tdd"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-spec-approved"
+      ],
+      "policy": "explicit isolated parent writer",
+      "writeOwnership": [
+        "engine/delivery-acceptance.mjs",
+        "engine/stage-checkpoints.mjs",
+        "test/engine-delivery-acceptance.test.mjs",
+        "test/engine-stage-checkpoints.test.mjs",
+        "docs/delivery-acceptance.md",
+        "docs/stage-checkpoints.md"
+      ],
+      "objectiveIds": [
+        "acceptance.assembly",
+        "acceptance.checkpoints",
+        "acceptance.recovery"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "acceptance"
+    },
+    {
+      "logicalSlot": 11,
+      "id": "build-jobs",
+      "phase": "05 Eight isolated implementation tracks",
+      "skills": [
+        "workflow",
+        "debug",
+        "tdd"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-spec-approved"
+      ],
+      "policy": "explicit isolated parent writer",
+      "writeOwnership": [
+        "engine/command-jobs/",
+        "test/engine-command-jobs.test.mjs",
+        "test/fixtures/command-job-child.mjs",
+        "docs/command-jobs.md"
+      ],
+      "objectiveIds": [
+        "jobs.durable",
+        "jobs.output",
+        "jobs.ownership"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "jobs"
+    },
+    {
+      "logicalSlot": 12,
+      "id": "build-inspection",
+      "phase": "05 Eight isolated implementation tracks",
+      "skills": [
+        "tdd",
+        "test-strategy"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-spec-approved"
+      ],
+      "policy": "explicit isolated parent writer",
+      "writeOwnership": [
+        "engine/plan-preview.mjs",
+        "engine/usage-summary.mjs",
+        "test/engine-plan-preview.test.mjs",
+        "test/engine-usage-summary.test.mjs",
+        "docs/plan-preview.md",
+        "docs/usage-summary.md"
+      ],
+      "objectiveIds": [
+        "inspection.plan",
+        "inspection.usage"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "inspection"
+    },
+    {
+      "logicalSlot": 13,
+      "id": "build-dashboard",
+      "phase": "05 Eight isolated implementation tracks",
+      "skills": [
+        "beautiful",
+        "tdd"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-spec-approved"
+      ],
+      "policy": "explicit isolated parent writer",
+      "writeOwnership": [
+        "engine/monitor-server.mjs",
+        "engine/monitor-adapters.mjs",
+        "engine/monitor-data.mjs",
+        "engine/monitor/",
+        "test/engine-monitor.test.mjs",
+        "test/engine-monitor-ui.test.mjs",
+        "docs/dashboard-deadlines.md",
+        "engine/activity.mjs",
+        "test/engine-activity.test.mjs",
+        "docs/message-history.md"
+      ],
+      "objectiveIds": [
+        "dashboard.deadlines",
+        "dashboard.messages",
+        "dashboard.presentation"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "dashboard"
+    },
+    {
+      "logicalSlot": 14,
+      "id": "build-recipes",
+      "phase": "05 Eight isolated implementation tracks",
+      "skills": [
+        "authoring",
+        "yoda",
+        "test-strategy",
+        "tdd"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-spec-approved"
+      ],
+      "policy": "explicit isolated parent writer",
+      "writeOwnership": [
+        "workflows/criterion-review.js",
+        "workflows/evidence-research.js",
+        "skills/workflow-authoring/",
+        "skills/workflow-setup/",
+        "test/engine-recipes.test.mjs",
+        "docs/criterion-recipes.md",
+        "docs/pipeline-friction.md"
+      ],
+      "objectiveIds": [
+        "recipes.criteria",
+        "recipes.research",
+        "recipes.skills",
+        "recipes.guidance"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "recipes"
+    },
+    {
+      "logicalSlot": 15,
+      "id": "build-maintenance",
+      "phase": "05 Eight isolated implementation tracks",
+      "skills": [
+        "debug",
+        "tdd",
+        "test-audit"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-spec-approved"
+      ],
+      "policy": "explicit isolated parent writer",
+      "writeOwnership": [
+        "scripts/release-protection.mjs",
+        "test/release-protection.test.mjs",
+        "docs/release-protection.md",
+        "docs/remote-dashboard.md",
+        "docs/browser-ownership.md"
+      ],
+      "objectiveIds": [
+        "maintenance.protection",
+        "maintenance.remote",
+        "maintenance.browser"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "maintenance"
+    },
+    {
+      "logicalSlot": 16,
+      "id": "build-interfaces",
+      "phase": "05 Eight isolated implementation tracks",
+      "skills": [
+        "workflow",
+        "tdd"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-spec-approved"
+      ],
+      "policy": "explicit isolated parent writer",
+      "writeOwnership": [
+        "bin/arguments.mjs",
+        "bin/command.mjs",
+        "engine/cli.mjs",
+        "test/managed-entry.test.mjs",
+        "docs/api.md",
+        "docs/roadmap-command-contracts.md"
+      ],
+      "objectiveIds": [
+        "interfaces.public",
+        "interfaces.runtime"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "interfaces"
+    },
+    {
+      "logicalSlot": 17,
+      "id": "gate-build-captures",
+      "phase": "Coordinator checkpoint",
+      "skills": [
+        "workflow"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "build-capture",
+        "build-acceptance",
+        "build-jobs",
+        "build-inspection",
+        "build-dashboard",
+        "build-recipes",
+        "build-maintenance",
+        "build-interfaces"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "gate": "build-captures",
+      "argv": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/gate.mjs",
+        "build-captures"
+      ]
+    },
+    {
+      "logicalSlot": 18,
+      "id": "review-capture",
+      "phase": "06 Capture integrity and independent reviews",
+      "skills": [
+        "test-audit"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-build-captures"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "capture.preflight",
+        "capture.causes",
+        "capture.integrity"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "capture"
+    },
+    {
+      "logicalSlot": 19,
+      "id": "review-acceptance",
+      "phase": "06 Capture integrity and independent reviews",
+      "skills": [
+        "test-audit"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-build-captures"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "acceptance.assembly",
+        "acceptance.checkpoints",
+        "acceptance.recovery"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "acceptance"
+    },
+    {
+      "logicalSlot": 20,
+      "id": "review-jobs",
+      "phase": "06 Capture integrity and independent reviews",
+      "skills": [
+        "test-audit"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-build-captures"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "jobs.durable",
+        "jobs.output",
+        "jobs.ownership"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "jobs"
+    },
+    {
+      "logicalSlot": 21,
+      "id": "review-inspection",
+      "phase": "06 Capture integrity and independent reviews",
+      "skills": [
+        "test-audit"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-build-captures"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "inspection.plan",
+        "inspection.usage"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "inspection"
+    },
+    {
+      "logicalSlot": 22,
+      "id": "review-dashboard",
+      "phase": "06 Capture integrity and independent reviews",
+      "skills": [
+        "test-audit",
+        "beautiful"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-build-captures"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "dashboard.deadlines",
+        "dashboard.messages",
+        "dashboard.presentation"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "dashboard"
+    },
+    {
+      "logicalSlot": 23,
+      "id": "review-recipes",
+      "phase": "06 Capture integrity and independent reviews",
+      "skills": [
+        "test-audit",
+        "yoda"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-build-captures"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "recipes.criteria",
+        "recipes.research",
+        "recipes.skills",
+        "recipes.guidance"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "recipes"
+    },
+    {
+      "logicalSlot": 24,
+      "id": "review-maintenance",
+      "phase": "06 Capture integrity and independent reviews",
+      "skills": [
+        "test-audit"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-build-captures"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "maintenance.protection",
+        "maintenance.remote",
+        "maintenance.browser"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "maintenance"
+    },
+    {
+      "logicalSlot": 25,
+      "id": "review-interfaces",
+      "phase": "06 Capture integrity and independent reviews",
+      "skills": [
+        "test-audit"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-build-captures"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "interfaces.public",
+        "interfaces.runtime"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "trackId": "interfaces"
+    },
+    {
+      "logicalSlot": 26,
+      "id": "gate-integration-frozen",
+      "phase": "Coordinator checkpoint",
+      "skills": [
+        "workflow"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "review-capture",
+        "review-acceptance",
+        "review-jobs",
+        "review-inspection",
+        "review-dashboard",
+        "review-recipes",
+        "review-maintenance",
+        "review-interfaces"
+      ],
+      "policy": "explicit read-only/no-network/never",
+      "writeOwnership": [],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "gate": "integration-frozen",
+      "argv": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:/Users/ehart/repos/agent-workflow-worktrees/roadmap-pipeline-control/attempt-02/gate.mjs",
+        "integration-frozen"
+      ]
+    },
+    {
+      "logicalSlot": 27,
+      "id": "verify-process",
+      "phase": "08 Fresh combined verification",
+      "skills": [
+        "test-strategy",
+        "debug"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-integration-frozen"
+      ],
+      "policy": "inherits original isolated default; only disposable test temporaries",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "capture.preflight",
+        "capture.causes",
+        "capture.integrity",
+        "jobs.durable",
+        "jobs.output",
+        "jobs.ownership",
+        "interfaces.public",
+        "interfaces.runtime"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null
+    },
+    {
+      "logicalSlot": 28,
+      "id": "verify-delivery",
+      "phase": "08 Fresh combined verification",
+      "skills": [
+        "test-audit",
+        "workflow"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-integration-frozen"
+      ],
+      "policy": "inherits original isolated default; only disposable test temporaries",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "acceptance.assembly",
+        "acceptance.checkpoints",
+        "acceptance.recovery",
+        "inspection.plan",
+        "inspection.usage",
+        "recipes.criteria",
+        "recipes.research",
+        "recipes.skills",
+        "recipes.guidance"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null
+    },
+    {
+      "logicalSlot": 29,
+      "id": "verify-interface",
+      "phase": "08 Fresh combined verification",
+      "skills": [
+        "beautiful",
+        "test-audit"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "gate-integration-frozen"
+      ],
+      "policy": "inherits original isolated default; only disposable test temporaries",
+      "writeOwnership": [],
+      "objectiveIds": [
+        "dashboard.deadlines",
+        "dashboard.messages",
+        "dashboard.presentation",
+        "interfaces.public",
+        "interfaces.runtime",
+        "maintenance.protection",
+        "maintenance.remote",
+        "maintenance.browser"
+      ],
+      "maxAttempts": 1,
+      "timeoutMs": null,
+      "browser": "Sole verifier owner only after actual parent readiness/handoff; otherwise root owns actual browser pass."
+    },
+    {
+      "logicalSlot": 30,
+      "id": "delivery-report",
+      "phase": "09 Delivery and friction report",
+      "skills": [
+        "workflow",
+        "authoring"
+      ],
+      "requireTools": [],
+      "dependsOn": [
+        "verify-process",
+        "verify-delivery",
+        "verify-interface"
+      ],
+      "policy": "isolated parent writer",
+      "writeOwnership": [
+        "reports/roadmap-pipeline/delivery.md",
+        "reports/roadmap-pipeline/friction.md"
+      ],
+      "objectiveIds": [],
+      "maxAttempts": 1,
+      "timeoutMs": null
+    }
+  ],
+  "proposedCommands": [
+    {
+      "name": "capture-preflight",
+      "runBound": false,
+      "flags": [
+        "cwd",
+        "capture-policy",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "plan",
+      "runBound": false,
+      "flags": [
+        "cwd",
+        "script",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "usage",
+      "runBound": true,
+      "flags": [
+        "generation",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "acceptance",
+      "runBound": true,
+      "flags": [
+        "session",
+        "request-file",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "checkpoint-record",
+      "runBound": true,
+      "flags": [
+        "session",
+        "request-file",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "checkpoint",
+      "runBound": true,
+      "flags": [
+        "checkpoint-id",
+        "after",
+        "limit",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "check-record",
+      "runBound": true,
+      "flags": [
+        "session",
+        "checkpoint-id",
+        "check-id",
+        "job-id",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "job-start",
+      "runBound": true,
+      "flags": [
+        "session",
+        "request-file",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "job-status",
+      "runBound": true,
+      "flags": [
+        "session",
+        "job-id",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "job-output",
+      "runBound": true,
+      "flags": [
+        "session",
+        "job-id",
+        "stream",
+        "after",
+        "limit-bytes",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    },
+    {
+      "name": "job-cancel",
+      "runBound": true,
+      "flags": [
+        "session",
+        "job-id",
+        "request-id",
+        "revision",
+        "data-dir",
+        "help"
+      ],
+      "contract": "Design Track interfaces exact table and strict input schemas; proposed API, not currently shipped."
+    }
+  ],
+  "schemas": {
+    "authority": "Exact revision R1 normative fields, mapping and fixed vectors in design plus sharedContracts.",
+    "names": [
+      "RunRefV1",
+      "ProducerRefV1",
+      "FrozenSnapshotV1",
+      "ArtifactRefV1",
+      "CheckRequirementV1",
+      "CheckReceiptV1",
+      "CapturePreflightV1",
+      "CommandJobRequestV1",
+      "CommandJobReceiptV1",
+      "StageCheckpointV1",
+      "DeliveryAcceptanceRequestV1",
+      "DeliveryAcceptanceV1",
+      "PlanPreviewV1",
+      "UsageSummaryV1"
+    ]
+  },
+  "gates": {
+    "existing": [
+      "scout-evidence",
+      "spec-capture",
+      "spec-approved",
+      "build-captures",
+      "integration-frozen"
+    ],
+    "readerLimitBytes": 131072,
+    "pollMs": 500,
+    "rootFinal": [
+      "All affected track tests",
+      "npm.cmd test",
+      "npm.cmd run check",
+      "npm.cmd run smoke",
+      "Clean package node scripts/check-install.mjs",
+      "Root production npm audit --omit=dev",
+      "Actual signed-host/native jobs and deadline fixture",
+      "Single-owner actual browser paint/served hashes",
+      "Exact integrated snapshot/dependency identity before/after",
+      "Reviewed final report capture/integration",
+      "Authorized merge/release/marketplace/install/protection-restoration evidence"
+    ],
+    "freshAcceptanceCurrently": "Not executed; these are implementation/release gates, not claims from this authoring task."
+  },
+  "recovery": {
+    "packageLoss": "Preserve original skill/source/effect/cleanup/capture evidence; stop dependent work; root reconciles and verifies original current sources, admits fresh run when required, reuses reviewed independent artifacts, integrates new snapshot and runs fresh checks.",
+    "catalogDrift": "PARENT_CAPABILITIES_CHANGED blocks saved replay before generation mutation; no binding edits/substitution; root reconciles, admits new current catalog/run with exact prior producer links, retains policy budget, integrates and freshly verifies.",
+    "unknowns": "Remain historically unknown. Positive drain alone does not authorize repeat; genuinely reconciled admitted replacements may satisfy retained objectives.",
+    "observer": "Recorded /root/runtime_review; preserve preattachment gap and actual processed cursor; exact watch.argv reconnect. No inferred retry/control authority."
+  },
+  "deferred": [
+    "Finer foundation signature checker and signed C# output/wait diagnostics; no signing scope.",
+    "Supported native host composer/tasks/chat push/conversation/cloud/shared token pool/provider-cache/composition contracts.",
+    "Native ID/root-filtered role discovery; preserve real10-page catalog friction.",
+    "Darwin/Linux process identity/lifetime parity and agent-tests manager integration.",
+    "Meshes named environment/cache override schema and genuine managed tool tests.",
+    "Native hard spending cap/shared budget/quota-reset waits; observed usage only.",
+    "Current bootstrap readiness reconciliation and retired MCP/cache-updater incidents.",
+    "Unowned test loader/risk-map audit changes and independent fresh paired skill efficacy.",
+    "Worker live GH settings, remote SSH/LAN/second-client/firewall operations; root authorized release procedure remains available."
+  ],
+  "roadmapClosure": {
+    "historicalAll19": false,
+    "currentlyVisibleOpenCards": 20,
+    "allOpenCardsClosed": false,
+    "planetForgeObjectivesClosed": false
+  },
+  "authoringVerification": {
+    "node": "C:/Program Files/nodejs/node.exe",
+    "nodeVersion": "v24.18.0",
+    "npm": "C:/Program Files/nodejs/npm.cmd",
+    "dependencyPreparation": {
+      "command": [
+        "C:/Program Files/nodejs/npm.cmd",
+        "ci",
+        "--ignore-scripts",
+        "--offline"
+      ],
+      "cwd": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\workflow-6295012e-ade4-4163-a44b-5a9d5b73beff",
+      "process": "executed",
+      "exitCode": 0,
+      "addedPackages": 35
+    },
+    "sourceParser": "Passed actual engine/script.mjs parseScript and preflightEvaluatorInput on the exact14909-byte captured script with the actual snapshotted args; embedded plan code is identical after final newline normalization.",
+    "implementationTests": "Not run; no runtime feature implementation belongs to this assignment.",
+    "nativeAndBrowserQualification": "Not performed; required root gates remain honest.",
+    "finalConsistency": {
+      "status": "passed",
+      "scope": [
+        "exact actual script and argv policy",
+        "8 fixed tracks/23 objective IDs/30 actual calls",
+        "five gates/three verifiers",
+        "disjoint owned paths",
+        "original native and source input hashes",
+        "20 canonical card dispositions",
+        "standing root release authority"
+      ],
+      "featureImplementationAcceptance": false,
+      "observed": {
+        "checks": 13,
+        "tracks": 8,
+        "objectiveIds": 23,
+        "actualTasks": 30,
+        "externalGates": 5,
+        "freshCombinedVerifiers": 3,
+        "ownedTrackPaths": 51,
+        "roadmapDispositions": 20,
+        "scriptBytes": 14909,
+        "actualSourceParser": true,
+        "actualEvaluatorPreflight": true,
+        "hashesVerified": true
+      },
+      "limit": "This verifies the authored package and actual saved contracts; independent semantic review, feature implementation/native/browser/release acceptance remain root gates."
+    },
+    "executedReadOnlyFailures": [
+      {
+        "command": "C:/Program Files/nodejs/node.exe --input-type=module -e document-transformation-check",
+        "exitCode": 1,
+        "effects": "No file write call was reached; in-memory replacement anchor check failed.",
+        "resolution": "Corrected actual-run transformation later wrote only the owned plan with exit0."
+      },
+      {
+        "command": "C:/Program Files/nodejs/node.exe --input-type=module -e package-consistency-check",
+        "exitCode": 1,
+        "effects": "Read-only assertion found the jobs barrel path was abbreviated in design.",
+        "resolution": "Added exact engine/command-jobs/index.mjs and companion paths to the design."
+      }
+    ],
+    "r1": {
+      "status": "rootRevisionAwaitingIndependentReview",
+      "initialReviewPreserved": true,
+      "featureAcceptance": false
+    }
+  },
+  "friction": [
+    {
+      "reproduction": "Executor skills.list needed ten unfiltered pages to reach selected standalone IDs.",
+      "owner": "Native skills catalog host",
+      "proposal": "Supported ID/root filtering with honest cursor and duplicate-name semantics; do not imitate activation."
+    },
+    {
+      "reproduction": "Scout final findings contain abrupt fragments and compact forwarded previews omit context; complete retained JSON is authoritative source context only.",
+      "owner": "Workflow authoring/output guidance",
+      "proposal": "Require full owned artifacts and complete bounded metadata; never recover omitted text by inference."
+    },
+    {
+      "reproduction": "A Node document transformation exited1 on a missing second replacement anchor before any writeFile call; observed source correction had no filesystem effects.",
+      "owner": "This authoring worker",
+      "proposal": "Validate all section anchors in memory and write only after successful checks; the corrected transformation executed0."
+    },
+    {
+      "reproduction": "Public append disallows workspace/permissions; original input writer default is necessary for correction writers.",
+      "owner": "Workflow authoring/append documentation",
+      "proposal": "Document originalCapturedInputs admission and writable-default/read-only-override split; no unsupported append flags."
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/superpowers/specs/2026-10-15-roadmap-pipeline-design.md",
+      "sha256": "f4a3abfb0ded0a032ce1feee37373b654f8eb9c3d0c33a7ea26b8be647eb744c",
+      "bytes": 83785
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-15-roadmap-pipeline.md",
+      "sha256": "90419e80840eaba4d9d080cc6bf980f472634159e50498d6871b0092df2264f2",
+      "bytes": 54113
+    }
+  ],
+  "roadmapDisposition": [
+    {
+      "card": "capture-preflight-and-failure-causes",
+      "disposition": "Capture preflight/local Git causes; no recapture or reconstructed historical cause"
+    },
+    {
+      "card": "job-helper-output-diagnostics",
+      "disposition": "Reuse strict signed host facts; finer signature-checker/C# output/wait diagnostics deferred outside ownership and without signing authorization"
+    },
+    {
+      "card": "live-bootstrap-readiness",
+      "disposition": "Retain existing setup/doctor checks and corrected guidance; broader current readiness reconciliation and retired MCP incident remain open"
+    },
+    {
+      "card": "authoring-and-setup-guidance",
+      "disposition": "Recipes/skills complete guidance and recovery; fresh paired efficacy/automatic-trigger claims deferred"
+    },
+    {
+      "card": "bounded-completed-message-retention",
+      "disposition": "Dashboard bounded terminal storage, honest legacy gaps"
+    },
+    {
+      "card": "browser-verification-ownership",
+      "disposition": "Maintenance single-owner protocol and dashboard actual paint gate; host lock implementation deferred"
+    },
+    {
+      "card": "criterion-qa-and-research-recipes",
+      "disposition": "Recipes exact bounded contracts/coverage; no fabricated research/tool efficacy"
+    },
+    {
+      "card": "delivery-acceptance-ledger",
+      "disposition": "Acceptance assembly and internally recorded fresh checks after provider integration"
+    },
+    {
+      "card": "durable-command-jobs",
+      "disposition": "Jobs model-free durable Windows slice conditional on native qualification; no unsupported host fallback"
+    },
+    {
+      "card": "inert-workflow-plan-preview",
+      "disposition": "Inspection inert conservative AST preview"
+    },
+    {
+      "card": "meshes-environment-overrides",
+      "disposition": "Deferred to Meshes owner: named environment/runtime/cache override schema and genuine managed-tool tests, no Workflow environment smuggling"
+    },
+    {
+      "card": "native-host-workflow-surfaces",
+      "disposition": "Deferred supported host composer/tasks/push/context/cloud restoration/shared token pool/provider cache contracts; no custom MCP or second runtime"
+    },
+    {
+      "card": "native-process-lifetime-handles",
+      "disposition": "Reuse Windows owned job, test job owner boundaries; Darwin/Linux parity, OS handle hardening and agent-tests process-manager integration deferred"
+    },
+    {
+      "card": "native-selected-role-discovery",
+      "disposition": "Recipes forward genuine selections; native catalog filter/ID discovery enhancement remains host-owned"
+    },
+    {
+      "card": "observed-usage-and-budget-admission",
+      "disposition": "Inspection observed attempt/replay usage; advisory/enforced shared budgets, native quota/reset waits and composition deferred"
+    },
+    {
+      "card": "release-protection-restoration",
+      "disposition": "Maintenance offline snapshot/PUT plan/exact comparison; live GH execution deferred"
+    },
+    {
+      "card": "safe-stage-checkpoints",
+      "disposition": "Acceptance immutable records/question/recovery lineage; no native host-chat question/push proof"
+    },
+    {
+      "card": "ssh-lan-dashboard-access",
+      "disposition": "Maintenance supported tunnel guidance; second client/physical phone/firewall/LAN-host feature acceptance deferred"
+    },
+    {
+      "card": "test-subject-ownership-and-risk-inputs",
+      "disposition": "Exact subjects added to owned changed tests; unowned six-loader suite audit and risk-map expansion deferred to invariant owners"
+    },
+    {
+      "card": "windows-cache-working-directory",
+      "disposition": "Guidance preserves updater uncertainty; host transactional cache fixes/retired MCP cwd work deferred, no cache mutation"
+    }
+  ],
+  "revision": {
+    "id": "R2",
+    "owner": "originating root coordinator",
+    "status": "awaitingFocusedIndependentReview",
+    "initialReview": {
+      "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\spec-review-initial-2026-10-15T15-31-55.994Z-1d39e2b1-a1d8-4871-8880-360cdbf30e82.json",
+      "sha256": "1a812f4cefca6b534f73eda03afa0a533ac020ec8d5f6b361d39ff077e4148fc",
+      "bytes": 7618
+    },
+    "sourceCapture": {
+      "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\capture-4-specification-2026-10-15T15-05-23.586Z-3d5c2ec1-c640-4b87-ac90-4183b52b9814.json",
+      "sha256": "67525ba9a83ab3ab8fe6614a616245896b38b0c62228785f26d03dbc72150ab3",
+      "bytes": 4647
+    },
+    "rootIntegrationPaths": [
+      "docs/superpowers/specs/2026-10-15-roadmap-pipeline-design.md",
+      "docs/superpowers/plans/2026-10-15-roadmap-pipeline.md",
+      "reports/roadmap-pipeline/specification.json"
+    ],
+    "unchangedSavedArgsAndWorkerScopes": true,
+    "materialIssues": [
+      "snapshot schema/hash",
+      "job receipt/argv schema",
+      "checkpoint hash/replay preimage",
+      "clean-install inventory ownership",
+      "candidate recorder bootstrap",
+      "unknown lost deadline response",
+      "validation-copy temporary protocol"
+    ],
+    "priorRevision": {
+      "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\spec-r1-2026-10-15T15-31-56.002Z-c50d8a3a-5973-4b0b-b883-1cd5a0417820.json",
+      "sha256": "46476346c00de7c63519878879eac68686dcee12732a37815571da991233cbc8",
+      "bytes": 2608
+    },
+    "priorArchivedArtifacts": [
+      {
+        "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\spec-revisions\\r1\\docs\\superpowers\\specs\\2026-10-15-roadmap-pipeline-design.md",
+        "repositoryPath": "docs/superpowers/specs/2026-10-15-roadmap-pipeline-design.md",
+        "sha256": "6f72982658ed98d0eaa4fe41612653b6d6a00c0e15ee2252ed0b6fe19020a6e0",
+        "bytes": 82460,
+        "originalPath": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-delivery-v2-integration\\docs\\superpowers\\specs\\2026-10-15-roadmap-pipeline-design.md"
+      },
+      {
+        "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\spec-revisions\\r1\\docs\\superpowers\\plans\\2026-10-15-roadmap-pipeline.md",
+        "repositoryPath": "docs/superpowers/plans/2026-10-15-roadmap-pipeline.md",
+        "sha256": "1ccbf7825cb32089cfb1a860e4100517c84922d5ce5038e19436be208bea0475",
+        "bytes": 53174,
+        "originalPath": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-delivery-v2-integration\\docs\\superpowers\\plans\\2026-10-15-roadmap-pipeline.md"
+      },
+      {
+        "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\spec-revisions\\r1\\reports\\roadmap-pipeline\\specification.json",
+        "repositoryPath": "reports/roadmap-pipeline/specification.json",
+        "sha256": "1606c4403667f9ff466d4138015a6646f21c0dd0a7311c0f5e2fa73bb975e70d",
+        "bytes": 93382,
+        "originalPath": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-delivery-v2-integration\\reports\\roadmap-pipeline\\specification.json"
+      }
+    ],
+    "r1Review": {
+      "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\spec-r1-blocked-review-2026-10-15T15-44-24.811Z-3430a335-69d0-46ef-84cb-d177eccff4a6.json",
+      "sha256": "045d36f454be1b63b48ee4dcfeb64a572ef5ad484dff9be69099e1463deeed59",
+      "bytes": 4522
+    },
+    "change": "Complete current V fixture-prefix inventory only; all accepted R1 API/hash/bootstrap contracts unchanged."
+  },
+  "sharedContracts": {
+    "version": 1,
+    "authority": "Exact revision R1 normative design sections",
+    "snapshotFields": [
+      "schemaVersion",
+      "root",
+      "canonicalRoot",
+      "rootIdentity",
+      "baseCommit",
+      "files",
+      "exclusions",
+      "dependencies",
+      "contentSha256",
+      "manifestSha256"
+    ],
+    "jobReceiptFields": [
+      "schemaVersion",
+      "jobId",
+      "run",
+      "requestId",
+      "revision",
+      "state",
+      "invocation",
+      "execution",
+      "timing",
+      "output",
+      "verification",
+      "cancellation",
+      "cleanup",
+      "error"
+    ],
+    "argvRule": "request.command=[executable,...argv]; receipt.invocation.command[0] is executable and .slice(1) is argv",
+    "checkpointHash": "H(C(complete persisted record with only recordHash omitted)); includes previousRecordHash",
+    "replayHash": "H(C({originRun,requestId,expectedPreviousId,record})) before generated IDs/timestamps and CAS",
+    "vectors": {
+      "canonicalEmptyObject": {
+        "preimage": "{}",
+        "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "emptyInventory": {
+        "preimage": "[]",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "snapshot": {
+        "preimage": "{\"baseCommit\":\"1111111111111111111111111111111111111111\",\"canonicalRoot\":\"C:/fixture/integration\",\"contentSha256\":\"9b399cb030c95d1243a3995f58528927a9dfa29c3aee063ce317af1e2468c46c\",\"dependencies\":[],\"exclusions\":{\"entries\":[],\"sha256\":\"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"},\"files\":[],\"root\":\"C:/fixture/integration\",\"rootIdentity\":{\"dev\":\"1\",\"ino\":\"2\"},\"schemaVersion\":1}",
+        "sha256": "3994966a3819deb76d178aa3da97db9bfba8042d8701eb3385d76f2aadc8b682"
+      },
+      "checkpoint": {
+        "preimage": "{\"answers\":[],\"artifacts\":[],\"checkRequirements\":[],\"createdAt\":\"2026-10-15T00:00:00.000Z\",\"id\":\"00000000-0000-4000-8000-000000000001\",\"integration\":null,\"nextTasks\":[],\"objectives\":[],\"originRun\":{\"dataInstanceId\":\"fixture\",\"runId\":\"00000000-0000-4000-8000-000000000003\",\"runtimeId\":\"fixture-runtime\"},\"outstandingQuestions\":[],\"parentCatalogHash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"parentPolicyHash\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"planHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"previousId\":null,\"previousRecordHash\":null,\"recovery\":[],\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"schemaVersion\":1,\"scopeChanges\":[]}",
+        "sha256": "138d1c8f093dc1fb37004b8692b75658d15c0bae7bc4f4b2dbd02c49b4e40c72"
+      }
+    },
+    "sharedFixtures": {
+      "command": [
+        "C:/fixture/node.exe",
+        "-e",
+        "process.stdout.write(process.argv[1])",
+        "space value",
+        ""
+      ],
+      "executable": "C:/fixture/node.exe",
+      "argv": [
+        "-e",
+        "process.stdout.write(process.argv[1])",
+        "space value",
+        ""
+      ],
+      "negativeMutations": [
+        "include executable again in argv",
+        "omit an argv empty string",
+        "change exclusion metadata without snapshot hash",
+        "omit dependency identity",
+        "include recordHash in checkpoint preimage",
+        "change previousRecordHash",
+        "replay same request ID with changed caller record",
+        "report external passed JSON as internal job receipt"
+      ]
+    }
+  },
+  "coordinatorIntegration": {
+    "ownedPaths": [
+      "scripts/check-install.mjs",
+      "existing release version metadata",
+      "docs/superpowers/specs/2026-10-15-roadmap-pipeline-design.md",
+      "docs/superpowers/plans/2026-10-15-roadmap-pipeline.md",
+      "reports/roadmap-pipeline/specification.json"
+    ],
+    "cleanInstall": {
+      "bundledDefinitions": 9,
+      "afterSavedFixture": 10,
+      "exactNameInventory": true,
+      "meaningfulRedRequired": true
+    },
+    "validationCopy": {
+      "source": "F",
+      "execution": "V",
+      "requireContentAndDependencyByteEquality": true,
+      "requireDistinctRootManifestBindings": true,
+      "temporaryPrefixes": [
+        ".backend-test-",
+        ".capability-test-",
+        ".workspace-test-",
+        ".args-entry-",
+        ".deadline-entry-",
+        ".doctor-test-",
+        ".output-frame-",
+        ".controller-test-",
+        ".notifications-test-",
+        ".append-test-",
+        ".background-capabilities-",
+        ".deadline-control-test-",
+        "test/.command-facts-",
+        "test/.tool-observation-",
+        "test/.lifecycle-fixture-",
+        ".progress-load-"
+      ],
+      "beforeAndAfterPrefixesAbsent": true
+    },
+    "bootstrap": {
+      "deliveryRuntimeUnchanged": "0.4.1",
+      "candidateSetup": "public bin/setup.mjs with same data dir",
+      "recorderHost": "public candidate run with empty zero-agent script, same actual session/data instance",
+      "newCommandsTarget": "candidate fixture ID",
+      "producerRefs": "actual original delivery IDs retained; no cross-data lookup or reparenting",
+      "externalChecks": "freshly execute through recorder; never import passed JSON"
+    },
+    "lostDeadlineResponse": "known control ID can be read; no ID means unknown without automatic resubmission"
+  },
+  "validationFixtureInventory": {
+    "sourceEvidence": {
+      "path": "C:\\Users\\ehart\\repos\\agent-workflow-worktrees\\roadmap-pipeline-control\\attempt-02\\validation-fixture-inventory-2026-10-15T15-44-24.855Z-a30e99c3-b998-4600-8606-74a5fc78e6e1.json",
+      "sha256": "41217b27e5bab12c661f908b396befff4836ded6fb1837521e7643531021bfa6",
+      "bytes": 15036
+    },
+    "entries": [
+      {
+        "prefix": ".backend-test-",
+        "path": "test/engine-backend.test.mjs",
+        "line": 20,
+        "optional": false,
+        "sourceSha256": "314ddee8b1812e21291320fb592f6cd611c3e000de886b25faedd97e141ddefb"
+      },
+      {
+        "prefix": ".capability-test-",
+        "path": "test/engine-worker-capabilities.test.mjs",
+        "line": 15,
+        "optional": false,
+        "sourceSha256": "514e136be84fe8a607698e1642910b28ca1ff8585e1dd16b5b2257cca801c53e"
+      },
+      {
+        "prefix": ".workspace-test-",
+        "path": "test/engine-workspaces.test.mjs",
+        "line": 30,
+        "optional": false,
+        "sourceSha256": "940db12d35d0bb30823a5c0948412027c85d5e4b89eaca31719fd01455e96360"
+      },
+      {
+        "prefix": ".args-entry-",
+        "path": "test/managed-entry.test.mjs",
+        "line": 23,
+        "optional": false,
+        "sourceSha256": "6e2bb9d786b1ac24587708c86d28e130ad04746ff8017c16044dee784a50f9c9"
+      },
+      {
+        "prefix": ".deadline-entry-",
+        "path": "test/managed-entry.test.mjs",
+        "line": 162,
+        "optional": false,
+        "sourceSha256": "6e2bb9d786b1ac24587708c86d28e130ad04746ff8017c16044dee784a50f9c9"
+      },
+      {
+        "prefix": ".doctor-test-",
+        "path": "test/managed-entry.test.mjs",
+        "line": 195,
+        "optional": false,
+        "sourceSha256": "6e2bb9d786b1ac24587708c86d28e130ad04746ff8017c16044dee784a50f9c9"
+      },
+      {
+        "prefix": ".output-frame-",
+        "path": "test/codex-foundation.test.mjs",
+        "line": 80,
+        "optional": false,
+        "sourceSha256": "0e57003d1e4cc5452b545b7cbd3442848b2535ee2afe1be88fe573d053274fcf"
+      },
+      {
+        "prefix": ".controller-test-",
+        "path": "test/engine-controller.test.mjs",
+        "line": 24,
+        "optional": false,
+        "sourceSha256": "56060536a74374c21bb30753e589da29410493a998e22907c16a4e40bea0b229"
+      },
+      {
+        "prefix": ".notifications-test-",
+        "path": "test/engine-notifications.test.mjs",
+        "line": 20,
+        "optional": false,
+        "sourceSha256": "cc52692562e533ce047d501de11bae58f09a3c8f96a8888a0f5b2952b3212261"
+      },
+      {
+        "prefix": ".append-test-",
+        "path": "test/engine-append.test.mjs",
+        "line": 21,
+        "optional": false,
+        "sourceSha256": "9fbbd68fe0dcc7cf270b42a07de297708f24b22810e982d7dfd97bf8af6b9ee5"
+      },
+      {
+        "prefix": ".background-capabilities-",
+        "path": "test/engine-background.test.mjs",
+        "line": 76,
+        "optional": false,
+        "sourceSha256": "e36355762fbefcdedb4cb6faab8afcaf9c227d988561f972e1239df6ee486911"
+      },
+      {
+        "prefix": ".deadline-control-test-",
+        "path": "test/engine-worker-deadline.test.mjs",
+        "line": 22,
+        "optional": false,
+        "sourceSha256": "c3aa6315c2c8710db102620df726197a14840e07acd4e4e839393ebe41056aea"
+      },
+      {
+        "prefix": "test/.command-facts-",
+        "path": "test/engine-activity.test.mjs",
+        "line": 21,
+        "optional": false,
+        "sourceSha256": "af9023abcdd848eec9f63339b286f13f1034ffcc68a391d85981dbb118b45700"
+      },
+      {
+        "prefix": "test/.tool-observation-",
+        "path": "test/engine-activity.test.mjs",
+        "line": 192,
+        "optional": false,
+        "sourceSha256": "af9023abcdd848eec9f63339b286f13f1034ffcc68a391d85981dbb118b45700"
+      },
+      {
+        "prefix": "test/.lifecycle-fixture-",
+        "path": "test/engine-run-lifecycle.test.mjs",
+        "line": 21,
+        "optional": false,
+        "sourceSha256": "885ca28014dd04583485327f3489484c5cc038f937dba7055d92bc35f603f79c"
+      },
+      {
+        "prefix": ".progress-load-",
+        "path": "scripts/check-progress-load.mjs",
+        "line": 130,
+        "optional": true,
+        "sourceSha256": "b121e82c4ac2253ccf5967d1b6d1dd85c700f24527eae327d50c0c51c8a6ce05"
+      }
+    ],
+    "beforeFinalChecks": "Repeat bounded inventory review against integrated tests and freeze exact check scope; do not silently omit new fixture owners."
+  }
+}

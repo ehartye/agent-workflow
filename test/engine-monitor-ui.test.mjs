@@ -89,6 +89,133 @@ test('added workers disclose their origin and live deadline without inventing ru
  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
 });
 
+const deadlineWorker=extra=>worker(0,'running',{attempts:2,activeTurn:{threadId:'thread',turnId:'turn'},deadline:{configuredTimeoutMs:null,remainingMs:null,expiresAt:null,status:'active',revision:7},...extra});
+const deadlineRun=extra=>({workers:[deadlineWorker()],deadlineControls:{available:true,receipts:true},...extra});
+const ok=value=>({ok:true,status:200,json:async()=>value});
+
+test('same-revision deadline polling identifies recorded remaining time as a snapshot',async()=>{
+  const deadline={status:'active',revision:7,remainingMs:60000,expiresAt:Date.parse('2026-10-15T12:01:00Z')};
+  const view=await monitor({run:deadlineRun({workers:[deadlineWorker({deadline})]})});
+  vm.runInContext("Date.now=()=>Date.parse('2026-10-15T12:00:00Z')",view.context);
+  await view.click(view.get('worker-deadline'));
+  vm.runInContext("Date.now=()=>Date.parse('2026-10-15T12:00:30Z')",view.context);
+  await view.tick(2000);
+  const budget=view.get('deadline-budget').textContent;
+  assert.match(budget,/Recorded remaining: 60000 ms/);
+  assert.match(budget,/snapshot.*not a live countdown/i);
+  assert.doesNotMatch(budget,/Current budget: 60000/);
+  assert.equal(view.get('deadline-dialog').hidden,false);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('long worker labels stay outside the deadline dialog header on a phone',async()=>{
+  const label='LongUnbrokenWorkerLabel'.repeat(21);
+  const view=await monitor({run:deadlineRun({workers:[deadlineWorker({options:{label}})]}),width:390,phone:true});
+  await view.click(view.get('worker-deadline'));
+  assert.equal(view.get('deadline-heading').textContent,'Worker deadline');
+  assert.ok(view.get('deadline-context').textContent.includes(label),'The full label remains available as context');
+  assert.ok(view.get('deadline-close').textContent.length>0);
+  assert.ok(view.get('deadline-heading').closest('.panel-header').textContent.length<80,'The full label cannot expand the header');
+  await view.escape();
+  assert.equal(view.document.activeElement,view.get('worker-deadline'));
+});
+
+test('deadline dialog retains draft and focus through polls and rejects stale revision before submission',async()=>{
+  const view=await monitor({run:deadlineRun(),savedTheme:'light',phone:true,width:390});
+  assert.ok(view.get('worker-deadline'));assert.equal(view.get('worker-deadline').closest('header'),null,'No new header control');
+  await view.click(view.get('worker-deadline'));assert.equal(view.get('deadline-dialog').hidden,false);assert.equal(view.get('deadline-dialog').getAttribute('aria-modal'),'true');
+  view.get('deadline-value').value='60000';view.get('deadline-value').focus();
+  await view.tick(2000);assert.equal(view.document.activeElement,view.get('deadline-value'));assert.equal(view.get('deadline-value').value,'60000');assert.equal(view.get('deadline-dialog').hidden,false);
+  view.update({workers:[deadlineWorker({deadline:{remainingMs:59000,expiresAt:100000,status:'active',revision:8}})]});await view.tick(2000);
+  assert.equal(view.get('deadline-submit').disabled,true);assert.match(view.get('deadline-status').textContent,/changed.*open.*again/i);
+  assert.equal(view.document.activeElement,view.get('deadline-value'));assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  await view.escape();assert.equal(view.get('deadline-dialog').hidden,true);assert.equal(view.document.activeElement,view.get('worker-deadline'));assert.equal(view.document.documentElement.dataset.theme,'light');
+});
+
+test('deadline submits once with exact nullable target and inspects a received receipt after read loss',async()=>{
+  let submitted,inspectionLost=true,finish;const pending=new Promise(resolve=>{finish=resolve;});
+  const targetWorker=deadlineWorker({activeTurn:undefined});
+  const receipt={id:'deadline-known',generation:4,position:0,attempt:2,turnId:null,action:'worker-deadline',status:'pending',deadline:{operation:'set',expectedRevision:7,valueMs:60000}};
+  const view=await monitor({run:deadlineRun({workers:[targetWorker]}),response:async(path,input)=>{
+    if(input.method==='POST'&&path==='/api/control'){submitted=JSON.parse(input.body);await pending;return ok(receipt);}
+    if(path.includes('/control/receipts/')){if(inspectionLost)throw Error('receipt read lost');return ok({...receipt,status:'applied'});}
+  }});
+  await view.click(view.get('worker-deadline'));view.get('deadline-value').value='60000';
+  view.get('deadline-form').dispatchEvent(new view.window.Event('submit',{bubbles:true,cancelable:true}));await view.flush();
+  assert.equal(view.get('deadline-submit').disabled,true);assert.equal(view.get('deadline-operation').disabled,true);
+  view.get('deadline-form').dispatchEvent(new view.window.Event('submit',{bubbles:true,cancelable:true}));await view.flush();assert.equal(view.calls.filter(call=>call.method==='POST').length,1);
+  assert.deepEqual(submitted,{generation:4,action:'worker-deadline',position:0,attempt:2,turnId:null,deadline:{operation:'set',expectedRevision:7,valueMs:60000}});
+  finish();await view.flush();assert.match(view.get('deadline-status').textContent,/deadline-known.*pending/s);
+  await view.click(view.get('deadline-inspect'));assert.match(view.get('deadline-status').textContent,/deadline-known.*lost.*not retried/s);
+  await view.tick(2000);assert.equal(view.calls.filter(call=>call.method==='POST').length,1);
+  view.update({workers:[{...targetWorker,status:'completed',deadline:{...targetWorker.deadline,status:'closed'}}]});await view.tick(2000);await view.escape();
+  assert.equal(view.get('worker-deadline').disabled,false,'Retained receipt inspection remains available after worker completion');await view.click(view.get('worker-deadline'));assert.equal(view.get('deadline-dialog').hidden,false);
+  inspectionLost=false;await view.click(view.get('deadline-inspect'));assert.match(view.get('deadline-status').textContent,/deadline-known.*applied/s);assert.equal(view.calls.filter(call=>call.method==='POST').length,1);
+});
+
+test('loss before response bytes keeps deadline outcome unknown across close and polling until explicit reconciliation',async()=>{
+  const view=await monitor({run:deadlineRun(),response:async(path,input)=>{if(path==='/api/control'&&input.method==='POST')throw Error('connection lost before response');}});
+  await view.click(view.get('worker-deadline'));await view.change('deadline-operation','clear');
+  view.get('deadline-form').dispatchEvent(new view.window.Event('submit',{bubbles:true,cancelable:true}));await view.flush();
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,1);assert.deepEqual(JSON.parse(view.calls.find(call=>call.method==='POST').body).deadline,{operation:'clear',expectedRevision:7});
+  assert.match(view.get('deadline-status').textContent,/unknown.*No receipt ID.*not retried/s);assert.equal(view.get('deadline-submit').disabled,true);
+  await view.escape();await view.click(view.get('worker-deadline'));await view.tick(2000);assert.equal(view.get('deadline-submit').disabled,true);assert.match(view.get('deadline-status').textContent,/unknown/);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,1);assert.equal(view.get('deadline-reconcile').hidden,false);
+  await view.click(view.get('deadline-reconcile'));assert.equal(view.get('deadline-dialog').hidden,true);await view.click(view.get('worker-deadline'));assert.equal(view.get('deadline-submit').disabled,false);
+});
+
+test('unbounded budgets reject Extend and unsupported runtimes remain read-only',async()=>{
+  const view=await monitor({run:deadlineRun()});await view.click(view.get('worker-deadline'));await view.change('deadline-operation','extend');view.get('deadline-value').value='20';
+  view.get('deadline-form').dispatchEvent(new view.window.Event('submit',{bubbles:true,cancelable:true}));await view.flush();
+  assert.match(view.get('deadline-status').textContent,/finite/i);assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  await view.change('deadline-operation','set');view.get('deadline-value').value='1.5';view.get('deadline-form').dispatchEvent(new view.window.Event('submit',{bubbles:true,cancelable:true}));await view.flush();assert.match(view.get('deadline-status').textContent,/positive.*integer/i);
+  const old=await monitor({run:deadlineRun({deadlineControls:{available:false,receipts:false}})});assert.equal(old.get('worker-deadline').disabled,true);assert.match(old.get('worker-deadline').title,/unsupported|unavailable/i);
+});
+
+test('message view reads independent terminal storage and preserves truthful legacy raw grouping',async()=>{
+  const delta={seq:300,method:'item/agentMessage/delta',type:'agentMessage',threadId:'thread',turnId:'turn',itemId:'noise',attempt:2,status:'inProgress',output:'raw fragment'};
+  const terminal={id:'a'.repeat(64),terminalSeq:1,generation:4,position:0,attempt:2,threadId:'thread',turnId:'turn',itemId:'answer',text:'A retained terminal answer',terminalObserved:true,complete:true,truncations:[],bytes:400};
+  const view=await monitor({run:deadlineRun(),response:async path=>{
+    if(path.startsWith('/api/messages'))return ok({schemaVersion:1,available:true,coverage:'terminalNotificationsOnly',records:[terminal],nextCursor:1,hasMore:false,sourceGeneration:4,sourcePosition:0,counts:{terminalNotificationsObserved:1,insertions:1,replacements:0,duplicateNoops:0,retained:1,evictedCountLimit:0,evictedByteLimit:0,retainedBytes:400,priorActivityUncovered:299}});
+    if(path.startsWith('/api/activity'))return ok({records:[delta],nextCursor:300,observed:300,retained:256,dropped:44,hasMore:false});
+  }});
+  await view.click(view.document.querySelector('.worker-menu-toggle'));await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="messages"]'));await view.flush();
+  assert.ok(view.calls.some(call=>call.path.startsWith('/api/messages')));assert.match(view.get('worker-quick-body').textContent,/A retained terminal answer/);assert.match(view.get('worker-quick-body').textContent,/299.*uncovered/i);assert.match(view.get('worker-quick-body').textContent,/raw fragment/);
+  const body=view.get('worker-quick-body'),text=[...body.querySelectorAll('pre')].find(pre=>pre.textContent===terminal.text);
+  text.focus();text.scrollTop=71;text.scrollLeft=34;body.scrollTop=58;
+  view.update({workers:[deadlineWorker({activity:{seq:301,summary:'Target worker updated'}})]});await view.tick(2000);
+  const retained=[...body.querySelectorAll('pre')].find(pre=>pre.textContent===terminal.text);
+  assert.equal(view.document.activeElement===retained,true,'Target activity polling preserves terminal-message focus');
+  assert.equal(retained.isConnected,true);assert.equal(retained.scrollTop,71);assert.equal(retained.scrollLeft,34);assert.equal(body.scrollTop,58);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  const old=await monitor({response:async path=>path.startsWith('/api/messages')?ok({available:false,coverage:'legacyRawOnly',priorActivityUncovered:300,records:[],nextCursor:0,hasMore:false}):path.startsWith('/api/activity')?ok({records:[delta],nextCursor:300,observed:300,retained:256,dropped:44,hasMore:false}):undefined});
+  await old.click(old.document.querySelector('.worker-menu-toggle'));await old.click(old.get('worker-card-menu').querySelector('[data-quick-kind="messages"]'));await old.flush();
+  assert.match(old.get('worker-quick-body').textContent,/legacy.*raw/i);assert.match(old.get('worker-quick-body').textContent,/raw fragment/);assert.match(old.get('worker-quick-body').textContent,/completeness is unverified/);
+});
+
+test('deadline keyboard submission preserves the full bound target and run changes never retarget the dialog',async()=>{
+  const run={dataInstanceId:'data',runId:'bound',runtimeId:'retained'},monitorInfo={run,pinnedRunId:'bound',capabilities:{scopedControls:true}};
+  const view=await monitor({run:deadlineRun({monitor:monitorInfo,workers:[deadlineWorker({deadline:{status:'active',revision:7,remainingMs:60000,expiresAt:100000}})]}),response:async(path,input)=>{
+    if(path==='/api/runs/bound/control'){const body=JSON.parse(input.body);return ok({id:'bound-receipt',...body,status:'pending'});}
+  }});
+  await view.click(view.get('worker-deadline'));await view.change('deadline-operation','extend');view.get('deadline-value').value='5000';
+  view.get('deadline-close').focus();const back=new view.window.Event('keydown',{bubbles:true,cancelable:true});back.key='Tab';back.shiftKey=true;view.get('deadline-close').dispatchEvent(back);assert.equal(view.document.activeElement,view.get('deadline-cancel'));
+  await view.key(view.get('deadline-cancel'),'Tab');assert.equal(view.document.activeElement,view.get('deadline-close'));
+  view.get('deadline-form').dispatchEvent(new view.window.Event('submit',{bubbles:true,cancelable:true}));await view.flush();
+  const body=JSON.parse(view.calls.find(call=>call.method==='POST').body);assert.deepEqual(body.target,{...run,generation:4,position:0,attempt:2,turnId:'turn'});assert.equal(body.deadline.operation,'extend');assert.equal(body.sessionId,undefined);
+  await view.escape();
+  // Separate open draft with no submitted mutation; runtime replacement leaves
+  // its original target visible and disabled rather than changing it in place.
+  const changed=await monitor({run:deadlineRun({monitor:monitorInfo})});await changed.click(changed.get('worker-deadline'));changed.get('deadline-value').value='5000';changed.update({monitor:{...monitorInfo,run:{...run,runtimeId:'replacement'}}});await changed.tick(2000);
+  assert.equal(changed.get('deadline-dialog').hidden,false);assert.equal(changed.get('deadline-submit').disabled,true);assert.equal(changed.get('deadline-value').value,'5000');assert.match(changed.get('deadline-status').textContent,/changed/);assert.equal(changed.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('terminal message view refuses missing coverage instead of showing a complete answer',async()=>{
+  const view=await monitor({response:async path=>path.startsWith('/api/messages')?ok({available:true,coverage:'terminalNotificationsOnly',nextCursor:1,hasMore:false,counts:{terminalNotificationsObserved:1,insertions:1,replacements:0,duplicateNoops:0,retained:1,retainedBytes:300,evictedCountLimit:0,evictedByteLimit:0},records:[{id:'a'.repeat(64),terminalSeq:1,generation:4,position:0,attempt:1,threadId:'t',turnId:'u',itemId:'i',terminalObserved:true,complete:true,truncations:[],bytes:300,text:'CLAIMED_COMPLETE'}]}):path.startsWith('/api/activity')?ok({records:[],nextCursor:0,hasMore:false,observed:0,retained:0,dropped:0}):undefined});
+  await view.click(view.document.querySelector('.worker-menu-toggle'));await view.click(view.get('worker-card-menu').querySelector('[data-quick-kind="messages"]'));await view.flush();
+  assert.match(view.get('worker-quick-body').textContent,/coverage is invalid/);assert.doesNotMatch(view.get('worker-quick-body').textContent,/CLAIMED_COMPLETE/);
+});
+
 test('every map card offers a separate accessible evidence menu and readonly worker receipts',async()=>{
   const view=await monitor({run:{controls:[
     {id:'steer-1',generation:4,position:1,attempt:2,action:'steer',status:'applied',text:'Read <img src=x onerror=alert(1)>',requestedAt:'2026-10-14T12:00:00Z'},

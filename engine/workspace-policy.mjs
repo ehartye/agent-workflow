@@ -5,8 +5,14 @@ import {fault} from '../foundation/client.mjs';
 // Coordinator-owned literal prefixes, never Git ignores or worker-supplied globs.
 export function validateCapturePolicy(value){
   const reject=()=>{throw fault('WORKSPACE_POLICY','Capture policy requires bounded, unambiguous relative paths and disjoint source ownership');};
-  if(!value||Object.getPrototypeOf(value)!==Object.prototype||Object.keys(value).length!==3||value.version!==1
-    ||!Array.isArray(value.excludeDirs)||!Array.isArray(value.protectedPaths)||value.excludeDirs.length>256||value.protectedPaths.length>20000)reject();
+  const dataOnly=(object,keys)=>object&&Reflect.ownKeys(object).length===keys.length&&keys.every(key=>{
+    const property=Object.getOwnPropertyDescriptor(object,key);return property?.enumerable===true&&Object.hasOwn(property,'value');
+  });
+  const array=value=>Array.isArray(value)&&Object.getPrototypeOf(value)===Array.prototype
+    &&Reflect.ownKeys(value).length===value.length+1&&Object.keys(value).length===value.length
+    &&Object.keys(value).every((key,i)=>key===String(i)&&Object.hasOwn(Object.getOwnPropertyDescriptor(value,key),'value'));
+  if(!value||Object.getPrototypeOf(value)!==Object.prototype||!dataOnly(value,['version','excludeDirs','protectedPaths'])||value.version!==1
+    ||!array(value.excludeDirs)||!array(value.protectedPaths)||value.excludeDirs.length>256||value.protectedPaths.length>20000)reject();
   const normalize=(values,directories)=>{
     const normalized=Array.from(values,name=>{
       if(typeof name!=='string'||!name||Buffer.byteLength(name)>1024||directories&&!name.endsWith('/')

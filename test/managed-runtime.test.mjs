@@ -122,6 +122,8 @@ test('session monitor opens an owned startup container without a database and pr
  const {runWorkflow}=await import('../engine/controller.mjs');
  const f=await fixture(t);
  await writeFile(join(f.pluginRoot,'engine','monitor-data.mjs'),`export {monitorData} from ${JSON.stringify(new URL('../engine/monitor-data.mjs',import.meta.url).href)};`);
+ // Retained runtimes include controls even when newer deadline exports are absent.
+ await writeFile(join(f.pluginRoot,'engine','controls.mjs'),`export async function requestControl(){throw Error('Startup fixture controls must not execute');}`);
  const runtime=await installRuntime(f),failed=await bindRun({dataDir:f.dataDir,runtime,sessionId:'origin'}),healthy=await bindRun({dataDir:f.dataDir,runtime,sessionId:'origin'}),foreign=await bindRun({dataDir:f.dataDir,runtime,sessionId:'other'});
  await writeFile(join(failed.runDir,'finish-fixture.json'),JSON.stringify({status:'failed',inferenceRequests:0,cleanup:{serverExited:true}}));
  await runWorkflow({runDir:healthy.runDir,sessionId:'origin',script:'export const meta={name:"Healthy",description:"Fixture"};return 1;',backend:{identity:'fixture',execute:async()=>{throw Error('No workers');},close:async()=>({serverExited:true})}});
@@ -136,7 +138,8 @@ test('session monitor opens an owned startup container without a database and pr
   assert.deepEqual(state.workers,[]);assert.equal(state.coverage,undefined);assert.equal(state.cleanup,undefined);assert.equal(state.inferenceRequests,undefined);
   assert.equal(state.monitor.capabilities.sessionNavigation,true);assert.equal(state.monitor.capabilities.scopedControls,false);assert.equal(state.monitor.capabilities.lifecycle,false);
   const page=await(await fetch(url.origin+'/api/session/runs',{headers})).json();assert.equal(page.unavailableCount,1);assert.deepEqual(new Set(page.items.map(item=>item.ref.runId)),new Set([failed.id,healthy.id]));
-  assert.equal((await(await fetch(url.origin+`/api/runs/${healthy.id}/run`,{headers})).json()).status,'completed');
+  const healthyResponse=await fetch(url.origin+`/api/runs/${healthy.id}/run`,{headers});assert.equal(healthyResponse.status,200);const healthyState=await healthyResponse.json();
+  assert.equal(healthyState.status,'completed');assert.equal(healthyState.deadlineControls.available,false);assert.equal(healthyState.deadlineControls.receipts,false);
   assert.equal((await fetch(url.origin+`/api/runs/${foreign.id}/run`,{headers})).ok,false);
   const target={dataInstanceId:binding.dataInstanceId,runId:failed.id,runtimeId:runtime.id,generation:1};
   for(const [path,body] of [['control',{action:'stop',generation:1,target}],['resume',{generation:1,target}],['lifecycle',{action:'hide',generation:1,runTarget:target,expectedRevision:0,target:{kind:'run'},requestId:'no-hide'}]])assert.equal((await fetch(url.origin+`/api/${path}`,{method:'POST',headers,body:JSON.stringify(body)})).status,503);
