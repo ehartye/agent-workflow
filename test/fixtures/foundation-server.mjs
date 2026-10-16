@@ -78,6 +78,57 @@ createInterface({ input: process.stdin }).on('line', line => {
       notification('turn/completed',{threadId,turn:{id:turnId,status:'completed',items:mode==='turn-phase-snapshot'?[progress,answer].map(({phase,...item})=>item):[]}});
       return reply(req.id,{turn:{id:turnId}});
     }
+    if(['turn-preview-count','turn-preview-updates','turn-preview-discard-update','turn-answer-joined-limit','turn-answer-item-limit','turn-answer-encoded-limit'].includes(mode)){
+      reply(req.id,{turn:{id:turnId}});
+      return setTimeout(()=>{
+        const complete=item=>notification('item/completed',{threadId,turnId,item});
+        let snapshot=[];
+        if(mode==='turn-preview-count'){
+          const commentary={id:'commentary',type:'agentMessage',phase:'commentary',text:'PRIVATE_PROGRESS'};
+          const notice={id:'notice',type:'agentMessage',phase:'final_answer',delivery:'async',text:'PRIVATE_ASYNC'};
+          for(const item of [commentary,notice]){
+            notification('item/started',{threadId,turnId,item});
+            const {phase,delivery,...omitted}=item;complete(omitted);
+          }
+          for(let i=0;i<1300;i++)complete({id:`diagnostic-${i}`,type:'commandExecution',status:i===0?'failed':'completed',exitCode:i===0?9:0});
+          const answer={id:'answer',type:'agentMessage',text:'Legacy final answer.'};complete(answer);
+          snapshot=[{id:'commentary',type:'agentMessage',text:'PRIVATE_PROGRESS'},{id:'notice',type:'agentMessage',text:'PRIVATE_ASYNC'},answer];
+        }else if(mode==='turn-preview-updates'){
+          complete({id:'answer',type:'agentMessage',phase:'final_answer',text:'old'.repeat(160000)});
+          complete({id:'answer',type:'agentMessage',phase:'final_answer',text:'small'});
+          for(let i=0;i<400;i++)complete({id:`diagnostic-${i}`,type:'commandExecution',aggregatedOutput:'x'.repeat(6000)});
+          const answer={id:'answer',type:'agentMessage',phase:'final_answer',text:'a'.repeat(240000)};
+          const second={id:'second',type:'agentMessage',phase:'final_answer',text:'b'.repeat(240000)};
+          complete(answer);complete(second);snapshot=[answer,second];
+        }else if(mode==='turn-preview-discard-update'){
+          complete({id:'answer',type:'agentMessage',phase:'final_answer',text:'\u0000'.repeat(174500)});
+          complete({id:'updated',type:'commandExecution',status:'completed',exitCode:0,aggregatedOutput:'old'});
+          complete({id:'updated',type:'commandExecution',status:'failed',exitCode:7,aggregatedOutput:'x'.repeat(6000)});
+        }else if(mode==='turn-answer-item-limit'){
+          for(let i=0;i<1025;i++)complete({id:`answer-${i}`,type:'agentMessage',text:''});
+        }else if(mode==='turn-answer-encoded-limit'){
+          complete({id:'answer',type:'agentMessage',text:'\u0000'.repeat(200000)});
+        }else{
+          complete({id:'answer',type:'agentMessage',text:'a'.repeat(256*1024)});
+          complete({id:'second',type:'agentMessage',text:'b'.repeat(256*1024)});
+        }
+        notification('turn/completed',{threadId,turn:{id:turnId,status:'completed',items:snapshot}});
+      },20);
+    }
+    if(mode==='turn-preview-rotation'){
+      reply(req.id,{turn:{id:turnId}});
+      return setTimeout(()=>{
+        const answer={id:'answer',type:'agentMessage',phase:'final_answer',text:'Known command failure reported.'};
+        notification('item/completed',{threadId,turnId,item:answer});
+        const items=Array.from({length:400},(_,i)=>({id:`diagnostic-${i}`,type:'commandExecution',status:'completed',exitCode:0,aggregatedOutput:'x'.repeat(6000)}));
+        for(const item of items)notification('item/completed',{threadId,turnId,item});
+        const failed={id:'late-failure',type:'commandExecution',status:'failed',exitCode:7,aggregatedOutput:'known failure'};
+        notification('item/completed',{threadId,turnId,item:failed});
+        notification('rawResponseItem/completed',{threadId,turnId,item:{type:'custom_tool_call',call_id:'native-exec',name:'exec',input:'private input'}});
+        notification('rawResponseItem/completed',{threadId,turnId,item:{type:'custom_tool_call_output',call_id:'native-exec',output:[{type:'input_text',text:'Script completed\nWall time 0.1 seconds\nOutput:\n'},{type:'input_text',text:'private body'}]}});
+        notification('turn/completed',{threadId,turn:{id:turnId,status:'completed',items:[...items,failed,answer]}});
+      },20);
+    }
     if(mode==='turn-large-frame'){
       reply(req.id,{turn:{id:turnId}});
       return setTimeout(()=>{

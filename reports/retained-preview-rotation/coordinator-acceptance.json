@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "at": "2026-10-16T05:51:52.700Z",
+  "candidateVersion": "0.4.6",
+  "sourceRun": "0184f6fe-e01c-49b9-93f4-db37562e84ac",
+  "reviewRun": "82dc0aba-2400-44cc-bcda-d7224cba33ce",
+  "review": {
+    "verdict": "ready",
+    "findings": [],
+    "frozenDescriptorsVerified": 21,
+    "genuineActivation": "complete",
+    "sourceCompletion": "passed",
+    "cleanup": {
+      "serverExited": true,
+      "forced": false,
+      "jobEmpty": true,
+      "nativeInventoryEmpty": true
+    }
+  },
+  "verification": {
+    "node": "v24.21.0",
+    "fullSuite": {
+      "passed": 660,
+      "failed": 0,
+      "skipped": 0,
+      "scope": "Exact current runtime/test source; ran before metadata-only0.4.6 bump"
+    },
+    "versionRuntime": {
+      "passed": 8,
+      "failed": 0,
+      "scope": "Reran affected managed-runtime owner after4manifest/lock version changes"
+    },
+    "check": 0,
+    "smoke": 0,
+    "cleanInstallation": 0,
+    "productionAudit": {
+      "exitCode": 0,
+      "vulnerabilities": 0
+    },
+    "logs": [
+      {
+        "path": "C:/Users/ehart/agent-workflow-control/shared-ui-adoption-20261015/implementation/preview-rotation-full-test.log",
+        "bytes": 65363,
+        "sha256": "24aa464a6087d1c873948b43a00e9337eaae11002fe43a21fdc034637c6bc39e"
+      },
+      {
+        "path": "C:/Users/ehart/agent-workflow-control/shared-ui-adoption-20261015/implementation/preview-rotation-version-runtime-test.log",
+        "bytes": 1018,
+        "sha256": "770932c5a0f3656b66d900469a7bf2751c4684cb3667037a9074ef15527f5938"
+      },
+      {
+        "path": "C:/Users/ehart/agent-workflow-control/shared-ui-adoption-20261015/implementation/preview-rotation-check.log",
+        "bytes": 177,
+        "sha256": "1367477ac660055f7c9fbe89e64010cd425bee94de05af4d593783121815d704"
+      },
+      {
+        "path": "C:/Users/ehart/agent-workflow-control/shared-ui-adoption-20261015/implementation/preview-rotation-smoke.log",
+        "bytes": 196,
+        "sha256": "7509cfa64776c15ba11ed47a1e2f406f49d1f94dfb745f5dd501582dc266f789"
+      },
+      {
+        "path": "C:/Users/ehart/agent-workflow-control/shared-ui-adoption-20261015/implementation/preview-rotation-clean-install.log",
+        "bytes": 243,
+        "sha256": "db3f97b364b73c95ab9526d574beffe3b39dfa1f74f473c795a2bad1b64f6299"
+      },
+      {
+        "path": "C:/Users/ehart/agent-workflow-control/shared-ui-adoption-20261015/implementation/preview-rotation-audit.json",
+        "bytes": 383,
+        "sha256": "6004026fd73d7a6a6274e333e74fb7ff5a72ea9624dca02792de90c9df6aaa14"
+      }
+    ]
+  },
+  "behavior": "Optional diagnostic previews rotate within unchanged1MiB/1024item budgets; actual answer candidates stay pinned/capped512KiB including separators. Retained-only coverage and evicted occurrence/byte counts disclosed; bounded phase/delivery lineage, independent tools, protocol and cleanup guards preserved.",
+  "limits": "Separate1024message-lineage-ID cap remains fail-closed. No original unknown run is repaired/replayed; no recorded runtime/cache hotpatch. Full game migration/deployment remains open.",
+  "delivery": {
+    "merged": false,
+    "released": false,
+    "marketplaceUpdated": false,
+    "protection": "Remote verify required, strict=true/enforce_admins=true, Actions disabled. No bypass authorized by the previous version-specific PR16 exception."
+  }
+}

@@ -1,0 +1,226 @@
+{
+  "version": 1,
+  "taskId": "workflow-retained-preview-rotation",
+  "outcome": "delivered",
+  "summary": "Optional diagnostic previews rotate within the unchanged byte/item bounds; answer candidates stay pinned. Superseded updates, replay and eviction accounting preserve bounded evidence without claiming complete history.",
+  "base": "a76aa77ea7790927247388e907015e92e9397f6f",
+  "plan": {
+    "path": "C:/Users/ehart/agent-workflow-control/shared-ui-adoption-20261015/implementation/preview-rotation-plan.json",
+    "bytes": 5668,
+    "sha256": "abba078f02a3d80464b01d767417c80e18583f2c06320e10827d39548a79f331",
+    "verified": true
+  },
+  "evidence": [
+    {
+      "path": "C:/Users/ehart/agent-workflow-control/shared-ui-adoption-20261015/implementation/fallow-preview-limit-diagnostic.json",
+      "bytes": 800,
+      "sha256": "80a6e3a0aa437de27572122a4359cbc6683aa7b28d8c087bad1998bbecd81ece",
+      "verified": true
+    },
+    {
+      "path": "C:/Users/ehart/repos/agent-workflow-worktrees/retained-preview-rotation/.testing/risk.yml",
+      "bytes": 2224,
+      "sha256": "83c4b1a6e40ff69db8a51fdd80ea042841df4b0cbd120744564b5d326eb3c856",
+      "verified": true
+    }
+  ],
+  "skill": {
+    "authority": "executor",
+    "id": "tdd",
+    "name": "test-driven-development",
+    "catalogName": "h-superpowers:test-driven-development",
+    "package": "skill://tdd/C:/Users/ehart/AppData/Local/agent-workflow/runs-v2/0184f6fe-e01c-49b9-93f4-db37562e84ac/source-packages-v1/packages/c1aa80898169b589a8c1c575c308bf417e1d5e488567771540d03c2cbfd086f7/skills/test-driven-development",
+    "main_resource": "skill://tdd/C:/Users/ehart/AppData/Local/agent-workflow/runs-v2/0184f6fe-e01c-49b9-93f4-db37562e84ac/source-packages-v1/packages/c1aa80898169b589a8c1c575c308bf417e1d5e488567771540d03c2cbfd086f7/skills/test-driven-development/SKILL.md",
+    "skill_root": "C:/Users/ehart/AppData/Local/agent-workflow/runs-v2/0184f6fe-e01c-49b9-93f4-db37562e84ac/source-packages-v1/packages/c1aa80898169b589a8c1c575c308bf417e1d5e488567771540d03c2cbfd086f7/skills/test-driven-development",
+    "nativeCatalogAndRead": true,
+    "expectedNameAndRootMatched": true,
+    "next_cursor": null
+  },
+  "execution": {
+    "node": "C:/Users/ehart/AppData/Roaming/fnm/node-versions/v24.21.0/installation/node.exe",
+    "version": "v24.21.0",
+    "shellLogin": false,
+    "concurrency": 1,
+    "installation": false,
+    "sourceRoot": "assigned worktree; frozen source paths remapped to assigned ownership"
+  },
+  "changes": [
+    "Evict first-retained optional previews until incoming bytes/items fit; never evict answer candidates.",
+    "Replace same-ID byte accounting and drop superseded evidence when an optional update cannot fit.",
+    "Enforce 512 KiB on assembled answer text including separators; preserve byte/item fail-closed answer guards.",
+    "Expose evictedItems/evictedBytes as occurrence counts and serialized preview bytes; replay may re-admit an evicted ID and evict again.",
+    "Keep retainedItemsOnly command coverage, independent command event delivery and genuine native tool projections intact.",
+    "Preserve existing separate 1024-ID phase/delivery metadata, including start-only metadata and preview eviction; metadata overflow still fails closed.",
+    "Document scoped verification and remaining coordinator gates."
+  ],
+  "checks": [
+    {
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0,
+      "result": "v24.21.0"
+    },
+    {
+      "args": [
+        "--test",
+        "--test-concurrency=1",
+        "--test-name-pattern=unique diagnostic previews",
+        "test/codex-turn.test.mjs"
+      ],
+      "exitCode": 1,
+      "log": "red.txt",
+      "result": "Expected RED: TURN_OUTPUT_LIMIT on cumulative unique previews"
+    },
+    {
+      "args": [
+        "--test",
+        "--test-concurrency=1",
+        "test/codex-turn.test.mjs"
+      ],
+      "exitCode": 0,
+      "log": "early-green.txt",
+      "result": "Early checkpoint: 43/43 passed"
+    },
+    {
+      "args": [
+        "--test",
+        "--test-concurrency=1",
+        "--test-name-pattern=item-count rotation|answer updates|requires|f a i l|for turn-answer",
+        "test/codex-turn.test.mjs"
+      ],
+      "exitCode": 1,
+      "log": "boundaries-red.txt",
+      "result": "Expected RED: joined answer exceeded budget without rejection; other four boundaries passed"
+    },
+    {
+      "args": [
+        "--test",
+        "--test-concurrency=1",
+        "test/codex-turn.test.mjs"
+      ],
+      "exitCode": 0,
+      "log": "boundaries-green.txt",
+      "result": "48/48 passed"
+    },
+    {
+      "args": [
+        "--test",
+        "--test-concurrency=1",
+        "--test-name-pattern=discarded diagnostic updates",
+        "test/codex-turn.test.mjs"
+      ],
+      "exitCode": 1,
+      "log": "update-red.txt",
+      "result": "Expected RED: superseded successful command evidence remained after update refusal"
+    },
+    {
+      "args": [
+        "--test",
+        "--test-concurrency=1",
+        "test/codex-turn.test.mjs"
+      ],
+      "exitCode": 0,
+      "log": "final-green.txt",
+      "result": "49/49 passed"
+    },
+    {
+      "args": [
+        "--check",
+        "foundation/turn.mjs"
+      ],
+      "exitCode": 0
+    },
+    {
+      "args": [
+        "--check",
+        "test/codex-turn.test.mjs"
+      ],
+      "exitCode": 0
+    },
+    {
+      "args": [
+        "--check",
+        "test/fixtures/foundation-server.mjs"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "logHandling": "Exact test invocations wrote .log paths under this report directory; completed logs were renamed to .txt for source capture. No retries after uncertain effects occurred.",
+  "limits": {
+    "previewBytes": 1048576,
+    "previewItems": 1024,
+    "answerTextBytes": 524288,
+    "messageMetadataIds": 1024,
+    "transportFrameBytesUnchanged": 16777216,
+    "historyCoverage": "retained previews only; no unique-ID eviction deduplication or raw output retention"
+  },
+  "missingCoverage": [
+    "Full npm test/check/smoke are coordinator-owned and were not run",
+    "No installed-runtime, native workload, browser, build, release or game acceptance",
+    "No fresh independent authentication/source/schema/frame/cleanup suite; existing guards unchanged and focused turn cleanup tests passed",
+    "Coordinator capture authentication, owned/native drain review, independent review and integration remain required"
+  ],
+  "blockedCommands": [],
+  "artifacts": [
+    {
+      "relativePath": "foundation/turn.mjs",
+      "sha256": "5132e4906c80eec67ec83a0e83d1b6ff98258d92ca838a2b971a96b5068eeac1",
+      "bytes": 16009
+    },
+    {
+      "relativePath": "test/codex-turn.test.mjs",
+      "sha256": "4384331f22879c29bf789cf151db4ecc1af7347685b0195c1285b0c0c648de56",
+      "bytes": 36253
+    },
+    {
+      "relativePath": "test/fixtures/foundation-server.mjs",
+      "sha256": "d2803edb39a93cc8a8a1673bbf17ec6b37801b98bc19ebec6b4609303b6b7b63",
+      "bytes": 20576
+    },
+    {
+      "relativePath": "docs/verification.md",
+      "sha256": "932b5b09513deb52ea9739fd6083f9567b1677dbaecbb778d994549e48a7f54f",
+      "bytes": 19819
+    },
+    {
+      "relativePath": "reports/retained-preview-rotation/boundaries-green.txt",
+      "sha256": "d0b7ee495982a501ad63089109424041316834a9e9a748d41e7709ea8e6fe330",
+      "bytes": 4744
+    },
+    {
+      "relativePath": "reports/retained-preview-rotation/boundaries-red.txt",
+      "sha256": "797211327fc5a790ba2ed722522db4c459eea7d0706770213e4c65c792472e88",
+      "bytes": 1353
+    },
+    {
+      "relativePath": "reports/retained-preview-rotation/checkpoint.json",
+      "sha256": "5a1152bdd73d86308411180328cf0603b9d731e751c622c81829a83c7cd0d7fa",
+      "bytes": 809
+    },
+    {
+      "relativePath": "reports/retained-preview-rotation/early-green.txt",
+      "sha256": "e206ee8b478b30f01d4a545bb47785030a1caf27b44b998e942386b80c1185be",
+      "bytes": 4272
+    },
+    {
+      "relativePath": "reports/retained-preview-rotation/final-green.txt",
+      "sha256": "caaac37aea2ae7c995d2fd84916db197319a439dc7ab0cb30929bcb7d4785f2c",
+      "bytes": 4843
+    },
+    {
+      "relativePath": "reports/retained-preview-rotation/red.txt",
+      "sha256": "2637fffcab8bbef0c8d7c5d1e91dbe29895f95287300bdf0a764ed4ec9360276",
+      "bytes": 2165
+    },
+    {
+      "relativePath": "reports/retained-preview-rotation/update-red.txt",
+      "sha256": "0f7c5acf6447c18cfe6a4cc413b604bc17b691ea1142803d7e16db679ef32d93",
+      "bytes": 1038
+    }
+  ]
+}

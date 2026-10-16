@@ -45,6 +45,75 @@ test('final answer size remains a hard bounded failure without silent truncation
   await assert.rejects(runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:3000}),{code:'TURN_OUTPUT_LIMIT'});
 });
 
+test('unique diagnostic previews rotate while pinned answers and late failure evidence survive terminal replay',async t=>{
+  const {client,runTurn}=await setup(t,'turn-preview-rotation');
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:15000});
+  assert.equal(result.text,'Known command failure reported.');
+  assert.equal(result.items.filter(item=>item.id==='answer').length,1);
+  assert.equal(result.items.find(item=>item.id==='late-failure').exitCode,7);
+  assert.equal(result.output.commandEvidence.coverage,'retainedItemsOnly');
+  assert.ok(result.output.commandEvidence.commands.some(item=>item.status==='failed'&&item.exitCode===7));
+  assert.ok(result.output.evictedItems>0);assert.ok(result.output.evictedBytes>1024*1024);
+  assert.ok(result.output.retainedBytes<=1024*1024);assert.ok(result.output.retainedItems<=1024);
+  assert.equal(result.output.retainedBytes,result.items.reduce((sum,item)=>sum+Buffer.byteLength(JSON.stringify(item)),0));
+  assert.equal(result.output.retainedItems,result.items.length);
+  assert.ok(Buffer.byteLength(JSON.stringify(result))<1100000);
+  assert.equal(result.output.toolObservations.paired,1);
+  assert.equal(result.output.toolObservations.observations[0].tool,'exec');
+  assert.equal(result.output.toolObservations.observations[0].outcome,'reportedSucceeded');
+  assert.equal(await client.request('interrupt-count',{}),0);
+  assert.equal((await client.close()).serverExited,true);
+});
+
+test('item-count rotation preserves evicted commentary and async lineage when snapshots omit metadata',async t=>{
+  const {client,runTurn}=await setup(t,'turn-preview-count');let failedCommands=0;
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:15000,onEvent:message=>{
+    if(message.method==='item/completed'&&message.params.item?.type==='commandExecution'&&message.params.item.exitCode===9)failedCommands++;
+  }});
+  assert.equal(result.text,'Legacy final answer.');
+  assert.equal(result.output.answer.selection,'legacy');assert.equal(result.output.answer.selectedItems,1);
+  assert.equal(result.items.find(item=>item.id==='commentary').phase,'commentary');
+  assert.equal(result.items.find(item=>item.id==='notice').phase,'final_answer');
+  assert.equal(result.items.find(item=>item.id==='notice').delivery,'async');
+  assert.equal(failedCommands,1,'Eviction must not suppress independent command observations');
+  assert.equal(result.items.some(item=>item.id==='diagnostic-0'),false);
+  assert.equal(result.output.commandEvidence.coverage,'retainedItemsOnly');
+  assert.equal(result.output.commandEvidence.commands.some(item=>item.exitCode===9),false);
+  assert.ok(result.output.evictedItems>250);assert.ok(result.output.evictedBytes>0);
+  assert.equal(result.output.retainedItems,1024);
+  assert.equal(result.output.retainedBytes,result.items.reduce((sum,item)=>sum+Buffer.byteLength(JSON.stringify(item)),0));
+  assert.ok(Buffer.byteLength(JSON.stringify(result))<250000);
+});
+
+test('answer updates release superseded bytes and pin exact terminal material under diagnostic pressure',async t=>{
+  const {client,runTurn}=await setup(t,'turn-preview-updates');
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:15000});
+  assert.equal(result.text,'a'.repeat(240000)+'\n'+'b'.repeat(240000));
+  assert.equal(result.output.answer.bytes,480001);assert.equal(result.output.answer.selectedItems,2);
+  assert.equal(result.items.filter(item=>item.id==='answer').length,1);
+  assert.ok(result.output.evictedItems>0);
+  assert.equal(result.output.retainedBytes,result.items.reduce((sum,item)=>sum+Buffer.byteLength(JSON.stringify(item)),0));
+  assert.ok(result.output.retainedBytes<=1024*1024);
+});
+
+test('discarded diagnostic updates cannot leave superseded successful command evidence',async t=>{
+  const {client,runTurn}=await setup(t,'turn-preview-discard-update');
+  const result=await runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:15000});
+  assert.equal(result.text,'\u0000'.repeat(174500));
+  assert.equal(result.items.some(item=>item.id==='updated'),false);
+  assert.deepEqual(result.output.commandEvidence.commands,[]);
+  assert.equal(result.output.evictedItems,1);
+  assert.equal(result.output.retainedBytes,result.items.reduce((sum,item)=>sum+Buffer.byteLength(JSON.stringify(item)),0));
+});
+
+for(const mode of ['turn-answer-joined-limit','turn-answer-item-limit','turn-answer-encoded-limit'])test(`required answer material fails closed for ${mode}`,async t=>{
+  const {client,runTurn}=await setup(t,mode);
+  await assert.rejects(runTurn(client,{threadId:'one',prompt:'fixture',timeoutMs:15000}),error=>{
+    assert.equal(error.code,'TURN_OUTPUT_LIMIT');assert.ok(error.output.retainedItems<=1024);
+    assert.ok(error.output.retainedBytes<=1024*1024);return true;
+  });
+});
+
 test('default transport admits a 2 MiB UTF-8 tool frame and snapshots with bounded retained output',async t=>{
   const {client,runTurn}=await setup(t,'turn-large-frame');
   let deltas=0,completed=0,terminals=0;

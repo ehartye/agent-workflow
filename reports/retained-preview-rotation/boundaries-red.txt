@@ -1,0 +1,29 @@
+✔ item-count rotation preserves evicted commentary and async lineage when snapshots omit metadata (74.9589ms)
+✔ answer updates release superseded bytes and pin exact terminal material under diagnostic pressure (89.9115ms)
+✖ required answer material fails closed for turn-answer-joined-limit (76.9694ms)
+✔ required answer material fails closed for turn-answer-item-limit (61.2425ms)
+✔ required answer material fails closed for turn-answer-encoded-limit (71.7877ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 4
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 423.863
+
+✖ failing tests:
+
+test at test\codex-turn.test.mjs:99:101
+✖ required answer material fails closed for turn-answer-joined-limit (76.9694ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///C:/Users/ehart/repos/agent-workflow-worktrees/workflow-3aa82635-3581-4daf-9803-6b42c8a56ab9/test/codex-turn.test.mjs:101:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
