@@ -38,6 +38,17 @@ test('capture policy rejects ambiguous names, overlapping exclusions and assigne
   assert.throws(()=>policies.validateCapturePolicy({...valid,protectedPaths:Array.from({length:20000},(_,i)=>`source${i}-${'x'.repeat(60)}.mjs`)}),{code:'WORKSPACE_POLICY'});
 });
 
+test('capture policy rejects accessor and symbol fields without evaluating caller code',()=>{
+  let reads=0;const value={version:1,excludeDirs:[],protectedPaths:[]};
+  assert.throws(()=>policies.validateCapturePolicy({...value,get excludeDirs(){reads++;return [];}}),{code:'WORKSPACE_POLICY'});
+  assert.throws(()=>policies.validateCapturePolicy({...value,[Symbol('private')]:true}),{code:'WORKSPACE_POLICY'});
+  const excludeDirs=[];Object.defineProperty(excludeDirs,0,{enumerable:true,get(){reads++;return 'cache/';}});
+  assert.throws(()=>policies.validateCapturePolicy({...value,excludeDirs}),{code:'WORKSPACE_POLICY'});
+  const hidden=[];Object.defineProperty(hidden,0,{get(){reads++;return 'cache/';}});
+  assert.throws(()=>policies.validateCapturePolicy({...value,excludeDirs:hidden}),{code:'WORKSPACE_POLICY'});
+  assert.equal(reads,0);
+});
+
 test('writer admission rejects extra roots, temporary grants, network and permission profiles',()=>{
   const cwd=resolve('owned-workspace'),policy=writerPolicy(cwd);
   assert.deepEqual(policy.launchArgs,['-c',`projects={${JSON.stringify(cwd)}={trust_level="trusted"}}`]);

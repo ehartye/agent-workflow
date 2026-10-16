@@ -2,7 +2,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {lstat} from 'node:fs/promises';
 import {join,isAbsolute} from 'node:path';
 import {fault} from '../foundation/client.mjs';
-import {readActivity} from './activity.mjs';
+import {readActivity,readCompletedMessages} from './activity.mjs';
 import {restartPreview} from './restart.mjs';
 import {readWorkspacePatch,readWorkspaceExclusions} from './workspaces.mjs';
 import {projectMonitorExperience} from './monitor/experience.mjs';
@@ -30,7 +30,7 @@ export async function monitorData(runDir,{kind='summary',generation,sourceGenera
     if(generation!==undefined&&state.generation!==generation)throw fault('REPLAY_GENERATION','Run generation changed; refresh before continuing');
     let historical;
     if(sourceGeneration!==undefined){
-      if(!['worker','activity','patch','exclusions'].includes(kind)||!Number.isInteger(sourceGeneration)||sourceGeneration<1||sourceGeneration>=state.generation)throw fault('HISTORY_INPUT','History requires a prior source generation');
+      if(!['worker','activity','messages','patch','exclusions'].includes(kind)||!Number.isInteger(sourceGeneration)||sourceGeneration<1||sourceGeneration>=state.generation)throw fault('HISTORY_INPUT','History requires a prior source generation');
       const current=db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(state.generation,position);
       const worker=current?JSON.parse(current.value):null;
       const references=[...(worker?.priorExecutions??[]),...(worker?.reusedFrom?[worker.reusedFrom]:[])].filter(ref=>ref.generation===sourceGeneration);
@@ -44,7 +44,7 @@ export async function monitorData(runDir,{kind='summary',generation,sourceGenera
       if(!row)throw fault('MONITOR_MISSING','Earlier worker evidence is missing');historical=JSON.parse(row.value);
       if(historical.position!==sourcePosition||worker?.origin&&historical.origin&&JSON.stringify(worker.origin)!==JSON.stringify(historical.origin))throw fault('HISTORY_INPUT','Earlier execution origin does not match the selected worker');
     }
-    if(kind==='activity'){
+    if(kind==='activity'||kind==='messages'){
       const row=db.prepare('SELECT value FROM workers WHERE generation=? AND position=?').get(state.generation,position);
       if(!row&&!historical)throw fault('MONITOR_MISSING','Worker does not exist in this generation');
       const worker=historical??JSON.parse(row.value),selectedGeneration=sourceGeneration??state.generation,readGeneration=worker.reusedFrom?.generation??selectedGeneration,readPosition=worker.reusedFrom?.position??worker.position;
@@ -54,7 +54,8 @@ export async function monitorData(runDir,{kind='summary',generation,sourceGenera
         const source=sourceRow?JSON.parse(sourceRow.value):null;
         if(!source||source.position!==readPosition||JSON.stringify(source.origin)!==JSON.stringify(worker.origin))throw fault('ACTIVITY_CORRUPT','Cached activity source does not identify the selected worker origin');
       }
-      return{...readActivity(db,{generation:readGeneration,position:readPosition,after,limit,expectedObserved:worker.activityCount??0}),sourceGeneration:readGeneration,sourcePosition:readPosition};
+      const activity=readActivity(db,{generation:readGeneration,position:readPosition,after,limit,expectedObserved:worker.activityCount??0});
+      return{...(kind==='messages'?readCompletedMessages(db,{generation:readGeneration,position:readPosition,after,limit}):activity),sourceGeneration:readGeneration,sourcePosition:readPosition};
     }
     if(kind==='script')return state.script;
     if(kind==='result')return{result:state.result??null,error:state.error??null,...(state.appendError?{appendError:state.appendError}:{})};

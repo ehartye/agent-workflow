@@ -2,7 +2,7 @@
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {monitorData} from './monitor-data.mjs';
-import {requestControl} from './controls.mjs';
+import {requestControl,readControl} from './controls.mjs';
 import {startBackground} from './background.mjs';
 import {fault,diagnostic} from '../foundation/client.mjs';
 import {createExperienceSurface,validateMonitorBinding} from './monitor/services.mjs';
@@ -36,7 +36,7 @@ export async function createMonitor({runDir,start=startBackground,idleMs=null,bi
       if(handled)return send(response,handled.status,handled.value,handled.type);
       if(request.method==='GET'){
         if(url.pathname==='/api/run')return send(response,200,await surface.readPinned());
-        if(url.pathname==='/api/activity'){
+        if(url.pathname==='/api/activity'||url.pathname==='/api/messages'){
           const integer=(name,fallback)=>{
             const value=url.searchParams.get(name);
             if(value===null&&fallback!==undefined)return fallback;
@@ -45,7 +45,17 @@ export async function createMonitor({runDir,start=startBackground,idleMs=null,bi
           };
           const generation=integer('generation'),position=integer('position'),after=integer('after',0),limit=integer('limit',50);
           if(generation<1||position>=1000||limit<1||limit>100)throw fault('HTTP_INPUT','Activity paging exceeded its limits');
-          return send(response,200,await monitorData(runDir,{kind:'activity',generation,position,after,limit,...(url.searchParams.has('sourceGeneration')?{sourceGeneration:integer('sourceGeneration')}:{})}));
+          if(url.pathname==='/api/messages'&&[...url.searchParams.keys()].some((key,index,keys)=>!['generation','position','sourceGeneration','after','limit'].includes(key)||keys.indexOf(key)!==index))throw fault('HTTP_INPUT','Unsupported message paging fields');
+          return send(response,200,await monitorData(runDir,{kind:url.pathname==='/api/messages'?'messages':'activity',generation,position,after,limit,...(url.searchParams.has('sourceGeneration')?{sourceGeneration:integer('sourceGeneration')}:{})}));
+        }
+        const receipt=/^\/api\/control\/receipts\/([A-Za-z0-9][A-Za-z0-9._-]{0,199})$/.exec(url.pathname);
+        if(receipt){
+          const raw=url.searchParams.get('generation'),generation=Number(raw);
+          if(!/^[1-9][0-9]*$/.test(raw??'')||!Number.isSafeInteger(generation)||[...url.searchParams.keys()].some(key=>key!=='generation')||url.searchParams.getAll('generation').length!==1)throw fault('HTTP_INPUT','Provide the exact receipt generation');
+          const state=await monitorData(runDir);if(state.generation<generation)throw fault('REPLAY_GENERATION','Receipt generation is outside the saved run');
+          const value=await readControl(runDir,receipt[1]);
+          if(value.id!==receipt[1]||value.generation!==generation||Buffer.byteLength(JSON.stringify(value))>40000)throw fault('MONITOR_RECEIPT','Control receipt identity or bounds differ');
+          return send(response,200,value);
         }
         const match=/^\/api\/(?:worker|patch)\/(0|[1-9][0-9]{0,2})$/.exec(url.pathname);
         const kind=match?(url.pathname.startsWith('/api/patch/')?'patch':'worker'):url.pathname==='/api/script'?'script':url.pathname==='/api/result'?'result':null;
@@ -58,7 +68,7 @@ export async function createMonitor({runDir,start=startBackground,idleMs=null,bi
       if(request.method==='POST'&&['/api/control','/api/resume','/api/restart','/api/close'].includes(url.pathname)){
         const input=await body(request);
         if(url.pathname==='/api/close'){if(Object.keys(input).length)throw fault('HTTP_INPUT','Close takes no target');send(response,200,{status:'closed'});setImmediate(()=>close());return;}
-        const allowed=url.pathname==='/api/control'?['generation','action','position','attempt','turnId','text']:url.pathname==='/api/restart'?['generation','position','attempt','reconciliation']:['generation','action'];
+        const allowed=url.pathname==='/api/control'?['generation','action','position','attempt','turnId','text','deadline']:url.pathname==='/api/restart'?['generation','position','attempt','reconciliation']:['generation','action'];
         if(!Number.isInteger(input.generation)||input.generation<1||Object.keys(input).some(key=>!allowed.includes(key)))throw fault('HTTP_INPUT','Provide the observed generation and supported control fields');
         const state=await monitorData(runDir,{generation:input.generation});
         if(url.pathname==='/api/control')return send(response,202,await requestControl(runDir,{...input,sessionId:state.sessionId}));
@@ -70,8 +80,8 @@ export async function createMonitor({runDir,start=startBackground,idleMs=null,bi
       }
       return send(response,404,{error:{code:'HTTP_ROUTE',message:'Unknown monitor route'}});
     }catch(error){
-      const conflict=['MONITOR_TARGET','REPLAY_GENERATION','REPLAY_UNKNOWN','CONTROL_GENERATION','CONTROL_TERMINAL','CONTROL_ATTEMPT','CONTROL_TURN','CONTROL_WORKER','CONTROL_BUSY','RUN_LOCKED','MONITOR_BUSY','RESTART_ACTIVE','RESTART_WORKER','RESTART_PREFIX','RESTART_DRAIN','RESTART_CHANGED','AGENT_LIMIT'].includes(error.code);
-      send(response,error.code==='MONITOR_UNAVAILABLE'?503:error.code==='MONITOR_OWNERSHIP'?403:conflict?409:error.code==='MONITOR_MISSING'?404:['HTTP_INPUT','CONTROL_INPUT','ACTIVITY_INPUT','RESTART_INPUT','RESTART_RECONCILE','HISTORY_INPUT','PATCH_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
+      const conflict=['MONITOR_TARGET','REPLAY_GENERATION','REPLAY_UNKNOWN','CONTROL_GENERATION','CONTROL_TERMINAL','CONTROL_ATTEMPT','CONTROL_TURN','CONTROL_WORKER','CONTROL_DEADLINE','DEADLINE_EXPIRED','DEADLINE_CLOSED','DEADLINE_REVISION','CONTROL_BUSY','RUN_LOCKED','MONITOR_BUSY','RESTART_ACTIVE','RESTART_WORKER','RESTART_PREFIX','RESTART_DRAIN','RESTART_CHANGED','AGENT_LIMIT'].includes(error.code);
+      send(response,error.code==='MONITOR_UNAVAILABLE'?503:['MONITOR_OWNERSHIP','CONTROL_SESSION'].includes(error.code)?403:conflict?409:['MONITOR_MISSING','CONTROL_MISSING'].includes(error.code)?404:['HTTP_INPUT','CONTROL_INPUT','ACTIVITY_INPUT','RESTART_INPUT','RESTART_RECONCILE','HISTORY_INPUT','PATCH_INPUT'].includes(error.code)?400:500,{error:diagnostic(error)});
     }
   });
   server.requestTimeout=5000;server.headersTimeout=5000;server.keepAliveTimeout=1000;

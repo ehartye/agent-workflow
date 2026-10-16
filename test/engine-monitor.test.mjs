@@ -1,10 +1,13 @@
 /** @lane merge
  * @subject engine/monitor-server.mjs
  * @subject engine/monitor-data.mjs
+ * @subject engine/monitor/services.mjs
+ * @subject engine/monitor-adapters.mjs
+ * @subject engine/controls.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm,writeFile,mkdir} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
@@ -266,6 +269,95 @@ test('activity HTTP reads require authentication and generation and disclose bou
   try{db.exec('DELETE FROM activity; DELETE FROM activity_counts');}finally{db.close();}
   const corrupt=await get('/api/activity?generation=1&position=0');
   assert.equal(corrupt.status,500);assert.equal((await corrupt.json()).error.code,'ACTIVITY_CORRUPT');
+});
+
+test('completed message HTTP reads preserve cached source identity and readonly legacy coverage',async t=>{
+  const {runDir,createMonitor}=await setup(t);
+  const input={runDir,sessionId:'s',script:meta+'return await agent("Read");',backend:backend(async({onEvent})=>{
+    onEvent({method:'item/completed',params:{threadId:'thread',turnId:'turn',item:{id:'answer',type:'agentMessage',text:'terminal'}}});
+    for(let i=0;i<300;i++)onEvent({method:'item/agentMessage/delta',params:{threadId:'thread',turnId:'turn',itemId:'noise',delta:String(i)}});
+    return{value:'done',terminalObserved:true};
+  })};await runWorkflow(input);await runWorkflow({...input,resume:true});
+  const monitor=await createMonitor({runDir});t.after(()=>monitor.close());const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token');
+  const get=path=>fetch(url.origin+path,{headers:{Authorization:`Bearer ${token}`}});
+  assert.equal((await fetch(url.origin+'/api/messages?generation=2&position=0')).status,401);
+  for(const query of ['position=0','generation=2','generation=2&position=0&after=-1','generation=2&position=0&limit=101'])assert.equal((await get('/api/messages?'+query)).status,400);
+  assert.equal((await get('/api/messages?generation=1&position=0')).status,409);
+  const page=await(await get('/api/messages?generation=2&position=0')).json();assert.equal(page.available,true);assert.equal(page.sourceGeneration,1);assert.equal(page.sourcePosition,0);assert.equal(page.records[0].text,'terminal');
+  assert.equal((await get('/api/messages?generation=2&position=0&sourceGeneration=1')).status,200);
+  // Keep the terminal row intact while corrupting its raw history counters.
+  // This specifically owns the messages route's raw-count refusal.
+  const corrupt=new DatabaseSync(join(runDir,'run.sqlite'));
+  const observed=corrupt.prepare('SELECT observed FROM activity_counts WHERE generation=1 AND position=0').get().observed;
+  assert.equal(corrupt.prepare('SELECT count(*) AS n FROM completed_messages').get().n,1);
+  assert.equal(observed,301);
+  corrupt.prepare('UPDATE activity_counts SET observed=256 WHERE generation=1 AND position=0').run();corrupt.close();
+  const refused=await get('/api/messages?generation=2&position=0');
+  assert.equal(refused.status,500);assert.equal((await refused.json()).error.code,'ACTIVITY_CORRUPT');
+  // Meaningful broken behavior: bypass raw validation only for messages.
+  // Load this inertly edited module from memory; never patch production code.
+  const subject=new URL('../engine/monitor-data.mjs',import.meta.url);
+  const source=await readFile(subject,'utf8'),needle='const activity=readActivity(db,';
+  assert.equal(source.split(needle).length,2,'The negative control must change exactly one validation boundary');
+  const broken=source.replace(needle,"const activity=kind==='messages'?null:readActivity(db,")
+    .replace(/from '(\.{1,2}\/[^']+)'/g,(_,path)=>`from '${new URL(path,subject).href}'`);
+  const mutant=await import(`data:text/javascript;base64,${Buffer.from(broken).toString('base64')}`);
+  const {monitorData}=await import('../engine/monitor-data.mjs');
+  const refusesReset=reader=>assert.rejects(reader(runDir,{kind:'messages',generation:2,position:0}),{code:'ACTIVITY_CORRUPT'});
+  await refusesReset(monitorData);
+  await assert.rejects(()=>refusesReset(mutant.monitorData),{code:'ERR_ASSERTION'},'The regression must reject removal of messages-specific raw validation');
+  const restore=new DatabaseSync(join(runDir,'run.sqlite'));
+  restore.prepare('UPDATE activity_counts SET observed=? WHERE generation=1 AND position=0').run(observed);restore.close();
+  const intact=await(await get('/api/messages?generation=2&position=0')).json();assert.equal(intact.records[0].text,'terminal');
+  const db=new DatabaseSync(join(runDir,'run.sqlite'));db.exec('DROP TABLE completed_messages;DROP TABLE completed_message_counts');db.close();
+  const legacy=await(await get('/api/messages?generation=2&position=0')).json();assert.equal(legacy.available,false);assert.equal(legacy.coverage,'legacyRawOnly');assert.equal(legacy.priorActivityUncovered,301);
+  const check=new DatabaseSync(join(runDir,'run.sqlite'),{readOnly:true});assert.equal(check.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'completed_message%'").get().n,0);check.close();
+});
+
+test('deadline HTTP control preserves revision nullable turn and bounded receipt reads',async t=>{
+  const {runDir,createMonitor}=await setup(t);let announce,finish;
+  const ready=new Promise(resolve=>{announce=resolve;}),gate=new Promise(resolve=>{finish=resolve;});
+  const {createLiveDeadline}=await import('../engine/live-deadline.mjs');
+  const work=runWorkflow({runDir,sessionId:'owner',script:meta+'return await agent("A");',backend:backend(async({onDeadline})=>{const deadline=createLiveDeadline();deadline.start();onDeadline(deadline);announce();try{await gate;return{value:'A',terminalObserved:true};}finally{deadline.close();}})});
+  await ready;const monitor=await createMonitor({runDir});t.after(()=>monitor.close());const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token'),headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+  const post=value=>fetch(url.origin+'/api/control',{method:'POST',headers,body:JSON.stringify(value)});
+  try{
+    const input={generation:1,position:0,attempt:1,turnId:null,action:'worker-deadline',deadline:{operation:'set',expectedRevision:0,valueMs:600000}};
+    assert.equal((await post({...input,sessionId:'wrong'})).status,400);
+    for(const deadline of [{operation:'clear',expectedRevision:0,valueMs:1},{operation:'set',expectedRevision:0,valueMs:0},{operation:'extend',expectedRevision:0,valueMs:2,other:true}])assert.equal((await post({...input,deadline})).status,400);
+    for(const change of [{attempt:2},{generation:2},{turnId:'stale'},{deadline:{...input.deadline,expectedRevision:4}}])assert.equal((await post({...input,...change})).status,409);
+    const accepted=await post(input);assert.equal(accepted.status,202);const receipt=await accepted.json();assert.equal(receipt.deadline.expectedRevision,0);assert.equal(receipt.turnId,null);
+    assert.equal((await fetch(url.origin+`/api/control/receipts/${receipt.id}`)).status,401);
+    const read=await fetch(url.origin+`/api/control/receipts/${receipt.id}?generation=1`,{headers});assert.equal(read.status,200);assert.equal((await read.json()).id,receipt.id);
+    assert.equal((await fetch(url.origin+`/api/control/receipts/${receipt.id}?generation=2`,{headers})).status,409);
+    assert.equal((await fetch(url.origin+'/api/control/receipts/missing?generation=1',{headers})).status,404);
+  }finally{finish();await work;}
+});
+
+test('scoped deadlines bind data run runtime session and revision while unsupported controls stay inert',async t=>{
+  const {runDir,createMonitor}=await setup(t);await runWorkflow({runDir,sessionId:'s',script:meta+'return await agent("A");',backend:backend(async()=>({value:'A',terminalObserved:true}))});
+  const {monitorData}=await import('../engine/monitor-data.mjs'),{requestControl,readControl}=await import('../engine/controls.mjs');
+  const binding={version:1,scope:'session',dataInstanceId:'data',originatingSessionId:'s',pinnedRunId:basename(runDir),runtimeId:'retained'};
+  await writeFile(join(runDir,'runtime.json'),JSON.stringify({schema:2,id:binding.pinnedRunId,sessionId:'s',runtime:{id:'retained'}}));
+  const db=new DatabaseSync(join(runDir,'run.sqlite'));
+  const header=JSON.parse(db.prepare('SELECT value FROM header').get().value);header.status='running';header.acceptingControls=true;db.prepare('UPDATE header SET value=?').run(JSON.stringify(header));
+  const saved=JSON.parse(db.prepare('SELECT value FROM workers WHERE generation=1 AND position=0').get().value);Object.assign(saved,{status:'running',activeTurn:{threadId:'thread',turnId:'turn'},deadline:{status:'active',revision:3,remainingMs:60000,expiresAt:100000}});db.prepare('UPDATE workers SET value=? WHERE generation=1 AND position=0').run(JSON.stringify(saved));db.close();
+  const run={dataInstanceId:'data',runId:binding.pinnedRunId,runtimeId:'retained'};let supported=true,wrongSession=false;
+  const services={readRun:async({kind,...options})=>{const result=await monitorData(runDir,{...options,kind,runRef:run});return kind&&kind!=='summary'?result:{...result,sessionId:wrongSession?'wrong':'s',deadlineControls:{available:supported,receipts:true}};},
+    controlRun:({target,action,deadline})=>requestControl(runDir,{sessionId:'s',generation:target.generation,position:target.position,attempt:target.attempt,turnId:target.turnId,action,deadline}),
+    readControlReceipt:({receiptId})=>readControl(runDir,receiptId)};
+  const monitor=await createMonitor({runDir,binding,experienceServices:services});t.after(()=>monitor.close());const url=new URL(monitor.url),token=new URLSearchParams(url.hash.slice(1)).get('token'),headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+  const path=`/api/runs/${binding.pinnedRunId}/control`,post=input=>fetch(url.origin+path,{method:'POST',headers,body:JSON.stringify(input)}),target={...run,generation:1,position:0,attempt:1,turnId:'turn'},input={generation:1,position:0,attempt:1,turnId:'turn',target,action:'worker-deadline',deadline:{operation:'extend',expectedRevision:3,valueMs:1000}};
+  for(const change of [{dataInstanceId:'wrong'},{runId:'wrong'},{runtimeId:'wrong'},{generation:2},{attempt:2},{turnId:null}])assert.equal((await post({...input,target:{...target,...change}})).status,409);
+  assert.equal((await post({...input,sessionId:'s'})).status,400);assert.equal((await post({...input,deadline:{...input.deadline,expectedRevision:2}})).status,409);
+  supported=false;assert.equal((await post(input)).status,503);supported=true;wrongSession=true;assert.equal((await post(input)).status,403);wrongSession=false;
+  const accepted=await post(input);assert.equal(accepted.status,202);const receipt=await accepted.json();assert.equal(receipt.deadline.operation,'extend');
+  const response=await fetch(url.origin+`/api/runs/${binding.pinnedRunId}/control/receipts/${receipt.id}?generation=1`,{headers});assert.equal(response.status,200);assert.equal((await response.json()).id,receipt.id);
+  const check=new DatabaseSync(join(runDir,'run.sqlite'),{readOnly:true});assert.equal(check.prepare('SELECT count(*) AS n FROM controls').get().n,1);check.close();
+  assert.equal((await fetch(url.origin+`/api/runs/${binding.pinnedRunId}/messages?generation=1&position=0`,{headers})).status,200);
+  const advanced=new DatabaseSync(join(runDir,'run.sqlite'));header.generation=2;advanced.prepare('UPDATE header SET value=?').run(JSON.stringify(header));
+  const ledger=JSON.parse(advanced.prepare('SELECT value FROM admission WHERE generation=1').get().value);Object.assign(ledger,{generation:2,nextSlot:0,consumed:0,reserved:0,accepting:false});advanced.prepare('INSERT INTO admission VALUES(2,?)').run(JSON.stringify(ledger));advanced.close();
+  assert.equal((await fetch(url.origin+`/api/runs/${binding.pinnedRunId}/control/receipts/${receipt.id}?generation=1`,{headers})).status,200,'An observed ID remains readable after a later generation starts');
 });
 test('monitor pause persists a receipt and resume uses the server-owned session and observed generation',async t=>{
   const {runDir,createMonitor}=await setup(t);

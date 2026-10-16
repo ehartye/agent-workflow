@@ -54,6 +54,21 @@
     </section>
   </div>
   <div id="worker-card-menu" class="worker-card-menu" role="menu" aria-label="Worker evidence" hidden></div>
+  <div id="deadline-backdrop" class="deadline-backdrop" hidden>
+    <section id="deadline-dialog" role="dialog" aria-modal="true" aria-labelledby="deadline-heading" aria-describedby="deadline-context deadline-help" hidden>
+      <div class="panel-header"><h2 id="deadline-heading">Worker deadline</h2><button id="deadline-close" type="button" aria-label="Close deadline controls">×</button></div>
+      <form id="deadline-form" novalidate>
+        <p id="deadline-context" class="utility"></p><p id="deadline-budget" class="deadline-budget"></p>
+        <label for="deadline-operation">Change remaining time<select id="deadline-operation"><option value="set">Set remaining</option><option value="extend">Extend remaining</option><option value="clear">Clear</option></select></label>
+        <label id="deadline-value-label" for="deadline-value">Milliseconds<input id="deadline-value" type="text" inputmode="numeric" autocomplete="off" aria-describedby="deadline-help deadline-status"></label>
+        <p id="deadline-help" class="muted">Set starts a new remaining budget. Extend requires a finite budget. Clear removes the worker deadline.</p>
+        <p id="deadline-status" role="status" aria-live="polite"></p>
+        <div class="button-row"><button id="deadline-submit" type="submit">Apply deadline</button><button id="deadline-cancel" type="button">Cancel</button><button id="deadline-inspect" type="button" hidden>Inspect received receipt</button></div>
+        <p id="deadline-reconcile-help" class="muted" hidden>Inspect the saved control records and reconcile this request with the coordinator before marking it reviewed. A changed budget alone does not confirm the request.</p>
+        <button id="deadline-reconcile" type="button" hidden>Reconciliation completed</button>
+      </form>
+    </section>
+  </div>
   <section id="worker-quick-view" class="worker-quick-view" role="dialog" aria-modal="false" aria-labelledby="worker-quick-heading" hidden>
     <div class="panel-header"><h2 id="worker-quick-heading">Worker evidence</h2><button id="close-worker-quick" type="button" aria-label="Close worker evidence">×</button></div>
     <div id="worker-quick-context" class="muted"></div>

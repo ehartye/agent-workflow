@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {paths,readJson,noLinks,resolveRun} from '../bin/managed-runtime.mjs';
 import {readLifecycle,readLifecycleReceipt,requestLifecycle,planPrune,applyPrune} from './run-lifecycle.mjs';
 import {fault} from '../foundation/client.mjs';
+import {supportsDeadlineSnapshot} from './monitor/services.mjs';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const moduleAt=(owner,name)=>import(pathToFileURL(join(owner.runtime.path,'engine',name)).href);
@@ -26,16 +27,27 @@ export async function createSessionServices({dataDir,sessionId,pinnedRunId}){
     meta:{name:owner.id},lifecycle:{available:false,visibilityKnown:false,reason:'Execution data is unavailable; lifecycle changes are disabled.'},experience:{run:ref(owner),phases:[],workers:[]}});
   async function read(owner,options={}){
     const retained=await moduleAt(owner,'monitor-data.mjs');
+    if(options.kind==='messages'){
+      const activity=await moduleAt(owner,'activity.mjs');
+      if(typeof activity.readCompletedMessages!=='function'){
+        const raw=await retained.monitorData(owner.runDir,{...options,kind:'activity',runRef:ref(owner)});
+        if(!Number.isSafeInteger(raw.observed)||raw.observed<0)throw fault('ACTIVITY_CORRUPT','Retained raw history coverage is unavailable');
+        return{available:false,coverage:'legacyRawOnly',priorActivityUncovered:raw.observed,records:[],nextCursor:options.after??0,hasMore:false,sourceGeneration:raw.sourceGeneration,sourcePosition:raw.sourcePosition};
+      }
+    }
     let result;
     try{result=await retained.monitorData(owner.runDir,{...options,runRef:ref(owner)});}
     catch(error){if(!options.kind||options.kind==='summary')return unavailable(owner);throw error;}
+    if(options.kind==='messages'&&typeof result?.available!=='boolean')throw fault('MONITOR_UNAVAILABLE','Retained runtime message reader is unsupported');
     if(options.kind&&options.kind!=='summary')return result;
     if(result.sessionId!==sessionId)throw fault('MONITOR_OWNERSHIP','Saved execution differs from originating session');
     const lifecycle=await readLifecycle(owner.runDir);
+    const controls=await moduleAt(owner,'controls.mjs');
+    const available=typeof controls.requestControl==='function'&&typeof controls.validateDeadlineChange==='function'&&typeof controls.assertWorkerTarget==='function'&&(result.workers??[]).some(supportsDeadlineSnapshot);
     const {projectMonitorExperience}=await import('./monitor/experience.mjs');
     // Older bounded snapshots may omit task schemas. Such reports remain
     // unverified; no filename or worker self-report supplies acceptance proof.
-    return{...result,lifecycle:{...lifecycle,available:true},experience:result.experience?.run?.runtimeId===owner.runtime.id?{...result.experience,run:ref(owner)}:projectMonitorExperience({run:ref(owner),summary:result,workers:result.workers??[]})};
+    return{...result,deadlineControls:{available,receipts:typeof controls.readControl==='function',reason:available?null:'Retained runtime does not expose verified deadline controls.'},lifecycle:{...lifecycle,available:true},experience:result.experience?.run?.runtimeId===owner.runtime.id?{...result.experience,run:ref(owner)}:projectMonitorExperience({run:ref(owner),summary:result,workers:result.workers??[]})};
   }
   async function targetOwner(target){
     if(!target||target.dataInstanceId!==dataInstanceId)throw fault('MONITOR_TARGET','Control target belongs to another data instance');
@@ -69,16 +81,30 @@ export async function createSessionServices({dataDir,sessionId,pinnedRunId}){
       const offset=Number(cursor??0);if(offset>items.length)throw fault('HTTP_INPUT','Session page cursor is outside the current inventory');
       return{items:items.slice(offset,offset+limit),nextCursor:offset+limit<items.length?String(offset+limit):null,hiddenCount,unknownCount,unavailableCount};
     },
-    async controlRun({target,action,text,reconciliation}){
+    async controlRun({target,action,text,deadline,reconciliation}){
       const {owner,snapshot}=await targetOwner(target);
       if(['resume','restart'].includes(action)){
         if(snapshot.lifecycle.run.pruned||snapshot.lifecycle.workers.some(w=>w.pruned)||snapshot.lifecycle.counts.uncertainPrunes)throw fault('REPLAY_PRUNED','Retired or uncertain lifecycle evidence prevents reuse');
         const retained=await moduleAt(owner,'background.mjs');
         return retained.startBackground({runDir:owner.runDir,sessionId,resume:true,expectedGeneration:target.generation,...(action==='restart'?{restart:{position:target.position,attempt:target.attempt,reconciliation}}:{})});
       }
-      if(!['pause','stop','steer','cancel-worker'].includes(action))throw fault('HTTP_INPUT','Unsupported execution control');
+      if(!['pause','stop','steer','cancel-worker','worker-deadline'].includes(action))throw fault('HTTP_INPUT','Unsupported execution control');
       const retained=await moduleAt(owner,'controls.mjs');
-      return retained.requestControl(owner.runDir,{sessionId,generation:target.generation,action,...(target.position===undefined?{}:{position:target.position,attempt:target.attempt,turnId:target.turnId??null}),...(text===undefined?{}:{text})});
+      if(action==='worker-deadline'){
+        if(snapshot.deadlineControls?.available!==true||typeof retained.validateDeadlineChange!=='function'||typeof retained.assertWorkerTarget!=='function')throw fault('MONITOR_UNAVAILABLE','Retained runtime deadline controls are unsupported');
+        deadline=retained.validateDeadlineChange(deadline);
+        retained.assertWorkerTarget(snapshot.workers.find(worker=>worker.position===target.position),{action,attempt:target.attempt,turnId:target.turnId,deadline});
+      }else if(deadline!==undefined)throw fault('CONTROL_INPUT','Deadline fields require a worker-deadline action');
+      return retained.requestControl(owner.runDir,{sessionId,generation:target.generation,action,...(target.position===undefined?{}:{position:target.position,attempt:target.attempt,turnId:target.turnId}),...(text===undefined?{}:{text}),...(deadline===undefined?{}:{deadline})});
+    },
+    async readControlReceipt({runId,receiptId,generation}){
+      if(typeof receiptId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(receiptId)||!Number.isSafeInteger(generation)||generation<1)throw fault('HTTP_INPUT','Invalid control receipt identity');
+      const owner=await resolveOwner(runId),snapshot=await read(owner),retained=await moduleAt(owner,'controls.mjs');
+      if(!Number.isSafeInteger(snapshot.generation)||snapshot.generation<generation)throw fault('REPLAY_GENERATION','Receipt generation is outside the saved run');
+      if(typeof retained.readControl!=='function')throw fault('MONITOR_UNAVAILABLE','Retained control receipt reader is unsupported');
+      const receipt=await retained.readControl(owner.runDir,receiptId);
+      if(receipt?.id!==receiptId||receipt.generation!==generation||Buffer.byteLength(JSON.stringify(receipt))>40000)throw fault('MONITOR_RECEIPT','Retained control receipt identity or bounds differ');
+      return receipt;
     },
     async lifecycle(input){
       const {owner}=await targetOwner(input.runTarget);

@@ -5,6 +5,7 @@ import {TOOL_METHOD,boundedToolId,copyToolObservation,copyToolSummary} from '../
 const usageKeys=['inputTokens','cachedInputTokens','outputTokens','reasoningOutputTokens','totalTokens','cacheWriteInputTokens'];
 const methods=new Set(['item/started','item/completed','item/commandExecution/outputDelta','item/agentMessage/delta','turn/plan/updated','turn/diff/updated','thread/tokenUsage/updated','turn/completed']);
 const commandLimits=Object.freeze({workerRecords:128,workerBytes:65536,generationRecords:1024,generationBytes:524288,recordBytes:2048,hashInputBytes:65536});
+const messageLimits=Object.freeze({workerRecords:64,workerBytes:1048576,generationRecords:256,generationBytes:4194304,textBytes:32768,recordBytes:36864});
 export function createActivityTable(db){
   db.exec('CREATE TABLE IF NOT EXISTS activity(seq INTEGER PRIMARY KEY,generation INTEGER NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL);CREATE INDEX IF NOT EXISTS activity_worker ON activity(generation,position,seq);CREATE INDEX IF NOT EXISTS activity_generation ON activity(generation,seq);CREATE TABLE IF NOT EXISTS activity_counts(generation INTEGER NOT NULL,position INTEGER NOT NULL,observed INTEGER NOT NULL,PRIMARY KEY(generation,position));');
   db.exec(`CREATE TABLE IF NOT EXISTS command_facts(seq INTEGER PRIMARY KEY,generation INTEGER NOT NULL,position INTEGER NOT NULL,bytes INTEGER NOT NULL,value TEXT NOT NULL);
@@ -12,6 +13,108 @@ export function createActivityTable(db){
     CREATE INDEX IF NOT EXISTS command_facts_generation ON command_facts(generation,seq);
     CREATE TABLE IF NOT EXISTS command_fact_counts(generation INTEGER NOT NULL,position INTEGER NOT NULL,observed INTEGER NOT NULL DEFAULT 0,evicted_count INTEGER NOT NULL DEFAULT 0,evicted_bytes INTEGER NOT NULL DEFAULT 0,uncovered_activity INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(generation,position));
     INSERT OR IGNORE INTO command_fact_counts(generation,position,uncovered_activity) SELECT generation,position,observed FROM activity_counts;`);
+  db.exec(`CREATE TABLE IF NOT EXISTS completed_messages(id TEXT PRIMARY KEY,terminal_seq INTEGER NOT NULL UNIQUE,generation INTEGER NOT NULL,position INTEGER NOT NULL,bytes INTEGER NOT NULL,value TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS completed_messages_worker ON completed_messages(generation,position,terminal_seq);
+    CREATE INDEX IF NOT EXISTS completed_messages_generation ON completed_messages(generation,terminal_seq);
+    CREATE TABLE IF NOT EXISTS completed_message_counts(generation INTEGER NOT NULL,position INTEGER NOT NULL,notifications INTEGER NOT NULL DEFAULT 0,insertions INTEGER NOT NULL DEFAULT 0,replacements INTEGER NOT NULL DEFAULT 0,duplicate_noops INTEGER NOT NULL DEFAULT 0,evicted_count INTEGER NOT NULL DEFAULT 0,evicted_bytes INTEGER NOT NULL DEFAULT 0,uncovered_activity INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(generation,position));
+    INSERT OR IGNORE INTO completed_message_counts(generation,position,uncovered_activity) SELECT generation,position,observed FROM activity_counts;`);
+}
+const messageCorrupt=()=>fault('ACTIVITY_CORRUPT','Completed message identity, bytes or coverage are invalid');
+const messageId=value=>createHash('sha256').update(JSON.stringify([value.generation,value.position,value.attempt,value.threadId,value.turnId,value.itemId])).digest('hex');
+function serializeMessage(record){
+  for(let i=0;i<4;i++){const bytes=Buffer.byteLength(JSON.stringify(record));if(bytes===record.bytes)break;record.bytes=bytes;}
+  return JSON.stringify(record);
+}
+function messageRecord(row,generation,position){
+  if(!Number.isSafeInteger(row.bytes)||row.bytes<1||row.bytes>messageLimits.recordBytes||typeof row.value!=='string'||Buffer.byteLength(row.value)!==row.bytes)throw messageCorrupt();
+  let value;try{value=JSON.parse(row.value);}catch{throw messageCorrupt();}
+  if(!exact(value,['id','terminalSeq','generation','position','attempt','threadId','turnId','itemId','text','terminalObserved','complete','truncations','bytes'])||value.id!==row.id||value.id!==messageId(value)||value.terminalSeq!==row.terminal_seq||!Number.isSafeInteger(value.terminalSeq)||value.terminalSeq<1||value.generation!==generation||value.position!==position||!Number.isSafeInteger(value.attempt)||value.attempt<0||![value.threadId,value.turnId,value.itemId].every(boundedToolId)||typeof value.text!=='string'||!value.text.isWellFormed()||Buffer.byteLength(value.text)>messageLimits.textBytes||value.terminalObserved!==true||typeof value.complete!=='boolean'||!Array.isArray(value.truncations)||value.truncations.length>3||new Set(value.truncations).size!==value.truncations.length||value.truncations.some(key=>!['sourceTruncated','textBytes','recordBytes'].includes(key))||value.complete!==(value.truncations.length===0)||value.bytes!==row.bytes)throw messageCorrupt();
+  return value;
+}
+function completedMessage(db,message,worker,generation,record){
+  const item=message.params?.item;
+  if(message.method!=='item/completed'||item?.type!=='agentMessage'||typeof item.text!=='string')return null;
+  if(!Number.isSafeInteger(generation)||generation<1||!Number.isInteger(worker.position)||worker.position<0||worker.position>=1000||!Number.isSafeInteger(record.attempt)||record.attempt<0||![record.threadId,record.turnId,item.id].every(boundedToolId)||!item.text.isWellFormed()||worker.activeTurn&&(worker.activeTurn.threadId!==record.threadId||worker.activeTurn.turnId!==record.turnId))throw fault('ACTIVITY_INPUT','Completed messages require exact terminal identities and plain text');
+  const truncations=[];
+  if(Array.isArray(item.truncated)&&item.truncated.some(key=>['text','item'].includes(key)))truncations.push('sourceTruncated');
+  let text=item.text;
+  if(Buffer.byteLength(text)>messageLimits.textBytes){
+    const bytes=Buffer.from(text);let end=messageLimits.textBytes;
+    while((bytes[end]&0xc0)===0x80)end--;
+    text=bytes.subarray(0,end).toString('utf8');truncations.push('textBytes');
+  }
+  const value={generation,position:worker.position,attempt:record.attempt,threadId:record.threadId,turnId:record.turnId,itemId:item.id,text,terminalObserved:true,complete:!truncations.length,truncations};
+  const id=messageId(value);
+  // Reserve the largest possible raw cursor spelling when sizing. Escaped
+  // control characters can exceed the record budget below the plain-text cap.
+  const sized={id,terminalSeq:Number.MAX_SAFE_INTEGER,...value,bytes:0};
+  if(Buffer.byteLength(serializeMessage(sized))>messageLimits.recordBytes){
+    truncations.push('recordBytes');value.complete=false;sized.complete=false;
+    const points=[...text];let low=0,high=points.length;
+    while(low<high){const mid=Math.ceil((low+high)/2);sized.text=points.slice(0,mid).join('');if(Buffer.byteLength(serializeMessage(sized))<=messageLimits.recordBytes)low=mid;else high=mid-1;}
+    value.text=points.slice(0,low).join('');
+  }
+  text=value.text;
+  const row=db.prepare('SELECT * FROM completed_messages WHERE id=?').get(id);
+  if(!row)return{id,value,change:'insertions'};
+  const prior=messageRecord(row,generation,worker.position);
+  if(prior.text===text&&prior.complete===value.complete&&JSON.stringify(prior.truncations)===JSON.stringify(truncations))return{id,value,change:'duplicate_noops'};
+  // A later terminal may improve an explicitly incomplete prefix. Never replace
+  // complete truth, shorten text, or join deltas/turns/attempts into an answer.
+  if(!prior.complete&&text.startsWith(prior.text)&&truncations.every(key=>prior.truncations.includes(key))&&(text.length>prior.text.length||truncations.length<prior.truncations.length))return{id,value,change:'replacements'};
+  throw messageCorrupt();
+}
+function retainMessage(db,pending,seq){
+  const {id,change}=pending,{generation,position}=pending.value;
+  db.prepare('INSERT OR IGNORE INTO completed_message_counts(generation,position) VALUES(?,?)').run(generation,position);
+  const counters=db.prepare('SELECT * FROM completed_message_counts WHERE generation=? AND position=?').get(generation,position);
+  if(['notifications','insertions','replacements','duplicate_noops','evicted_count','evicted_bytes','uncovered_activity'].some(key=>!Number.isSafeInteger(counters[key])||counters[key]<0||counters[key]>=Number.MAX_SAFE_INTEGER))throw messageCorrupt();
+  db.prepare(`UPDATE completed_message_counts SET notifications=notifications+1,${change}=${change}+1 WHERE generation=? AND position=?`).run(generation,position);
+  if(change==='duplicate_noops')return;
+  const record={id,terminalSeq:seq,...pending.value,bytes:0};
+  const value=serializeMessage(record),bytes=Buffer.byteLength(value);
+  if(bytes!==record.bytes||bytes>messageLimits.recordBytes)throw fault('ACTIVITY_LIMIT','Completed message exceeded its serialized byte limit');
+  if(change==='replacements')db.prepare('DELETE FROM completed_messages WHERE id=?').run(id);
+  db.prepare('INSERT INTO completed_messages VALUES(?,?,?,?,?,?)').run(id,seq,generation,position,bytes,value);
+  for(const scoped of [true,false]){
+    const where=scoped?'generation=? AND position=?':'generation=?',args=scoped?[generation,position]:[generation];
+    for(;;){
+      const totals=db.prepare(`SELECT count(*) AS n,coalesce(sum(bytes),0) AS bytes FROM completed_messages WHERE ${where}`).get(...args);
+      const countExceeded=totals.n>(scoped?messageLimits.workerRecords:messageLimits.generationRecords);
+      if(!countExceeded&&totals.bytes<=(scoped?messageLimits.workerBytes:messageLimits.generationBytes))break;
+      const victim=db.prepare(`SELECT id,position FROM completed_messages WHERE ${where} ORDER BY terminal_seq LIMIT 1`).get(...args);
+      db.prepare('DELETE FROM completed_messages WHERE id=?').run(victim.id);
+      db.prepare(`UPDATE completed_message_counts SET ${countExceeded?'evicted_count=evicted_count+1':'evicted_bytes=evicted_bytes+1'} WHERE generation=? AND position=?`).run(generation,victim.position);
+    }
+  }
+}
+
+export function readCompletedMessages(db,{generation,position,after=0,limit=50}){
+  if(!Number.isSafeInteger(generation)||generation<1||!Number.isInteger(position)||position<0||position>=1000||!Number.isSafeInteger(after)||after<0||!Number.isInteger(limit)||limit<1||limit>100)throw fault('ACTIVITY_INPUT','Message paging requires exact generation, worker and bounded cursor/limit');
+  const observed=db.prepare('SELECT observed FROM activity_counts WHERE generation=? AND position=?').get(generation,position)?.observed??0;
+  if(!Number.isSafeInteger(observed)||observed<0)throw messageCorrupt();
+  const tables=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('completed_messages','completed_message_counts')").all();
+  if(tables.length===0)return{available:false,coverage:'legacyRawOnly',priorActivityUncovered:observed,records:[],nextCursor:after,hasMore:false};
+  if(tables.length!==2)throw messageCorrupt();
+  // Validate actual SQLite UTF-8 lengths and all generation budgets BEFORE
+  // materializing any message body in JS, including rows outside this page.
+  const totals=db.prepare('SELECT count(*) AS n,coalesce(sum(bytes),0) AS bytes,coalesce(sum(CASE WHEN bytes<1 OR bytes>? OR bytes!=length(CAST(value AS BLOB)) THEN 1 ELSE 0 END),0) AS invalid FROM completed_messages WHERE generation=?').get(messageLimits.recordBytes,generation);
+  if(totals.invalid||!Number.isSafeInteger(totals.bytes)||totals.bytes<0||totals.n>messageLimits.generationRecords||totals.bytes>messageLimits.generationBytes)throw messageCorrupt();
+  const scopes=db.prepare('SELECT position,count(*) AS n,sum(bytes) AS bytes FROM completed_messages WHERE generation=? GROUP BY position').all(generation);
+  const counters=db.prepare('SELECT * FROM completed_message_counts WHERE generation=?').all(generation);
+  if(counters.length>1000||scopes.length>1000)throw messageCorrupt();
+  for(const c of counters){
+    const scoped=scopes.find(row=>row.position===c.position)??{n:0,bytes:0};
+    const raw=db.prepare('SELECT observed FROM activity_counts WHERE generation=? AND position=?').get(generation,c.position)?.observed??0;
+    if(!Number.isInteger(c.position)||c.position<0||c.position>=1000||['notifications','insertions','replacements','duplicate_noops','evicted_count','evicted_bytes','uncovered_activity'].some(key=>!Number.isSafeInteger(c[key])||c[key]<0)||!Number.isSafeInteger(raw)||raw<0||!Number.isSafeInteger(c.notifications+c.uncovered_activity)||c.notifications+c.uncovered_activity>raw||c.notifications!==c.insertions+c.replacements+c.duplicate_noops||scoped.n!==c.insertions-c.evicted_count-c.evicted_bytes||scoped.n>messageLimits.workerRecords||scoped.bytes>messageLimits.workerBytes)throw messageCorrupt();
+  }
+  if(scopes.some(row=>!counters.some(c=>c.position===row.position)))throw messageCorrupt();
+  const c=counters.find(c=>c.position===position),scoped=scopes.find(row=>row.position===position)??{n:0,bytes:0};
+  if(!c&&observed>0)throw messageCorrupt();
+  const rows=db.prepare('SELECT * FROM completed_messages WHERE generation=? AND position=? AND terminal_seq>? ORDER BY terminal_seq LIMIT ?').all(generation,position,after,limit+1);
+  const records=[];let pageBytes=0;
+  for(const row of rows.slice(0,limit)){if(pageBytes+row.bytes>524288)break;records.push(messageRecord(row,generation,position));pageBytes+=row.bytes;}
+  return{schemaVersion:1,available:true,coverage:'terminalNotificationsOnly',limits:{...messageLimits},counts:{terminalNotificationsObserved:c?.notifications??0,insertions:c?.insertions??0,replacements:c?.replacements??0,duplicateNoops:c?.duplicate_noops??0,retained:scoped.n,evictedCountLimit:c?.evicted_count??0,evictedByteLimit:c?.evicted_bytes??0,retainedBytes:scoped.bytes,priorActivityUncovered:c?.uncovered_activity??0},records,nextCursor:records.at(-1)?.terminalSeq??after,hasMore:rows.length>records.length};
 }
 function commandOutcome(event,status,exitCode,timedOut){
   if(event==='started')return'unknown';
@@ -142,6 +245,7 @@ function normalized(message,worker){
 export function recordActivity(db,{generation,worker,message}){
   const record=normalized(message,worker);if(!record)return;
   const fact=commandFact(message,worker,generation,record);
+  const completed=completedMessage(db,message,worker,generation,record);
   let usageByThread,usage;
   if(record.usage){
     const prior=worker.usageByThread?.[record.threadId];
@@ -154,6 +258,8 @@ export function recordActivity(db,{generation,worker,message}){
   const seq=Number(db.prepare('INSERT INTO activity(generation,position,value) VALUES(?,?,?)').run(generation,worker.position,JSON.stringify(record)).lastInsertRowid);
   db.prepare('INSERT OR IGNORE INTO command_fact_counts(generation,position) VALUES(?,?)').run(generation,worker.position);
   if(fact)retainCommandFact(db,fact,seq);
+  db.prepare('INSERT OR IGNORE INTO completed_message_counts(generation,position) VALUES(?,?)').run(generation,worker.position);
+  if(completed)retainMessage(db,completed,seq);
   db.prepare('INSERT INTO activity_counts(generation,position,observed) VALUES(?,?,1) ON CONFLICT(generation,position) DO UPDATE SET observed=observed+1').run(generation,worker.position);
   db.prepare('DELETE FROM activity WHERE generation=? AND position=? AND seq < (SELECT seq FROM activity WHERE generation=? AND position=? ORDER BY seq DESC LIMIT 1 OFFSET 255)').run(generation,worker.position,generation,worker.position);
   db.prepare('DELETE FROM activity WHERE generation=? AND seq < (SELECT seq FROM activity WHERE generation=? ORDER BY seq DESC LIMIT 1 OFFSET 4095)').run(generation,generation);

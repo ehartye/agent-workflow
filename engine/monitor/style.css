@@ -239,3 +239,17 @@ dd { margin:4px 0; font-size:14px; overflow-wrap:anywhere; }
 .quick-facts dt { color:var(--muted); }.quick-facts dd { margin:0; white-space:pre-wrap; }
 @media(max-width:599px) { .worker-quick-view { left:8px!important; right:8px; top:auto!important; bottom:8px; width:auto; max-height:80dvh; } }
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto!important; transition:none!important; animation:none!important; } }
+.deadline-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.deadline-row .worker-deadline { margin:0; min-width:0; }
+.deadline-row button { flex:none; }
+.deadline-backdrop { position:fixed; inset:0; z-index:40; display:grid; place-items:center; padding:16px; background:#08121e99; }
+#deadline-dialog { width:420px; max-width:100%; max-height:calc(100dvh - 32px); overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:9px; box-shadow:0 12px 40px #08121e66; }
+#deadline-heading { min-width:0; overflow-wrap:anywhere; }
+#deadline-close { flex:none; }
+#deadline-context { min-width:0; overflow-wrap:anywhere; }
+#deadline-form { padding:12px 16px 16px; }
+#deadline-form label { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
+#deadline-form input { padding:8px; width:100%; font-family:var(--mono); }
+.deadline-budget { border-left:3px solid var(--cyan); padding:8px 12px; background:var(--selected); font-family:var(--mono); font-variant-numeric:tabular-nums; }
+#deadline-status { overflow-wrap:anywhere; }
+@media(max-width:599px) { .deadline-backdrop { align-items:end; padding:8px; } #deadline-dialog { width:100%; max-height:calc(100dvh - 16px); } #deadline-form button,#deadline-close { min-height:44px; } }

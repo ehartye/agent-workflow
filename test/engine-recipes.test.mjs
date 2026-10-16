@@ -1,15 +1,21 @@
 /** @lane merge
  * @subject workflows/decomposition-delivery.js
+ * @subject workflows/criterion-review.js
+ * @subject workflows/evidence-research.js
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveWorkflow } from '../engine/registry.mjs';
+import { resolveWorkflow, listWorkflows } from '../engine/registry.mjs';
+import { evaluate } from '../engine/evaluate.mjs';
+import { compileSchema } from '../engine/schema.mjs';
+import { selectCapabilities } from '../engine/worker-capabilities.mjs';
+import { createHash } from 'node:crypto';
 import { parseScript } from '../engine/script.mjs';
 import {runWorkflow} from '../engine/controller.mjs';
 import {createSettings} from '../engine/settings.mjs';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 async function recipe(t,name,args,respond,{permissions,expectedStatus='completed'}={}){
@@ -26,6 +32,11 @@ test('documented task shapes are real parseable named JS workflows',async()=>{
  for(const name of ['item-audit','fix-until-check-passes','isolated-migration','changed-file-review','cross-source-research','loop-until-dry','decomposition-delivery']){
   const found=await resolveWorkflow('plugin:'+name);const parsed=parseScript(found.script);assert(parsed.meta.name);assert.match(parsed.body,/\b(agent|pipeline|parallel)\s*\(/);assert.match(parsed.body,/return\b/);
  }
+});
+test('criterion and evidence recipes are discoverable bundled definitions',async()=>{
+ const names=(await listWorkflows()).filter(row=>row.scope==='plugin').map(row=>row.name);
+ assert(names.includes('criterion-review'),'Missing criterion-review recipe');
+ assert(names.includes('evidence-research'),'Missing evidence-research recipe');
 });
 test('item audit calls an independent verifier for each finding and preserves lost item/verifier slots',async t=>{
  const {result,calls}=await recipe(t,'item-audit',{items:[{id:'ok',scope:'src'},{id:'lost',scope:'missing'}]},request=>{
@@ -152,4 +163,259 @@ test('unknown replacements reject forged receipt references while independent sa
  replacement.prior.outcome='failed';replacement.prior.effects='reconciled';
  const reconciled=await recipe(t,'decomposition-delivery',{planRevision:plan},request=>{assert.notEqual(request.label,'replacement');if(request.phase==='Scout')return scoutReport(request);assert.equal(request.label,'safe');return taskReport(request.label);},{permissions:deliveryPermissions});
  assert.equal(reconciled.result.rows[0].report,null,'Caller classification as reconciled is not authority');assert.equal(reconciled.result.planRevision.replacements[0].prior.outcome,'failed');
+});
+
+// This seam runs the actual separate QuickJS process. Only model/native dispatch is
+// replaced; the controlled respondents inspect real fixture bytes. It does not
+// certify native activation, tool operation, research quality or delivery acceptance.
+async function capturedRecipe(name,args,respond,{script,admit}={}){
+ const calls=[];
+ const source=script??(await resolveWorkflow('plugin:'+name)).script;
+ const result=await evaluate(source,{args,call:async(method,params)=>{
+  if(method!=='agent')return null;
+  const task=JSON.parse(params.prompt);const call={...params,task};calls.push(call);
+  admit?.(params.options);
+  const value=await respond(call,calls);
+  if(value===null)return null;
+  const schema=compileSchema(params.options.schema);
+  assert(schema.validate(value),JSON.stringify(schema.errors()));
+  return value;
+ }});
+ return {result,calls};
+}
+const noSelection=()=>({skills:[],requireTools:[]});
+function selections(roles){return Object.fromEntries(roles.map(role=>[role,noSelection()]));}
+async function evidenceFixture(t){
+ const root=await mkdtemp(path.join(os.tmpdir(),'workflow-evidence-'));
+ t.after(()=>rm(root,{recursive:true,force:true}));
+ const file=path.join(root,'evidence.txt');const bytes=Buffer.from('Independent fixture evidence\n');
+ await writeFile(file,bytes);
+ return {path:file,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length};
+}
+async function inspectEvidence(ref){
+ try{const bytes=await readFile(ref.path);const sha256=createHash('sha256').update(bytes).digest('hex');return {...ref,sha256,bytes:bytes.length,status:sha256===ref.sha256&&bytes.length===ref.bytes?'verified':'changed'};}
+ catch(error){if(error.code!=='ENOENT')throw error;return {...ref,status:'missing'};}
+}
+function criterionArgs(ref){return {version:1,criteria:[{id:'__proto__',text:'The evidence meets the criterion',evidenceRefs:[ref]}],artifactInventory:[ref],roleSelections:selections(['reviewer','skeptic','reducer']),limits:{maxCriteria:32,maxStarts:5,maxRounds:1}};}
+async function criterionResponse({task}){
+ if(task.role==='reducer')return {summary:'Claims only; coordinator must inspect evidence',dissent:[]};
+ return {criterionId:task.criterion.id,verdict:'pass',evidenceRefs:await Promise.all(task.criterion.evidenceRefs.map(inspectEvidence)),dissent:[]};
+}
+test('criterion review forwards genuine selections to distinct evidence-reading roles',async t=>{
+ const ref=await evidenceFixture(t);const args=criterionArgs(ref);
+ args.roleSelections.reviewer={skills:['review-skill'],requireTools:['review-tool']};
+ args.roleSelections.skeptic={skills:['skeptic-skill'],requireTools:['inspect-tool']};
+ const {result,calls}=await capturedRecipe('criterion-review',args,criterionResponse);
+ assert.equal(calls.length,3);assert.equal(new Set(calls.map(c=>c.options.id)).size,3);
+ for(const call of calls){assert.deepEqual(call.options.skills,args.roleSelections[call.task.role].skills);assert.deepEqual(call.options.requireTools,args.roleSelections[call.task.role].requireTools);assert.equal(call.options.maxAttempts,1);assert.equal(call.options.timeoutMs,null);}
+ const skeptic=calls.find(c=>c.task.role==='skeptic');assert.deepEqual(skeptic.task.artifactInventory,[ref]);assert.equal(skeptic.task.review.verdict,'pass');
+ assert.match(skeptic.task.instructions,/independent/i);assert.match(skeptic.task.instructions,/skills.list/);
+ assert.equal(result.rows[0].status,'reportedPass');assert.deepEqual(result.coveredIds,['__proto__']);assert.deepEqual(result.missingIds,[]);assert.equal(result.complete,false);assert.equal(result.completionAuthority,'coordinator');
+});
+test('criterion null skeptic and missing skill cannot become a pass through reduction',async t=>{
+ const args=criterionArgs(await evidenceFixture(t));
+ const {result,calls}=await capturedRecipe('criterion-review',args,call=>{
+  if(call.task.role==='skeptic')throw new Error('Selected skill unavailable');return criterionResponse(call);
+ });
+ assert.equal(calls.length,3);assert.equal(result.rows[0].rounds[0].skeptic,null);assert.equal(result.rows[0].status,'unverified');assert.deepEqual(result.missingIds,['__proto__']);assert.equal(result.complete,false);
+});
+test('criterion hash drift, missing file and dissent survive independent review',async t=>{
+ const ref=await evidenceFixture(t);const args=criterionArgs(ref);await writeFile(ref.path,'changed bytes');
+ const changed=await capturedRecipe('criterion-review',args,criterionResponse);
+ assert.equal(changed.result.rows[0].status,'unverified');assert.equal(changed.result.rows[0].rounds[0].review.evidenceRefs[0].status,'changed');
+ await rm(ref.path);const missing=await capturedRecipe('criterion-review',args,criterionResponse);assert.equal(missing.result.rows[0].status,'unverified');assert.equal(missing.result.rows[0].rounds[0].skeptic.evidenceRefs[0].status,'missing');
+ await writeFile(ref.path,'Independent fixture evidence\n');
+ const dissent=await capturedRecipe('criterion-review',args,async call=>{const row=await criterionResponse(call);if(call.task.role==='skeptic'){row.verdict='fail';row.dissent=['Counterexample in the evidence'];}return row;});
+ assert.equal(dissent.result.rows[0].status,'reportedFail');assert(dissent.result.rows[0].dissent.includes('Counterexample in the evidence'));
+});
+test('criterion round history cannot erase an earlier null slot',async t=>{
+ const args=criterionArgs(await evidenceFixture(t));args.limits.maxRounds=2;
+ const {result,calls}=await capturedRecipe('criterion-review',args,call=>call.task.role==='skeptic'&&call.task.round===1?null:criterionResponse(call));
+ assert.equal(calls.length,5);assert.equal(result.rows[0].rounds.length,2);assert.equal(result.rows[0].rounds[0].skeptic,null);assert.equal(result.rows[0].status,'unverified');
+});
+function researchArgs(ref){return {version:1,sources:[{id:'__proto__',...ref,modality:'text'}],questions:[{id:'question',text:'What does the fixture support?'}],roleSelections:selections(['reader','skeptic','reducer']),limits:{maxSources:64,maxStarts:6,maxRounds:1,dryRoundLimit:2}};}
+async function researchResponse({task}){
+ if(task.role==='reducer')return {summary:'Retain source coverage',dissent:[]};
+ const evidence=await inspectEvidence(task.source);
+ const evidenceRef={path:evidence.path,sha256:evidence.sha256,bytes:evidence.bytes,status:evidence.status};
+ if(task.role==='skeptic')return {sourceId:task.source.id,disposition:'read',verdict:'supported',questionIds:['question'],evidenceRefs:[evidenceRef],limitations:[],dissent:[]};
+ return {sourceId:task.source.id,disposition:'read',evidenceRefs:[evidenceRef],answers:[{questionId:'question',text:'Fixture-supported answer'}],limitations:[],dissent:[],needsNextRound:false};
+}
+test('criterion coverage reducer has a coherent role while original dissent and null slots stay authoritative',async t=>{
+ const args=criterionArgs(await evidenceFixture(t));args.criteria.push({...args.criteria[0],id:'missing'});
+ const {result,calls}=await capturedRecipe('criterion-review',args,async call=>{
+  const {task}=call;
+  if(task.role==='reducer'){
+   assert.equal(task.summaryScope,'reportedCoverageOnly');assert.match(task.instructions,/coverage.only/i);
+   assert.doesNotMatch(task.instructions,/Verify regular files|full SHA-256|Perform independent inspection/);
+   assert.match(task.instructions,/skills\.list/);assert.match(task.instructions,/skills\.read/);
+   assert(task.rows[0].dissentCount>0);assert.equal(task.rows[1].rounds[0].skeptic,null);
+   return {summary:'Reported coverage only; original evidence remains for coordinator review',dissent:[]};
+  }
+  if(task.role==='skeptic'&&task.criterion.id==='missing')return null;
+  const report=await criterionResponse(call);
+  if(task.role==='skeptic'){report.verdict='fail';report.dissent=['Independent counterexample'];}
+  return report;
+ });
+ assert.equal(calls.length,5);assert.deepEqual(result.missingRoles,[]);assert.match(result.reduction.summary,/coverage only/);
+ assert.equal(result.rows[0].status,'reportedFail');assert(result.rows[0].dissent.includes('Independent counterexample'));
+ assert.equal(result.rows[1].rounds[0].skeptic,null);assert.deepEqual(result.missingIds,['missing']);assert.equal(result.complete,false);
+});
+
+test('research coverage reducer receives disputes without inventing source inspection or replacing original answers',async t=>{
+ const args=researchArgs(await evidenceFixture(t));args.sources.push({...args.sources[0],id:'counterevidence'});
+ const {result,calls}=await capturedRecipe('evidence-research',args,async call=>{
+  const {task}=call;
+  if(task.role==='reducer'){
+   assert.equal(task.summaryScope,'reportedCoverageOnly');assert.match(task.instructions,/coverage.only/i);
+   assert.doesNotMatch(task.instructions,/Verify regular file|full SHA-256|Perform independent evidence inspection/);
+   assert.match(task.instructions,/skills\.list/);assert.match(task.instructions,/skills\.read/);
+   assert.deepEqual(task.disputedQuestionIds,['question']);assert.equal(task.rows[1].dissentCount,1);
+   return {summary:'Two sources reported read; the question remains disputed',dissent:['Original dissent is retained in source reports']};
+  }
+  const report=await researchResponse(call);
+  if(task.role==='skeptic'&&task.source.id==='counterevidence'){report.verdict='contradicted';report.dissent=['Independent source disagrees'];}
+  return report;
+ });
+ assert.equal(calls.length,5);assert.deepEqual(result.missingRoles,[]);assert.match(result.reductions[0].summary,/disputed/);
+ assert.deepEqual(result.disputedQuestionIds,['question']);assert.deepEqual(result.missingQuestionIds,['question']);
+ assert.equal(result.rows[0].rounds[0].read.answers[0].text,'Fixture-supported answer');
+ assert(result.rows[1].dissent.includes('Independent source disagrees'));assert.equal(result.counts.read,2);assert.equal(result.complete,false);
+});
+
+test('research preserves mutually exclusive sampled, dropped, inaccessible, partial and null source coverage',async t=>{
+ const ref=await evidenceFixture(t);const args=researchArgs(ref);args.limits.maxStarts=32;
+ args.roleSelections={reader:{skills:['reader-skill'],requireTools:['read-tool']},skeptic:{skills:['skeptic-skill'],requireTools:['inspect-tool']},reducer:{skills:['reduce-skill'],requireTools:[]}};
+ args.sources=['read','sampled','dropped','inaccessible','partial','lost','null-skeptic'].map(id=>({id,...ref,modality:id==='inaccessible'?'image':'text',...(['sampled','dropped'].includes(id)?{selection:{disposition:id,reason:'Explicit coordinator exclusion'}}:{})}));
+ const {result,calls}=await capturedRecipe('evidence-research',args,async call=>{
+  const id=call.task.source?.id;if(id==='lost'&&call.task.role==='reader')throw new Error('Reader lost');if(id==='null-skeptic'&&call.task.role==='skeptic')return null;
+  const row=await researchResponse(call);if(id==='inaccessible'){row.disposition='inaccessible';row.evidenceRefs=[];row.limitations=['Required image tool unavailable'];if(call.task.role==='reader')row.answers=[];}
+  if(id==='partial')row.disposition='partial';return row;
+ });
+ assert.deepEqual(result.counts,{read:1,partial:2,inaccessible:1,failed:1,sampled:1,dropped:1});assert.equal(result.expected,7);assert.equal(result.accounted,7);
+ assert.deepEqual(result.allSeenIds,['read','inaccessible','partial','lost','null-skeptic']);assert.equal(calls.filter(c=>c.task.source?.selection).length,0);
+ assert.equal(result.rows.find(r=>r.sourceId==='lost').rounds[0].read,null);assert.equal(result.rows.find(r=>r.sourceId==='null-skeptic').rounds[0].skeptic,null);
+ assert.equal(result.stopReason,'inventoryExhausted');assert.equal(result.complete,false);
+ for(const call of calls){assert.deepEqual(call.options.skills,args.roleSelections[call.task.role].skills);assert.deepEqual(call.options.requireTools,args.roleSelections[call.task.role].requireTools);}
+});
+test('research stops dry rounds without adding sources or repairing lost slots',async t=>{
+ const args=researchArgs(await evidenceFixture(t));args.limits.maxRounds=2;args.limits.dryRoundLimit=1;
+ const {result,calls}=await capturedRecipe('evidence-research',args,async call=>{const row=await researchResponse(call);if(call.task.role==='reader'){row.disposition='partial';row.answers=[];row.needsNextRound=true;}return row;});
+ assert.equal(calls.length,3);assert.equal(result.dryRounds,1);assert.equal(result.stopReason,'dryRounds');assert.deepEqual(result.missingQuestionIds,['question']);
+ // Losing existing support is dry; replacing it with a newly supported ID is
+ // progress even when coverage has the same cardinality.
+ for(const replacement of [false,true]){
+  const changed=structuredClone(args);if(replacement){changed.questions.push({id:'replacement',text:'What new answer is supported?'});changed.sources.push({...changed.sources[0],id:'counterevidence'});changed.limits.maxStarts=10;}
+  const next=await capturedRecipe('evidence-research',changed,async call=>{
+   const row=await researchResponse(call);
+   if(call.task.role==='reader'){row.disposition='partial';row.needsNextRound=true;}
+   if(call.task.round===2){
+    if(replacement&&call.task.source?.id!=='counterevidence'){if(call.task.role==='reader')row.answers=[{questionId:'replacement',text:'New supported answer'}];if(call.task.role==='skeptic')row.questionIds=['replacement'];}
+    else if(call.task.role==='skeptic'){row.verdict='contradicted';row.dissent=['Earlier support contradicted'];}
+   }
+   return row;
+  });
+  assert.equal(next.calls.length,replacement?10:6);assert.equal(next.result.dryRounds,replacement?0:1);
+  assert.equal(next.result.stopReason,replacement?'roundLimit':'dryRounds');
+  assert.deepEqual(next.result.coveredQuestionIds,replacement?['replacement']:[]);
+ }
+});
+test('research covers an answer first discovered in a planned later round',async t=>{
+ const args=researchArgs(await evidenceFixture(t));args.limits.maxRounds=2;
+ const {result,calls}=await capturedRecipe('evidence-research',args,async call=>{
+  const report=await researchResponse(call);
+  if(call.task.round===1&&call.task.role==='reader'){report.disposition='partial';report.answers=[];report.needsNextRound=true;}
+  if(call.task.round===1&&call.task.role==='skeptic'){report.disposition='partial';report.verdict='unverified';report.questionIds=[];report.dissent=['No answer established yet'];}
+  return report;
+ });
+ assert.equal(calls.length,6);assert.equal(result.rows[0].rounds.length,2);
+ assert.deepEqual(result.rows[0].rounds[0].read.answers,[]);
+ assert.deepEqual(result.coveredQuestionIds,['question']);assert.deepEqual(result.missingQuestionIds,[]);
+ assert.deepEqual(result.disputedQuestionIds,[]);assert.equal(result.rows[0].disposition,'read');
+ assert(result.rows[0].dissent.includes('No answer established yet'));
+ assert.equal(result.complete,false);assert.equal(result.completionAuthority,'coordinator');
+});
+
+for(const disposition of ['failed','inaccessible'])test('research does not continue after a '+disposition+' skeptic with matching evidence',async t=>{
+ const args=researchArgs(await evidenceFixture(t));args.limits.maxRounds=2;
+ const {result,calls}=await capturedRecipe('evidence-research',args,async call=>{
+  const report=await researchResponse(call);
+  if(call.task.role==='reader'){report.disposition='partial';report.answers=[];report.needsNextRound=true;}
+  if(call.task.role==='skeptic'){report.disposition=disposition;report.verdict='unverified';report.questionIds=[];report.limitations=['Independent inspection unavailable'];}
+  return report;
+ });
+ assert.equal(result.rows[0].rounds[0].skeptic.evidenceRefs[0].status,'verified');
+ assert.equal(calls.length,3,'An ineligible skeptic must not trigger a second reader, skeptic or reducer');
+ assert.equal(result.starts,3);assert.equal(result.rows[0].rounds.length,1);
+ assert.equal(result.rows[0].rounds[0].skeptic.disposition,disposition);
+ assert.equal(result.rows[0].disposition,'partial');assert.deepEqual(result.missingQuestionIds,['question']);
+ assert.equal(result.stopReason,'inventoryExhausted');assert.equal(result.complete,false);
+});
+
+test('research skeptical contradictions and changed hashes cannot be reduced to covered questions',async t=>{
+ const args=researchArgs(await evidenceFixture(t));
+ const contradicted=await capturedRecipe('evidence-research',args,async call=>{const row=await researchResponse(call);if(call.task.role==='skeptic'){row.verdict='contradicted';row.dissent=['Independent contradiction'];}return row;});
+ assert.deepEqual(contradicted.result.missingQuestionIds,['question']);assert(contradicted.result.rows[0].dissent.includes('Independent contradiction'));
+ await writeFile(args.sources[0].path,'drift');const drift=await capturedRecipe('evidence-research',args,researchResponse);assert.deepEqual(drift.result.missingQuestionIds,['question']);assert.equal(drift.result.rows[0].disposition,'partial');
+});
+for(const verdict of ['contradicted','unverified',null])test('a later '+String(verdict)+' research skeptic leaves the question unresolved',async t=>{
+ const args=researchArgs(await evidenceFixture(t));args.limits.maxRounds=2;
+ const {result}=await capturedRecipe('evidence-research',args,async call=>{
+  if(call.task.role==='skeptic'&&call.task.round===2&&verdict===null)return null;
+  const row=await researchResponse(call);
+  if(call.task.role==='reader'&&call.task.round===1){row.disposition='partial';row.needsNextRound=true;}
+  if(call.task.role==='skeptic'&&call.task.round===2){row.verdict=verdict;row.dissent=['Later independent support unavailable'];}
+  return row;
+ });
+ assert.equal(result.rows[0].rounds.length,2);assert.deepEqual(result.missingQuestionIds,['question']);
+ if(verdict!==null)assert(result.rows[0].dissent.includes('Later independent support unavailable'));
+ else assert.equal(result.rows[0].rounds[1].skeptic,null);
+});
+test('independent disagreement across research sources keeps a disputed question missing',async t=>{
+ const args=researchArgs(await evidenceFixture(t));args.sources.push({...args.sources[0],id:'counterevidence'});
+ const {result}=await capturedRecipe('evidence-research',args,async call=>{const row=await researchResponse(call);if(call.task.role==='skeptic'&&call.task.source.id==='counterevidence'){row.verdict='contradicted';row.dissent=['Independent source disagrees'];}return row;});
+ assert.deepEqual(result.missingQuestionIds,['question']);assert.deepEqual(result.disputedQuestionIds,['question']);assert.equal(result.counts.read,2);
+});
+test('research range evidence remains partial even when a question is supported',async t=>{
+ const args=researchArgs(await evidenceFixture(t));args.sources[0].range={start:0,end:5};
+ const {result}=await capturedRecipe('evidence-research',args,researchResponse);
+ assert.equal(result.rows[0].disposition,'partial');assert.deepEqual(result.missingIds,['__proto__']);assert.deepEqual(result.coveredQuestionIds,['question']);assert.equal(result.complete,false);
+});
+test('missing real capability-bundle admission leaves role slots null',async t=>{
+ const args=criterionArgs(await evidenceFixture(t));args.roleSelections.reviewer={skills:['not-admitted'],requireTools:['missing-tool']};
+ const {result}=await capturedRecipe('criterion-review',args,criterionResponse,{admit:options=>selectCapabilities(undefined,options)});
+ assert.equal(result.rows[0].rounds[0].review,null);assert.equal(result.rows[0].status,'unverified');
+});
+test('planned research continuation stops at its round limit',async t=>{
+ const args=researchArgs(await evidenceFixture(t));
+ const {result}=await capturedRecipe('evidence-research',args,async call=>{const row=await researchResponse(call);if(call.task.role==='reader'){row.disposition='partial';row.needsNextRound=true;}return row;});
+ assert.equal(result.stopReason,'roundLimit');assert.equal(result.starts,3);
+});
+test('oversize research metadata leaves an explicit null slot without truncation or retry',async t=>{
+ const args=researchArgs(await evidenceFixture(t));
+ const {result,calls}=await capturedRecipe('evidence-research',args,async call=>{const row=await researchResponse(call);if(call.task.role==='reader'){row.answers=[{questionId:'question',text:'界'.repeat(160)},{questionId:'other',text:'界'.repeat(160)}];row.limitations=['界'.repeat(100),'界'.repeat(100)];}return row;});
+ assert.equal(calls.length,3);assert.equal(result.rows[0].rounds[0].read,null);assert.equal(result.rows[0].disposition,'failed');assert.equal(result.oversizeReports[0].role,'reader');
+});
+test('maximum inventories include every skeptic and reducer in pre-dispatch budgets',async t=>{
+ const ref=await evidenceFixture(t);const args=criterionArgs(ref);args.criteria=Array.from({length:32},(_,i)=>({...args.criteria[0],id:'criterion-'+i}));args.limits={maxCriteria:32,maxStarts:128,maxRounds:2};
+ await assert.rejects(capturedRecipe('criterion-review',args,()=>assert.fail('129-start plan dispatched')),{code:'SCRIPT_FAILED'});
+ const research=researchArgs(ref);research.sources=Array.from({length:64},(_,i)=>({...research.sources[0],id:'source-'+i}));research.limits={maxSources:64,maxStarts:256,maxRounds:2,dryRoundLimit:2};
+ const budget=await capturedRecipe('evidence-research',research,()=>assert.fail('258-start plan dispatched'));assert.equal(budget.result.plannedStarts,258);assert.equal(budget.result.starts,0);assert.equal(budget.result.counts.failed,64);
+});
+test('negative controls expose removed skeptic gating and broken disposition arithmetic',async t=>{
+ const args=criterionArgs(await evidenceFixture(t));const source=(await resolveWorkflow('plugin:criterion-review')).script;
+ const mutant=source.replace('row.rounds.every(r=>verified(r.review,criterion)&&verified(r.skeptic,criterion))','row.rounds.every(r=>verified(r.review,criterion))').replace("r.review.verdict==='fail'||r.skeptic.verdict==='fail'","r.review.verdict==='fail'");assert.notEqual(mutant,source);
+ const {result}=await capturedRecipe('criterion-review',args,call=>call.task.role==='skeptic'?null:criterionResponse(call),{script:mutant});
+ assert.throws(()=>assert.equal(result.rows[0].status,'unverified'),{code:'ERR_ASSERTION'},'Owning null-skeptic assertion must reject the broken gate');
+ const research=researchArgs(args.artifactInventory[0]);const researchSource=(await resolveWorkflow('plugin:evidence-research')).script;
+ const broken=researchSource.replace('accounted:Object.values(counts).reduce((a,b)=>a+b,0)','accounted:0');assert.notEqual(broken,researchSource);
+ const arithmetic=await capturedRecipe('evidence-research',research,researchResponse,{script:broken});
+ assert.throws(()=>assert.equal(arithmetic.result.accounted,arithmetic.result.expected),{code:'ERR_ASSERTION'});
+});
+test('recipe allowlists and worst-case budgets reject before any worker starts',async t=>{
+ const ref=await evidenceFixture(t);
+ const invalidCriteria=[a=>a.extra=true,a=>a.roleSelections.reviewer.model='unforwarded',a=>a.limits.extra=1,a=>a.criteria[0].extra=1,a=>a.artifactInventory[0].extra=1,a=>a.roleSelections.extra=noSelection(),a=>a.limits.maxStarts=2,a=>a.criteria.push(a.criteria[0]),a=>a.artifactInventory[0].path='../outside',a=>a.artifactInventory[0].sha256='unverified'];
+ const invalidResearch=[a=>a.extra=true,a=>a.sources[0].extra=true,a=>a.questions[0].extra=true,a=>a.limits.maxRounds=3,a=>a.roleSelections.reader.requireTools=['x','x'],a=>a.sources.push(a.sources[0]),a=>a.sources[0].selection={disposition:'sampled',reason:'fixed',extra:true},a=>a.sources[0].range={start:0,end:1,extra:true},a=>a.sources[0].range={start:5,end:4},a=>a.sources[0].modality='unknown'];
+ for(const [name,make,mutations] of [['criterion-review',criterionArgs,invalidCriteria],['evidence-research',researchArgs,invalidResearch]])for(const mutate of mutations){const args=make(structuredClone(ref));mutate(args);let starts=0;await assert.rejects(capturedRecipe(name,args,()=>{starts++;return null;}),{code:'SCRIPT_FAILED'});assert.equal(starts,0);}
+ const args=researchArgs(ref);args.limits.maxStarts=2;const budget=await capturedRecipe('evidence-research',args,()=>assert.fail('Overbudget dispatch'));assert.equal(budget.result.stopReason,'startBudget');assert.equal(budget.calls.length,0);assert.equal(budget.result.accounted,1);
 });

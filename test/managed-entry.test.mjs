@@ -4,20 +4,165 @@
  * @subject bin/launch.mjs
  * @subject bin/agent-workflow.mjs
  * @subject bin/doctor-diagnostics.mjs
+ * @subject engine/cli.mjs
+ * @subject engine/capture-preflight.mjs
+ * @subject engine/plan-preview.mjs
+ * @subject engine/usage-summary.mjs
+ * @subject engine/delivery-acceptance.mjs
+ * @subject engine/stage-checkpoints.mjs
+ * @subject engine/command-jobs/index.mjs
+ * @subject docs/api.md
+ * @subject docs/roadmap-command-contracts.md
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,cp,writeFile,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,cp,writeFile,readFile,rm,link,readdir,lstat,realpath} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {join,dirname,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {installRuntime,bindRun} from '../bin/managed-runtime.mjs';
-import {parseCommand} from '../bin/arguments.mjs';
+import {parseCommand,help} from '../bin/arguments.mjs';
 import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
 import {DatabaseSync} from 'node:sqlite';
 const execute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
+
+test('roadmap command allowlists preserve routing, sessions and worker mutation guards',()=>{
+ const commands=[
+  ['capture-preflight',[],false],['plan',['--script','inert.js'],false],
+  ['usage',['saved','--generation','1'],true],['acceptance',['saved','--session','origin','--request-file','request.json'],true],
+  ['checkpoint-record',['saved','--session','origin','--request-file','request.json'],true],['checkpoint',['saved'],true],
+  ['check-record',['saved','--session','origin','--checkpoint-id','c','--check-id','check','--job-id','j'],true],
+  ['job-start',['saved','--session','origin','--request-file','request.json'],true],
+  ['job-status',['saved','--session','origin','--job-id','j'],true],
+  ['job-output',['saved','--session','origin','--job-id','j','--stream','stderr'],true],
+  ['job-cancel',['saved','--session','origin','--job-id','j','--request-id','r','--revision','0'],true],
+ ];
+ for(const [command,flags,runBound] of commands){
+  const parsed=parseCommand([command,...flags],{});assert.equal(parsed.runCommand,runBound,command);
+  for(const option of ['codex','access','parent-access','backend','current-ui'])assert.throws(()=>parseCommand([command,...flags,`--${option}`,'override'],{}),/not valid|Unknown option/);
+  const mutation=['checkpoint-record','check-record','job-start','job-cancel'].includes(command);
+  assert.equal(parsed.mutation,mutation,command);
+  if(mutation)assert.throws(()=>parseCommand([command,...flags],{AGENT_WORKFLOW_WORKER:'1'}),/Worker/);
+  else assert.equal(parseCommand([command,...flags],{AGENT_WORKFLOW_WORKER:'1'}).command,command);
+ }
+ for(const command of ['acceptance','job-start','job-status','job-output','job-cancel','checkpoint-record','check-record']){
+  const flags=commands.find(row=>row[0]===command)[1].filter((_,i,all)=>all[i-1]!=='--session'&&all[i]!=='--session');
+  assert.throws(()=>parseCommand([command,...flags],{}),/session/);
+ }
+ for(const value of ['null','-1','1.5','9007199254740992','1e2','01'])assert.throws(()=>parseCommand(['usage','saved','--generation',value],{}),/generation/);
+ assert.throws(()=>parseCommand(['usage','saved'],{}),/generation/);
+ assert.throws(()=>parseCommand(['plan','saved','--script','inert.js'],{}),/Choose|exclusive/);
+ assert.throws(()=>parseCommand(['plan'],{}),/script|name/);
+ assert.throws(()=>parseCommand(['checkpoint','saved','--checkpoint-id','c','--limit','2'],{}),/exclusive|Choose/);
+ assert.throws(()=>parseCommand(['job-output','saved','--session','origin','--job-id','j','--stream','all'],{}),/stream/);
+ assert.throws(()=>parseCommand(['job-output','saved','--session','origin','--job-id','j','--stream','stdout','--limit-bytes','65537'],{}),/limit-bytes/);
+ assert.throws(()=>parseCommand(['usage','saved','--generation','1','--generation','2'],{}),/Duplicate/);
+});
+
+test('roadmap bounded inputs fail before missing provider import and inspect refuses execution flags',async t=>{
+ const temp=await mkdtemp(join(root,'.args-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const file=join(temp,'.agents','workflows','inert.mjs'),hook=join(temp,'hook.mjs');await mkdir(dirname(file),{recursive:true});
+ const runtime=`export * from ${JSON.stringify(new URL('../bin/managed-runtime.mjs?roadmap-fixture',import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export async function selectRuntime(){return{path:pluginRoot};}export async function resolveRun(options){if(options.sessionId!=='origin')throw Error('Missing exact session');return{id:options.id,runDir:${JSON.stringify(temp)},runtime:{id:'fixture-runtime',path:pluginRoot}};}`;
+ const previewUrl=new URL('../engine/plan-preview.mjs',import.meta.url).href;
+ const jobsUrl=new URL('../engine/command-jobs/index.mjs',import.meta.url).href;
+ await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({resolve(specifier,context,next){if([${JSON.stringify(previewUrl)},${JSON.stringify(jobsUrl)}].includes(new URL(specifier,context.parentURL).href))return{url:'data:text/javascript,export{}',shortCircuit:true};return next(specifier,context);},load(url,context,next){return url===${JSON.stringify(new URL('../bin/managed-runtime.mjs',import.meta.url).href)}?{format:'module',source:${JSON.stringify(runtime)},shortCircuit:true}:next(url,context);}});`);
+ const env={...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`};delete env.AGENT_WORKFLOW_WORKER;delete env.CODEX_THREAD_ID;
+ const invoke=(args,entry='bin/command.mjs')=>execute(process.execPath,[join(root,entry),...args],{cwd:temp,env,windowsHide:true,timeout:10000});
+ for(const [contents,path,pattern] of [[Buffer.from([0xc3,0x28]),file,/UTF|encoded/],['x'.repeat(1048577),file,/bounded limit/],['text',temp,/regular/]]){
+  await writeFile(file,contents);await assert.rejects(invoke(['plan','--script',path]),e=>pattern.test(e.stderr));
+ }
+ for(const [command,limit] of [['acceptance',65536],['checkpoint-record',1048576],['job-start',2097152]]){
+  for(const [contents,pattern] of [[Buffer.from([0xc3,0x28]),/UTF|encoded/],['{',/JSON/],[' '.repeat(limit+1),/bounded limit/],['{"schemaVersion":1,"passed":true}',/request|fields|schema/]]){
+   await writeFile(file,contents);await assert.rejects(invoke([command,'saved','--session','origin','--request-file',file]),e=>pattern.test(e.stderr));
+  }
+ }
+ await writeFile(file,JSON.stringify({schemaVersion:1,run:{runId:'other',dataInstanceId:'x',runtimeId:'fixture-runtime'},planHash:'a'.repeat(64),checkpointId:'c',objectiveIds:[]}));
+ await assert.rejects(invoke(['acceptance','saved','--session','origin','--request-file',file]),e=>/identity|run ID/.test(e.stderr));
+ for(const extra of [['--run',temp],['--codex','foreign'],['--action','stop'],['--resume'],['--foreground'],['--args','{}'],['--session','origin']]){
+  await assert.rejects(invoke(['--inspect','plan','--script',file,...extra],'engine/cli.mjs'),e=>/not valid|Unknown option|inspect/.test(e.stderr+e.stdout));
+ }
+ await writeFile(file,'export const meta={name:"inert",description:"not executed"};throw Error("EXECUTED");');
+ // Missing provider is an honest unsupported result, never a fabricated pass.
+ const unsupported=await invoke(['--inspect','plan','--script',file],'engine/cli.mjs').then(()=>assert.fail('Missing provider cannot pass'),e=>e);
+ assert.equal(JSON.parse(unsupported.stdout).status,'unsupported');assert.doesNotMatch(unsupported.stderr+unsupported.stdout,/EXECUTED/);
+ await t.test('job request raw-byte boundary admits 2 MiB and refuses one more before provider import',async()=>{
+  const request=JSON.stringify({schemaVersion:1,requestId:'558e26de-e014-4fc1-9008-049d3c4706c1',command:[process.execPath,'--version'],cwd:temp,environment:{mode:'inherit'},deadlineMs:1000,kind:'normal',verification:null});
+  for(const bytes of [131073,2097152]){
+   await writeFile(file,request+' '.repeat(bytes-Buffer.byteLength(request)));
+   const result=await invoke(['job-start','saved','--session','origin','--request-file',file]).then(()=>assert.fail('Absent provider cannot pass'),e=>e);
+   assert.equal(result.code,1);assert.doesNotMatch(result.stderr,/bounded limit/);assert.match(result.stdout,/"status": "unsupported"/);
+  }
+  await writeFile(file,request+' '.repeat(2097153-Buffer.byteLength(request)));
+  await assert.rejects(invoke(['job-start','saved','--session','origin','--request-file',file]),e=>e.code===1&&/bounded limit/.test(e.stderr)&&!e.stdout.includes('unsupported'));
+ });
+ // Deterministic metadata races exercise the actual reader without creating links.
+ // Only this command's fs imports are wrapped; providers remain absent, never successful doubles.
+ const commandUrl=new URL('../bin/command.mjs',import.meta.url).href;
+ const fsFacade=`export * from 'node:fs/promises';import * as fs from 'node:fs/promises';let readStarted=false;const input=${JSON.stringify(file)},mode=process.env.CLI_INPUT_FIXTURE;export async function lstat(p,o){const s=await fs.lstat(p,o);if(p===input&&mode==='linked-path')s.nlink=2n;if(p===input&&readStarted&&mode==='changed-path')s.ino+=1n;return s;}export async function open(p,flags){const h=await fs.open(p,flags);if(p!==input)return h;return{read:async(...args)=>{const r=await h.read(...args);readStarted=true;return r;},stat:async(...args)=>{const s=await h.stat(...args);if(mode==='linked-handle'||mode==='linked-after-read'&&readStarted)s.nlink=2n;return s;},close:()=>h.close()};}`;
+ await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({resolve(specifier,context,next){if(context.parentURL===${JSON.stringify(commandUrl)}&&specifier==='node:fs/promises')return{url:${JSON.stringify('data:text/javascript,'+encodeURIComponent(fsFacade))},shortCircuit:true};if(new URL(specifier,context.parentURL).href===${JSON.stringify(previewUrl)})return{url:'data:text/javascript,export{}',shortCircuit:true};return next(specifier,context);},load(url,context,next){return url===${JSON.stringify(new URL('../bin/managed-runtime.mjs',import.meta.url).href)}?{format:'module',source:${JSON.stringify(runtime)},shortCircuit:true}:next(url,context);}});`);
+ await writeFile(file,'export const meta={name:"inert",description:"not executed"};throw Error("EXECUTED");');
+ for(const mode of ['linked-path','linked-handle','linked-after-read','changed-path'])for(const input of [['--script',file],['project:inert','--cwd',temp]])await t.test(mode+' '+input[0],async()=>{
+  await assert.rejects(execute(process.execPath,[join(root,'bin/command.mjs'),'plan',...input],{cwd:temp,env:{...env,CLI_INPUT_FIXTURE:mode},windowsHide:true,timeout:10000}),e=>e.code===1&&/single-link|identity changed/.test(e.stderr)&&!e.stdout.includes('unsupported'));
+ });
+ await t.test('physical hardlink input is refused before provider import',{skip:process.env.AGENT_WORKFLOW_WORKER==='1'?'Coordinator fixture: this writer may not create filesystem links':false},async()=>{
+  const alias=join(temp,'alias');await link(file,alias);
+  await assert.rejects(invoke(['plan','--script',alias]),e=>e.code===1&&/single-link/.test(e.stderr)&&!e.stdout.includes('unsupported'));
+  await assert.rejects(invoke(['plan','project:inert','--cwd',temp]),e=>e.code===1&&/single-link/.test(e.stderr)&&!e.stdout.includes('unsupported'));
+ });
+});
+
+test('roadmap CLI returns a complete bounded result when indentation would exceed the wire limit',async t=>{
+ const temp=await mkdtemp(join(root,'.args-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const file=join(temp,'plan.js'),hook=join(temp,'hook.mjs');
+ const rows=Array.from({length:4000},(_,i)=>{let row=i;for(let depth=0;depth<9;depth++)row={child:row};return row;});
+ const script=`export const meta=${JSON.stringify({name:'wire-size',description:'complete structured metadata',rows})};throw Error('WORKFLOW_EXECUTED_SENTINEL');`;
+ await writeFile(file,script);
+ const {previewPlan}=await import('../engine/plan-preview.mjs'),expected=previewPlan({script});
+ assert.equal(expected.truncated,false);
+ assert.ok(Buffer.byteLength(JSON.stringify(expected))<1048576);
+ assert.ok(Buffer.byteLength(JSON.stringify(expected,null,2))>1048576,'fixture must expose indentation-only overflow');
+ // Only managed-runtime selection is a fixture. The CLI, parser, provider,
+ // serialization and child-process stdout are real; no workflow is evaluated.
+ const runtime=`export * from ${JSON.stringify(new URL('../bin/managed-runtime.mjs?wire-size-fixture',import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export async function selectRuntime(){return{path:pluginRoot};}`;
+ await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({load(url,context,next){return url===${JSON.stringify(new URL('../bin/managed-runtime.mjs',import.meta.url).href)}?{format:'module',source:${JSON.stringify(runtime)},shortCircuit:true}:next(url,context);}});`);
+ const result=await execute(process.execPath,[join(root,'bin/command.mjs'),'plan','--script',file],{cwd:temp,env:{...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`},windowsHide:true,timeout:10000,maxBuffer:4*1024*1024});
+ assert.deepEqual(JSON.parse(result.stdout),expected);
+ assert.ok(Buffer.byteLength(result.stdout)<=1048577,'wire payload plus final newline stays bounded');
+ assert.doesNotMatch(result.stdout+result.stderr,/WORKFLOW_EXECUTED_SENTINEL/);
+});
+
+test('roadmap CLI refuses an oversized provider value before emitting any partial result',async t=>{
+ const temp=await mkdtemp(join(root,'.args-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const file=join(temp,'plan.js'),hook=join(temp,'hook.mjs');await writeFile(file,'export const meta={name:"wire",description:"limit"};');
+ const runtime=`export * from ${JSON.stringify(new URL('../bin/managed-runtime.mjs?wire-overflow-fixture',import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export async function selectRuntime(){return{path:pluginRoot};}`;
+ // A deliberately out-of-contract provider exercises only the CLI's defensive
+ // output boundary. This is not a provider or native execution qualification.
+ const previewUrl=new URL('../engine/plan-preview.mjs',import.meta.url).href;
+ await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({load(url,context,next){const source=url===${JSON.stringify(new URL('../bin/managed-runtime.mjs',import.meta.url).href)}?${JSON.stringify(runtime)}:url===${JSON.stringify(previewUrl)}?'export function previewPlan(){return {body:"x".repeat(1048576)};}':undefined;return source===undefined?next(url,context):{format:'module',source,shortCircuit:true};}});`);
+ await assert.rejects(execute(process.execPath,[join(root,'bin/command.mjs'),'plan','--script',file],{cwd:temp,env:{...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`},windowsHide:true,timeout:10000,maxBuffer:4*1024*1024}),e=>e.code===1&&e.stdout===''&&/Provider response exceeded its bounded limit/.test(e.stderr));
+});
+
+test('inspect normalization exposes only declared read flags and never a raw run path',async()=>{
+ const {inspectCommand}=await import('../bin/arguments.mjs');
+ assert.deepEqual(inspectCommand(['--inspect','usage','--run-id','saved','--generation','2','--data-dir','owned']),['usage','saved','--data-dir','owned','--generation','2']);
+ assert.deepEqual(inspectCommand(['--inspect=plan','project:inert','--cwd','owned']),['plan','project:inert','--cwd','owned']);
+ for(const command of ['job-start','job-cancel','checkpoint-record','check-record','run','stop'])assert.throws(()=>inspectCommand(['--inspect',command]),/read operation/);
+ assert.throws(()=>inspectCommand(['--inspect','usage','--generation','2']),/run-id/);
+ assert.throws(()=>inspectCommand(['--inspect','plan','--run-id','saved','--script','file']),/not valid/);
+ assert.throws(()=>inspectCommand(['--inspect','usage','--run-id','saved','--generation','1','--generation','2']),/Duplicate/);
+});
+
+test('public help and API list the complete roadmap command and outcome contracts',async()=>{
+ const api=await readFile(join(root,'docs/api.md'),'utf8'),contracts=await readFile(join(root,'docs/roadmap-command-contracts.md'),'utf8');
+ for(const name of ['capture-preflight','plan','usage','acceptance','checkpoint-record','checkpoint','check-record','job-start','job-status','job-output','job-cancel']){
+  for(const [label,text] of [['help',help],['API',api],['contracts',contracts]])assert.match(text,new RegExp(`\\b${name}\\b`),`${label}: ${name}`);
+ }
+ assert.match(help,/recorded runtime/);assert.match(contracts,/exit.*0|exit0/);
+ assert.match(help,/job request 2 MiB/);assert.match(contracts,/command jobs to 2,097,152/);assert.match(api,/source packages/);
+});
 
 test('public args-file snapshots large UTF8 JSON and rejects invalid input before binding',async t=>{
  const temp=await mkdtemp(join(root,'.args-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
@@ -136,7 +281,7 @@ test('worker capability manifests are a new-run-only public option',()=>{
 });
 
 test('public detached start advertises exact observer arguments without claiming an attachment',async t=>{
- const temp=await mkdtemp(join(tmpdir(),'workflow-watch-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const temp=await mkdtemp(join(root,'.args-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const script=join(temp,'script.js'),hook=join(temp,'hook.mjs'),dataDir=join(temp,'data');await writeFile(script,'export const meta={name:"fixture",description:"receipt"};return 1;');
  const runtime=`export * from ${JSON.stringify(new URL("../bin/managed-runtime.mjs?receipt-fixture",import.meta.url).href)};export const pluginRoot=${JSON.stringify(root)};export function defaultDataDir(){throw Error('explicit data required');}export async function selectRuntime(){return{path:pluginRoot,codex:'fixture'};}export async function bindRun(){return{id:'saved-id',runDir:${JSON.stringify(join(temp,'run'))}};}export async function resolveRun(){return{runDir:${JSON.stringify(join(temp,'run'))},runtime:{path:pluginRoot}};}export function paths(){}export function noLinks(){}export function nativeCodex(){throw Error('inference forbidden');}`;
  const background=`export async function startBackground(input,settings={}){return{status:'running',generation:3,startupMs:settings.startupMs??60000,accessPolicy:input.accessPolicy,defaults:input.defaults,workerTimeoutMs:input.workerTimeoutMs,watch:{required:true,attached:false,sessionId:input.sessionId,generation:3,after:0}};}`;
@@ -404,10 +549,10 @@ test('doctor exposes bounded startup ownership boundaries separately from the pr
 
 test('public CLI accepts explicit run and worker deadlines for starts and resumes',()=>{
  for(const command of ['run','resume']){
-  const parsed=parseCommand([command,'demo','--session','s','--run-timeout-ms','7200000','--worker-timeout-ms','1800000']);
+  const parsed=parseCommand([command,'demo','--session','s','--run-timeout-ms','7200000','--worker-timeout-ms','1800000'],{});
   assert.equal(parsed.values['run-timeout-ms'],'7200000');assert.equal(parsed.values['worker-timeout-ms'],'1800000');
  }
- assert.throws(()=>parseCommand(['status','demo','--run-timeout-ms','7200000']),/not valid/);
+ assert.throws(()=>parseCommand(['status','demo','--run-timeout-ms','7200000'],{}),/not valid/);
 });
 test('public launcher selects the run-pinned runtime after upgrade and refuses foreign-session control',async t=>{
  const temp=await mkdtemp(join(tmpdir(),'workflow-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));const pluginRoot=join(temp,'plugin'),dataDir=join(temp,'data');await mkdir(pluginRoot);
@@ -422,6 +567,15 @@ test('public launcher selects the run-pinned runtime after upgrade and refuses f
  assert.equal(JSON.parse((await invoke(['watch',bound.id,'--session','origin','--generation','1','--jsonl'])).stdout).marker,'first');
  await assert.rejects(invoke(['watch',bound.id,'--generation','1','--jsonl'],{CODEX_THREAD_ID:''}),e=>/session/i.test(e.stderr));
  assert.equal(JSON.parse((await invoke(['status',bound.id])).stdout).marker,'first');assert.equal(JSON.parse((await invoke(['workflows'])).stdout).marker,'second');
+ for(const [command,flags] of [
+  ['usage',['--generation','1']],['acceptance',['--session','origin','--request-file','request.json']],
+  ['checkpoint',[]],['checkpoint-record',['--session','origin','--request-file','request.json']],
+  ['check-record',['--session','origin','--checkpoint-id','c','--check-id','check','--job-id','j']],
+  ['job-start',['--session','origin','--request-file','request.json']],['job-status',['--session','origin','--job-id','j']],
+  ['job-output',['--session','origin','--job-id','j','--stream','stdout']],
+  ['job-cancel',['--session','origin','--job-id','j','--request-id','request','--revision','0']],
+ ])assert.equal(JSON.parse((await invoke([command,bound.id,...flags])).stdout).marker,'first',command);
+ for(const [command,flags] of [['plan',['--script','inert.js']],['capture-preflight',[]]])assert.equal(JSON.parse((await invoke([command,...flags])).stdout).marker,'second',command);
  await assert.rejects(invoke(['resume',bound.id,'--session','other']),e=>/session/i.test(e.stderr));
  assert.equal(JSON.parse((await invoke(['resume',bound.id],{CODEX_THREAD_ID:'origin'})).stdout).marker,'first');
  await assert.rejects(invoke(['resume',bound.id],{CODEX_THREAD_ID:''}),e=>/session/i.test(e.stderr));
@@ -434,4 +588,48 @@ test('public launcher selects the run-pinned runtime after upgrade and refuses f
  assert.equal(JSON.parse((await invoke(['dashboard',bound.id,'--current-ui'],{CODEX_THREAD_ID:'origin'})).stdout).marker,'second');
  await assert.rejects(invoke(['dashboard',bound.id,'--current-ui'],{CODEX_THREAD_ID:'other'}),e=>/session/i.test(e.stderr));
  assert.match((await invoke(['help'])).stdout,/dashboard/);
+});
+
+test('public roadmap reads use real integrated providers and retain runtime, session and no-install boundaries',async t=>{
+ const required=['engine/plan-preview.mjs','engine/usage-summary.mjs','engine/delivery-acceptance.mjs','engine/stage-checkpoints.mjs','engine/command-jobs/index.mjs'];
+ const missing=[];for(const name of required)try{await readFile(join(root,name));}catch(error){if(error.code!=='ENOENT')throw error;missing.push(name);}
+ if(missing.length){t.skip(`Reviewed integration required: ${missing.join(', ')}`);return;}
+ if(process.env.AGENT_WORKFLOW_WORKER==='1'){t.skip('Coordinator must execute the managed-runtime fixture; worker installation guard remains enabled');return;}
+ const temp=await mkdtemp(join(root,'.args-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const plugin=join(temp,'plugin'),dataDir=join(temp,'data'),npmCli=join(temp,'npm.mjs'),installTrace=join(temp,'install.trace');await mkdir(plugin);
+ for(const name of ['bin','engine','foundation','workflows','hooks','skills','package.json','package-lock.json','LICENSE'])await cp(join(root,name),join(plugin,name),{recursive:true});
+ const version=JSON.parse(await readFile(join(root,'package.json'),'utf8')).dependencies['@openai/codex'];
+ // Use the prepared actual JS/WASM dependency payloads so the real providers
+ // load. Only native Codex is inert; no successful provider export is replaced.
+ await writeFile(npmCli,`import{mkdir,writeFile,appendFile,readdir,cp}from'node:fs/promises';import{join}from'node:path';await appendFile(${JSON.stringify(installTrace)},'install\\n');const prepared=${JSON.stringify(join(root,'node_modules'))},modules=join(process.cwd(),'node_modules');await mkdir(modules,{recursive:true});for(const name of await readdir(prepared))if(!['@openai','.bin','.package-lock.json'].includes(name))await cp(join(prepared,name),join(modules,name),{recursive:true});const base=join(modules,'@openai');await mkdir(join(base,'codex'),{recursive:true});await writeFile(join(base,'codex/package.json'),JSON.stringify({version:${JSON.stringify(version)}}));const target=join(base,'codex-win32-x64');await mkdir(join(target,'vendor/x86_64-pc-windows-msvc/bin'),{recursive:true});await writeFile(join(target,'package.json'),JSON.stringify({version:${JSON.stringify(version+'-win32-x64')}}));await writeFile(join(target,'vendor/x86_64-pc-windows-msvc/bin/codex.exe'),'inert fixture: native execution forbidden');`);
+ const first=await installRuntime({pluginRoot:plugin,dataDir,npmCli}),bound=await bindRun({dataDir,runtime:first,sessionId:'origin'});
+ const env={...process.env};delete env.NODE_OPTIONS;delete env.CODEX_THREAD_ID;
+ const invoke=async(args,selectedData=dataDir)=>execute(process.execPath,[join(plugin,'bin/launch.mjs'),...args,'--data-dir',selectedData],{cwd:temp,env,windowsHide:true,timeout:10000}).then(value=>({...value,code:0}),error=>{if(typeof error.code!=='number')throw error;return error;});
+ const script='export const meta={name:"inert",description:"preview only"};throw Error("WORKFLOW_EXECUTED_SENTINEL");',file=join(temp,'inert.js');await writeFile(file,script);
+ const {previewPlan}=await import(pathToFileURL(join(first.path,'engine/plan-preview.mjs')).href);
+ const plan=await invoke(['plan','--script',file]);assert.equal(plan.code,0,plan.stderr);assert.deepEqual(JSON.parse(plan.stdout),await previewPlan({script}));assert.doesNotMatch(plan.stderr,/WORKFLOW_EXECUTED_SENTINEL/);
+ const savedFile=join(temp,'.agents','workflows','inert.mjs');await mkdir(dirname(savedFile),{recursive:true});await writeFile(savedFile,script);
+ const savedPlan=await invoke(['plan','project:inert','--cwd',temp]);assert.equal(savedPlan.code,0,savedPlan.stderr);assert.deepEqual(JSON.parse(savedPlan.stdout),JSON.parse(plan.stdout));assert.doesNotMatch(savedPlan.stderr,/WORKFLOW_EXECUTED_SENTINEL/);
+ const context={dataDir,runId:bound.id},session={...context,sessionId:'origin'},jobId='72eadbf1-4ba2-45a0-85d4-52efb42ed1bf';
+ const {readUsageSummary}=await import(pathToFileURL(join(first.path,'engine/usage-summary.mjs')).href);
+ const {listStageCheckpoints}=await import(pathToFileURL(join(first.path,'engine/stage-checkpoints.mjs')).href);
+ const {readCommandJob,readCommandJobOutput}=await import(pathToFileURL(join(first.path,'engine/command-jobs/index.mjs')).href);
+ const reads=[
+  {args:['usage',bound.id,'--generation','1'],read:()=>readUsageSummary({...context,generation:1})},
+  {args:['checkpoint',bound.id],read:()=>listStageCheckpoints({...context,after:null,limit:50})},
+  {args:['job-status',bound.id,'--session','origin','--job-id',jobId],read:()=>readCommandJob({...session,jobId})},
+  {args:['job-output',bound.id,'--session','origin','--job-id',jobId,'--stream','stdout'],read:()=>readCommandJobOutput({...session,jobId,stream:'stdout',after:0,limitBytes:65536})},
+ ];
+ for(const row of reads)row.expected=await row.read().then(value=>({value}),error=>({error}));
+ await writeFile(join(plugin,'bin/command.mjs'),'throw Error("CURRENT_RUNTIME_SENTINEL");');await installRuntime({pluginRoot:plugin,dataDir,npmCli});
+ const pointer=await readFile(join(dataDir,'runtime-v2.json')),owner=await readFile(join(bound.runDir,'runtime.json')),installs=await readFile(installTrace),runtimeNames=await readdir(join(dataDir,'runtime-v2'));
+ for(const {args,expected} of reads){const actual=await invoke(args);assert.doesNotMatch(actual.stderr+actual.stdout,/CURRENT_RUNTIME_SENTINEL|unsupported/);if(expected.error){assert.equal(actual.code,1);assert.match(actual.stderr,/provider refused/);}else{assert.equal(actual.code,0,actual.stderr);assert.deepEqual(JSON.parse(actual.stdout),expected.value);}}
+ const canonical=await realpath(dataDir),identity=await lstat(dataDir,{bigint:true});
+ const dataInstanceId=createHash('sha256').update(JSON.stringify([process.platform==='win32'?canonical.toLowerCase():canonical,String(identity.dev),String(identity.ino),String(identity.birthtimeNs)])).digest('hex');
+ const requestFile=join(temp,'acceptance.json');await writeFile(requestFile,JSON.stringify({schemaVersion:1,run:{dataInstanceId,runId:bound.id,runtimeId:first.id},planHash:'a'.repeat(64),checkpointId:'b2ed1048-84fa-48de-a3ed-8352fbe3ae31',objectiveIds:['missing']}));
+ const assembly=await invoke(['acceptance',bound.id,'--session','origin','--request-file',requestFile]);assert.equal(assembly.code,1);assert.doesNotMatch(assembly.stdout+assembly.stderr,/CURRENT_RUNTIME_SENTINEL|unsupported/);if(assembly.stdout)assert.equal(JSON.parse(assembly.stdout).complete,false);else assert.match(assembly.stderr,/provider refused/);
+ for(const args of [['job-status',bound.id,'--job-id',jobId],['job-output',bound.id,'--job-id',jobId,'--stream','stdout'],['acceptance',bound.id,'--request-file',requestFile]]){const foreign=await invoke([...args,'--session','foreign']);assert.equal(foreign.code,1);assert.match(foreign.stderr,/another originating session/);}
+ const current=await invoke(['plan','--script',file]);assert.equal(current.code,1);assert.match(current.stderr,/CURRENT_RUNTIME_SENTINEL/);
+ const absentData=join(temp,'absent-data'),absent=await invoke(['plan','--script',file],absentData);assert.equal(absent.code,1);await assert.rejects(lstat(absentData),{code:'ENOENT'});
+ assert.deepEqual(await readFile(join(dataDir,'runtime-v2.json')),pointer);assert.deepEqual(await readFile(join(bound.runDir,'runtime.json')),owner);assert.deepEqual(await readFile(installTrace),installs);assert.deepEqual(await readdir(join(dataDir,'runtime-v2')),runtimeNames);
 });

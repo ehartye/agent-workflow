@@ -10,8 +10,12 @@ import {monitorData} from './monitor-data.mjs';
 import {parseScript} from './script.mjs';
 import {listWorkflows,resolveWorkflow,saveWorkflow} from './registry.mjs';
 import {readCapabilities,freezeCapabilities} from './worker-capabilities.mjs';
-import {parseDeadlineOptions} from '../bin/arguments.mjs';
+import {parseDeadlineOptions,inspectCommand} from '../bin/arguments.mjs';
 
+if(process.argv.slice(2).some(token=>token==='--inspect'||token.startsWith('--inspect='))){
+ try{const tokens=inspectCommand(process.argv.slice(2));const {main}=await import('../bin/command.mjs');process.exitCode=await main(tokens);}
+ catch(error){console.error(`Agent Workflow inspect: ${error.message}`);process.exitCode=1;}
+}else{
 const { values } = parseArgs({ options: {
   codex: { type: 'string' }, cwd: { type: 'string' }, script: { type: 'string' },
   run: { type: 'string' }, session: { type: 'string' }, args: { type: 'string' },
@@ -29,6 +33,7 @@ const { values } = parseArgs({ options: {
   workflow:{type:'string'},'list-workflows':{type:'boolean'},'read-workflow':{type:'string'},'save-workflow':{type:'string'},validate:{type:'boolean'},command:{type:'boolean'},overwrite:{type:'boolean'},
 } });
 if (values.help) {
+  console.log('Read-only candidate inspections: --inspect plan|capture-preflight|usage|acceptance|checkpoint|job-status|job-output, with the exact public command options. Saved reads use --run-id ID and --data-dir PATH; sessions are required where public commands require them. --run/start/control flags cannot be combined. Use bin/launch.mjs for managed runtime selection.');
   console.log('Deadlines: --worker-timeout-ms <0 or positive safe milliseconds> defaults to 0 (unbounded); --run-timeout-ms <0-86400000> defaults to 0 (completion/manual Stop). Resume inherits saved deadlines unless overridden; explicit worker 0 clears the saved budget. Live --action worker-deadline requires exact session/generation/position/attempt/nullable turn, --deadline-revision and exactly one --set-ms, --extend-ms or --clear.');
   console.log('Saved definitions: --list-workflows | --read-workflow <[scope:]name> | --save-workflow <[scope:]name> --script <file> [--command] [--overwrite]. Validate: --validate --script <file>. Start a saved definition with --workflow <[scope:]name> instead of --script. Project lookup uses --cwd.');
   console.log('Read a verified complete patch: --patch <worker position> --run <directory> --generation <observed generation> [--basis inputs|base] [--source-generation <prior generation>]. Returns JSON with patch text and SHA-256.');
@@ -93,4 +98,5 @@ if (values.help) {
     console.log(JSON.stringify({ status: 'failed', error: diagnostic(error) }, null, 2));
     process.exitCode = 1;
   }
+}
 }

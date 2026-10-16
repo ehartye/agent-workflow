@@ -2,10 +2,12 @@ import {lstat,open} from 'node:fs/promises';
 import {join} from 'node:path';
 import {fault} from '../../foundation/client.mjs';
 import {monitorData} from '../monitor-data.mjs';
+import {validateDeadlineChange,assertWorkerTarget} from '../controls.mjs';
 
 const id=/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
 const unavailable=message=>fault('MONITOR_UNAVAILABLE',message);
 const sameRef=(a,b)=>a?.dataInstanceId===b?.dataInstanceId&&a?.runId===b?.runId&&a?.runtimeId===b?.runtimeId;
+export const supportsDeadlineSnapshot=worker=>Boolean(worker?.deadline&&Number.isSafeInteger(worker.deadline.revision)&&worker.deadline.revision>=0&&['active','expired','closed'].includes(worker.deadline.status)&&(worker.deadline.remainingMs===null||Number.isSafeInteger(worker.deadline.remainingMs)&&worker.deadline.remainingMs>=0));
 export function validateMonitorBinding(binding){
   if(binding===null)return null;
   const keys=['version','scope','dataInstanceId','originatingSessionId','pinnedRunId','runtimeId'];
@@ -27,13 +29,14 @@ function integer(url,name,fallback){
 }
 function readOptions(path,url){
   if(path==='/run')return{};
-  if(!['/activity','/script','/result'].includes(path)&&!/^\/(worker|patch|exclusions)\/(0|[1-9][0-9]{0,2})$/.test(path))return null;
+  if(!['/activity','/messages','/script','/result'].includes(path)&&!/^\/(worker|patch|exclusions)\/(0|[1-9][0-9]{0,2})$/.test(path))return null;
   const generation=integer(url,'generation');if(generation<1)throw fault('HTTP_INPUT','Observed generation is required');
   const history=url.searchParams.has('sourceGeneration')?{sourceGeneration:integer(url,'sourceGeneration')}:{};
   if(history.sourceGeneration!==undefined&&history.sourceGeneration<1)throw fault('HTTP_INPUT','Invalid historical source generation');
-  if(path==='/activity'){
+  if(path==='/activity'||path==='/messages'){
+    if(path==='/messages'&&[...url.searchParams.keys()].some((key,index,keys)=>!['generation','position','sourceGeneration','after','limit'].includes(key)||keys.indexOf(key)!==index))throw fault('HTTP_INPUT','Unsupported message paging fields');
     const position=integer(url,'position'),after=integer(url,'after',0),limit=integer(url,'limit',50);
-    if(position>=1000||limit<1||limit>100)throw fault('HTTP_INPUT','Activity paging exceeded its limits');return{kind:'activity',generation,position,after,limit,...history};
+    if(position>=1000||limit<1||limit>100)throw fault('HTTP_INPUT','Activity paging exceeded its limits');return{kind:path==='/messages'?'messages':'activity',generation,position,after,limit,...history};
   }
   const match=/^\/(worker|patch|exclusions)\/([0-9]+)$/.exec(path),kind=match?.[1]??path.slice(1),basis=url.searchParams.get('basis')??'inputs';
   if(kind==='exclusions'){
@@ -52,7 +55,7 @@ export async function createExperienceSurface({runDir,binding,services}){
   const has=name=>Boolean(binding&&typeof services?.[name]==='function');
   const capabilities={sessionNavigation:binding?.scope==='session'&&has('listSessionRuns')&&has('readRun'),lifecycle:has('lifecycle')&&has('readRun'),lifecycleReceipt:has('readLifecycleReceipt'),scopedControls:has('controlRun')};
   let busy=false;
-  function decorate(state,ref){return{...state,monitor:{run:ref,scope:binding?.scope??'run',pinnedRunId:binding?.pinnedRunId??null,capabilities:state.availability?.status==='unavailable'?{...capabilities,lifecycle:false,lifecycleReceipt:false,scopedControls:false}:capabilities,sessionUrl:capabilities.sessionNavigation?'/session':null}};}
+  function decorate(state,ref){return{...state,deadlineControls:state.deadlineControls??{available:!binding&&(state.workers??[]).some(supportsDeadlineSnapshot),receipts:!binding,reason:'Retained runtime does not expose verified deadline controls.'},monitor:{run:ref,scope:binding?.scope??'run',pinnedRunId:binding?.pinnedRunId??null,capabilities:state.availability?.status==='unavailable'?{...capabilities,lifecycle:false,lifecycleReceipt:false,scopedControls:false}:capabilities,sessionUrl:capabilities.sessionNavigation?'/session':null}};}
   async function read(runId,options={}){
     const local=runId===null||runId===binding?.pinnedRunId;
     if(!local&&!capabilities.sessionNavigation)throw unavailable('Originating-session navigation adapter is unavailable.');
@@ -94,6 +97,15 @@ export async function createExperienceSurface({runDir,binding,services}){
     }
     const scoped=/^\/api\/runs\/([A-Za-z0-9][A-Za-z0-9._-]{0,199})(\/.*)$/.exec(url.pathname),runId=scoped?.[1]??null,path=scoped?.[2]??url.pathname.slice(4);
     if(!scoped&&!url.pathname.startsWith('/api/'))return null;
+    if(method==='GET'&&path.startsWith('/control/receipts/')&&binding){
+      if(!has('readControlReceipt'))throw unavailable('Retained-runtime control receipt reader is unavailable.');
+      const receiptId=path.slice('/control/receipts/'.length),generation=integer(url,'generation');
+      if(!id.test(receiptId)||generation<1||[...url.searchParams.keys()].some(key=>key!=='generation')||url.searchParams.getAll('generation').length!==1)throw fault('HTTP_INPUT','Provide the exact bounded receipt and generation');
+      const state=await read(runId);if(!Number.isSafeInteger(state.generation)||state.generation<generation)throw fault('REPLAY_GENERATION','Receipt generation is outside the saved run');
+      const value=await services.readControlReceipt({runId:runId??binding.pinnedRunId,receiptId,generation});
+      if(value?.id!==receiptId||value.generation!==generation||Buffer.byteLength(JSON.stringify(value))>40000)throw fault('MONITOR_RECEIPT','Control receipt identity or bounds differ');
+      return result(value);
+    }
     if(method==='GET'&&path.startsWith('/lifecycle/receipts/')){
       if(!capabilities.lifecycleReceipt)throw unavailable('Lifecycle receipt adapter is unavailable.');
       const receiptId=path.slice('/lifecycle/receipts/'.length);if(!id.test(receiptId))throw fault('HTTP_INPUT','Invalid receipt identifier');
@@ -129,18 +141,24 @@ export async function createExperienceSurface({runDir,binding,services}){
     }
     if(method==='POST'&&(binding||scoped)&&['/control','/resume','/restart'].includes(path)){
       if(!binding)throw unavailable('Scoped control binding is unavailable.');
-      const input=await body(),allowed=path==='/control'?['generation','action','position','attempt','turnId','text','target']:path==='/restart'?['generation','position','attempt','reconciliation','target']:['generation','action','target'];
+      const input=await body(),allowed=path==='/control'?['generation','action','position','attempt','turnId','text','deadline','target']:path==='/restart'?['generation','position','attempt','reconciliation','target']:['generation','action','target'];
       if(!Number.isInteger(input.generation)||input.generation<1||Object.keys(input).some(key=>!allowed.includes(key)))throw fault('HTTP_INPUT','Provide observed generation and supported control fields');
-      if(path==='/control'&&!['pause','stop','steer','cancel-worker'].includes(input.action))throw fault('HTTP_INPUT','Unsupported control action');
+      if(path==='/control'&&!['pause','stop','steer','cancel-worker','worker-deadline'].includes(input.action))throw fault('HTTP_INPUT','Unsupported control action');
+      if(input.action==='worker-deadline')validateDeadlineChange(input.deadline);
+      else if(input.deadline!==undefined)throw fault('CONTROL_INPUT','Deadline fields require a worker-deadline action');
       const state=await observed(runId,input,input.target);
       if(input.position!==undefined){
         const worker=state.workers.find(item=>item.position===input.position);
         if(!worker||input.attempt!==(worker.attempts??0)||input.target.position!==input.position||input.target.attempt!==input.attempt||path==='/control'&&(input.target.turnId!==input.turnId||input.turnId!==(worker.activeTurn?.turnId??null)))throw fault('MONITOR_TARGET','Worker attempt/turn changed');
       }else if(['position','attempt','turnId'].some(key=>Object.hasOwn(input.target,key)))throw fault('HTTP_INPUT','Run controls cannot carry a worker target');
+      if(input.action==='worker-deadline'){
+        if(state.deadlineControls?.available!==true)throw unavailable('Retained runtime deadline controls are unavailable.');
+        assertWorkerTarget(state.workers.find(worker=>worker.position===input.position),input);
+      }
       if(!capabilities.scopedControls)throw unavailable('Retained-runtime control adapter is unavailable. Bound monitors require it for every target.');
       if(busy)throw fault('MONITOR_BUSY','A bound mutation is already pending');
       busy=true;
-      try{return result(await services.controlRun({target:input.target,action:path==='/control'?input.action:path.slice(1),...(input.text!==undefined?{text:input.text}:{}),...(input.reconciliation!==undefined?{reconciliation:input.reconciliation}:{})}),202);}finally{busy=false;}
+      try{return result(await services.controlRun({target:input.target,action:path==='/control'?input.action:path.slice(1),...(input.text!==undefined?{text:input.text}:{}),...(input.deadline!==undefined?{deadline:input.deadline}:{}),...(input.reconciliation!==undefined?{reconciliation:input.reconciliation}:{})}),202);}finally{busy=false;}
     }
     return null;
   }

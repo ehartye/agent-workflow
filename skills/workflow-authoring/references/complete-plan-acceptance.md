@@ -2,6 +2,8 @@
 
 The coordinator checks the full owned plan artifact, not its summary or self-score. Preserve failed historical drafts. A new complete artifact does not repair an earlier capped or unknown attempt.
 
+Use complete owned artifacts plus small metadata within the actual schema/native JSON budget. A wider transport, parsed args-file or retained source package does not enlarge answer allowance. Source retention and genuine activation are separate: native returned roots must match admitted retained execution roots, with original identities kept as provenance. These instruction changes are inspection-based; they do not claim a fresh paired efficacy or automatic-trigger result.
+
 Require these sections before dispatch:
 
 1. **Scope and roles:** retained objective IDs, exact paths/read scope, one writer per interface, dependencies, task/attempt/batch budgets, explicit deadline policy, input snapshot identity, prerequisites and missing coverage. No wall deadline with an owning orchestrator and manual control is valid. Dashboard retention until manual Close is valid. A phase is not a dependency and concurrency is not a lifetime budget.

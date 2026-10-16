@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import {readFile,readdir,open} from 'node:fs/promises';
+import {readFile,readdir,open,lstat,realpath} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {parseCommand,help,parseDeadlineOptions} from './arguments.mjs';
@@ -33,9 +34,73 @@ function deadlines(options){
  const worker=integer(options['worker-timeout-ms'],'worker-timeout-ms',{max:MAX_WORKER_TIMEOUT_MS});
  return{...(run===undefined?{}:{timeoutMs:run===0?null:run}),...(worker===undefined?{}:{workerTimeoutMs:worker===0?null:worker})};
 }
+async function boundedText(file,limit){
+ const path=resolve(file);let handle;
+ try{
+  await noLinks(path);const before=await lstat(path,{bigint:true});if(!before.isFile()||before.nlink!==1n)throw fault('CLI_FILE','A regular single-link input file is required');
+  handle=await open(path,'r');const opened=await handle.stat({bigint:true});
+  const same=(a,b)=>['dev','ino','mode','nlink','size','mtimeNs','ctimeNs'].every(key=>a[key]===b[key]);
+  if(!opened.isFile()||opened.nlink!==1n||!same(before,opened))throw fault('CLI_FILE_CHANGED','Input file identity changed');
+  if(opened.size>BigInt(limit))throw fault('CLI_INPUT_LIMIT','Input exceeded its bounded limit');
+  const buffer=Buffer.alloc(limit+1);let size=0;
+  while(size<buffer.length){const {bytesRead}=await handle.read(buffer,size,buffer.length-size,null);if(!bytesRead)break;size+=bytesRead;}
+  if(size>limit)throw fault('CLI_INPUT_LIMIT','Input exceeded its bounded limit');
+  await noLinks(path);if(!same(opened,await handle.stat({bigint:true}))||!same(opened,await lstat(path,{bigint:true}))||BigInt(size)!==opened.size)throw fault('CLI_FILE_CHANGED','Input file identity changed');
+  try{return new TextDecoder('utf-8',{fatal:true}).decode(buffer.subarray(0,size));}catch{throw fault('CLI_UTF8','Input must be valid UTF-8 encoded text');}
+ }catch(error){if(['CLI_FILE','CLI_FILE_CHANGED','CLI_INPUT_LIMIT','CLI_UTF8'].includes(error.code))throw error;throw fault('CLI_FILE','A readable regular input file without linked ancestors is required');}
+ finally{await handle?.close();}
+}
 async function boundedJson(file,limit){
- const handle=await open(resolve(file),'r');
- try{if(!(await handle.stat()).isFile())throw Error('A regular JSON file is required');const buffer=Buffer.alloc(limit+1);let size=0;while(size<buffer.length){const {bytesRead}=await handle.read(buffer,size,buffer.length-size,null);if(!bytesRead)break;size+=bytesRead;}if(size>limit)throw Error('JSON input exceeded its bounded limit');return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(buffer.subarray(0,size)));}finally{await handle.close();}
+ const text=await boundedText(file,limit);try{return JSON.parse(text);}catch{throw fault('CLI_JSON','Input must contain valid JSON');}
+}
+const roadmapCommands=new Set(['capture-preflight','plan','usage','acceptance','checkpoint-record','checkpoint','check-record','job-start','job-status','job-output','job-cancel']);
+function requestObject(value,fields,required=fields){
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!fields.includes(key))||required.some(key=>!Object.hasOwn(value,key))||value.schemaVersion!==1)throw fault('CLI_REQUEST','Invalid request fields or schema');
+ return value;
+}
+async function provider(file,name){
+ let module;try{module=await import(new URL(`../engine/${file}`,import.meta.url));}catch(error){if(error.code==='ERR_MODULE_NOT_FOUND')throw fault('CLI_UNSUPPORTED','This recorded runtime does not provide the required module or dependency');throw fault('CLI_PROVIDER','The required provider could not be loaded');}
+ if(typeof module[name]!=='function')throw fault('CLI_UNSUPPORTED','This recorded runtime does not provide the required export');
+ return module[name];
+}
+async function dataInstanceId(dataDir){
+ await noLinks(dataDir);const canonical=await realpath(dataDir),identity=await lstat(dataDir,{bigint:true});
+ return createHash('sha256').update(JSON.stringify([process.platform==='win32'?canonical.toLowerCase():canonical,String(identity.dev),String(identity.ino),String(identity.birthtimeNs)])).digest('hex');
+}
+async function roadmapCommand(p,owner){
+ const o=p.values,context={dataDir:p.dataDir,runId:p.id},session={...context,sessionId:p.sessionId};let result;
+ if(p.command==='plan'){
+  const script=await boundedText(o.script!==undefined?o.script:(await resolveWorkflow(p.id,{cwd:p.cwd})).scriptPath,1048576);
+  if(Buffer.byteLength(script,'utf8')>1048576)throw fault('CLI_INPUT_LIMIT','Script exceeded its bounded limit');
+  result=await(await provider('plan-preview.mjs','previewPlan'))({script});
+ }else if(p.command==='capture-preflight'){
+  const capturePolicy=o['capture-policy']===undefined?null:workspacePolicy.validateCapturePolicy(await boundedJson(o['capture-policy'],2097152)).policy;
+  result=await(await provider('capture-preflight.mjs','preflightCapture'))({source:p.cwd,capturePolicy});
+ }else if(p.command==='usage')result=await(await provider('usage-summary.mjs','readUsageSummary'))({...context,generation:integer(o.generation,'generation',{min:1,required:true})});
+ else if(p.command==='acceptance'){
+  const request=requestObject(await boundedJson(o['request-file'],65536),['schemaVersion','run','planHash','checkpointId','objectiveIds']);
+  if(!request.run||Object.keys(request.run).some(key=>!['dataInstanceId','runId','runtimeId'].includes(key))||request.run.runId!==p.id||request.run.runtimeId!==owner.runtime.id||request.run.dataInstanceId!==await dataInstanceId(p.dataDir))throw fault('CLI_IDENTITY','Acceptance request run identity does not match the selected run');
+  result=await(await provider('delivery-acceptance.mjs','assembleDeliveryAcceptance'))({dataDir:p.dataDir,sessionId:p.sessionId,request});
+ }else if(p.command==='checkpoint-record'){
+  const request=requestObject(await boundedJson(o['request-file'],1048576),['schemaVersion','requestId','expectedPreviousId','record']);
+  result=await(await provider('stage-checkpoints.mjs','recordStageCheckpoint'))({...session,requestId:request.requestId,expectedPreviousId:request.expectedPreviousId,record:request.record});
+ }else if(p.command==='checkpoint'){
+  result=o['checkpoint-id']!==undefined?await(await provider('stage-checkpoints.mjs','readStageCheckpoint'))({...context,id:o['checkpoint-id']}):await(await provider('stage-checkpoints.mjs','listStageCheckpoints'))({...context,after:o.after??null,limit:integer(o.limit,'limit',{min:1,max:50})??50});
+ }else if(p.command==='check-record')result=await(await provider('stage-checkpoints.mjs','recordVerificationCheck'))({...session,checkpointId:o['checkpoint-id'],checkId:o['check-id'],jobId:o['job-id']});
+ else if(p.command==='job-start'){
+  const fields=['schemaVersion','requestId','command','cwd','environment','deadlineMs','outputLimitBytes','kind','verification'];
+  const request=requestObject(await boundedJson(o['request-file'],2097152),fields,fields.filter(key=>key!=='outputLimitBytes'));
+  result=await(await provider('command-jobs/index.mjs','startCommandJob'))({...session,request});
+ }else if(p.command==='job-status')result=await(await provider('command-jobs/index.mjs','readCommandJob'))({...session,jobId:o['job-id']});
+ else if(p.command==='job-output')result=await(await provider('command-jobs/index.mjs','readCommandJobOutput'))({...session,jobId:o['job-id'],stream:o.stream,after:integer(o.after,'after')??0,limitBytes:integer(o['limit-bytes'],'limit-bytes',{min:1,max:65536})??65536});
+ else result=await(await provider('command-jobs/index.mjs','cancelCommandJob'))({...session,jobId:o['job-id'],requestId:o['request-id'],expectedRevision:integer(o.revision,'revision',{required:true})});
+ const serialized=JSON.stringify(result);if(typeof serialized!=='string'||Buffer.byteLength(serialized,'utf8')>1048576)throw fault('CLI_OUTPUT_LIMIT','Provider response exceeded its bounded limit');
+ console.log(serialized);
+ if(p.command==='acceptance')return result.complete===true?0:1;
+ if(p.command==='capture-preflight')return result.status==='ready'?0:1;
+ if(p.command==='check-record')return result.schemaVersion===1&&result.start==='observed'&&result.outcome==='passed'&&result.exitCode===0&&result.cleanup?.serverExited===true&&result.cleanup?.jobEmpty===true&&result.cleanup?.forced===false?0:1;
+ if(p.command==='job-cancel')return result.cancellation?.requestId===o['request-id']&&['recorded','sent','confirmed'].includes(result.cancellation.status)?0:1;
+ return 0;
 }
 function lifecycleRequest(p){
  const o=p.values,kind=o.target??'run';if(!['run','worker'].includes(kind))throw Error('--target requires run or worker');
@@ -53,8 +118,16 @@ async function commandAccess(p){
 export async function main(tokens=process.argv.slice(2)){
  const p=parseCommand(tokens),o=p.values;if(p.command==='help'||o.help){process.stdout.write(help);return 0;}
  let owner;
- if(p.runCommand){owner=await resolveRun({dataDir:p.dataDir,id:p.id,...(p.mutation||p.command==='watch'?{sessionId:p.sessionId}:{})});if(p.command==='dashboard'&&o['current-ui']){const current=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(current.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the explicitly installed current UI');}else if(resolve(owner.runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select this run’s original runtime');}
+ if(p.runCommand){owner=await resolveRun({dataDir:p.dataDir,id:p.id,...(p.mutation||p.sessionRead||p.command==='watch'?{sessionId:p.sessionId}:{})});if(p.command==='dashboard'&&o['current-ui']){const current=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(current.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the explicitly installed current UI');}else if(resolve(owner.runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select this run’s original runtime');}
  else if(p.command!=='doctor'){const runtime=await selectRuntime({pluginRoot,dataDir:p.dataDir});if(resolve(runtime.path)!==resolve(pluginRoot))throw Error('Use the public launcher to select the managed runtime');}
+ if(roadmapCommands.has(p.command)){
+  try{return await roadmapCommand(p,owner);}catch(error){
+   if(error.code==='CLI_UNSUPPORTED'){print({status:'unsupported',error:{code:'CLI_UNSUPPORTED',message:'Required provider is unavailable in this runtime; reviewed integration is required'}});return 1;}
+   // Provider diagnostics cannot leak command bodies, private paths or native stderr.
+   if(!String(error.code??'').startsWith('CLI_'))throw fault('CLI_PROVIDER','The provider refused the request; inspect retained evidence before any further action');
+   throw error;
+  }
+ }
  if(p.command==='mode'){const options={dataDir:p.dataDir,cwd:p.cwd,sessionId:p.sessionId,scope:o.scope??'session'};print(p.id==='status'?await readMode(options):await setMode(p.id,options));return 0;}
  const registry={cwd:p.cwd};
  if(p.command==='workflows'){print(await listWorkflows(registry));return 0;}
