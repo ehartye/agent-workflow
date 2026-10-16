@@ -47,8 +47,14 @@ p { margin:0 0 10px; overflow-wrap:anywhere; }
 :root[data-theme="light"] .map-dependency { stroke:#607f9c; }
 .arrow-head { fill:#9cb7ce; }
 .map-phase { position:absolute; top:15px; max-width:190px; color:var(--muted); font:11px var(--mono); text-transform:uppercase; letter-spacing:.07em; }
-.map-worker { position:absolute; min-height:98px; border-left:3px solid var(--line); text-align:left; padding:10px 11px; background:var(--panel); box-shadow:0 3px 8px #29486c09; border-radius:7px; }
-.map-worker[aria-pressed="true"] { outline:2px solid var(--cyan); outline-offset:3px; }
+.map-worker,.map-step { position:absolute; min-height:98px; border-left:3px solid var(--line); text-align:left; padding:10px 11px; background:var(--panel); box-shadow:0 3px 8px #29486c09; border-radius:7px; }
+.map-worker[aria-pressed="true"],.map-step[aria-pressed="true"] { outline:2px solid var(--cyan); outline-offset:3px; }
+.map-step { border:1px dashed var(--muted); background:var(--map); }
+.map-step .node-top { padding-right:0; }
+.map-step[data-status="incomplete"] { border-color:var(--amber); }
+.map-plan-dependency { fill:none; stroke:var(--muted); stroke-width:1.5; stroke-dasharray:6 4; }
+#declared-step-list { padding-left:18px; }
+.step-list-button { display:block; width:100%; min-height:36px; text-align:left; margin:4px 0; overflow-wrap:anywhere; }
 .map-worker[data-status="running"] { border-left-color:var(--cyan); }
 .map-worker[data-status="completed"] { border-left-color:var(--green); }
 .map-worker[data-status="failed"],.map-worker[data-status="unknown"] { border-left-color:var(--red); }
@@ -60,7 +66,7 @@ p { margin:0 0 10px; overflow-wrap:anywhere; }
 .coverage-disclosure { flex:none; border:0; border-top:1px solid var(--line); border-radius:0; padding:6px 18px; background:var(--map); font:11px/1.5 var(--mono); max-height:30%; overflow:auto; }
 .coverage-disclosure summary { font-weight:400; min-height:20px; }
 .coverage-disclosure p { margin:8px 0; }
-.flow-legend { display:flex; gap:16px; color:var(--muted); }
+.flow-legend { display:flex; flex-wrap:wrap; gap:8px 16px; color:var(--muted); }
 .inspector { width:300px; flex:none; min-height:0; overflow:auto; overscroll-behavior:contain; border-left:1px solid var(--line); background:var(--panel); }
 .pane-resize { width:10px; flex:none; position:relative; cursor:col-resize; touch-action:none; user-select:none; background:var(--raised); z-index:2; }
 .pane-resize::after { content:""; position:absolute; top:calc(50% - 24px); left:4px; height:48px; width:2px; border-radius:2px; background:var(--muted); }

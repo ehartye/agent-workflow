@@ -42,7 +42,7 @@ async function monitor({ hash = '#token=fixture-token', savedToken, savedTheme, 
   for(const [pane,value] of Object.entries(savedWidths))local.set(`agent-workflow.monitor.width.${pane}`,value);
   let timerId = 0, snapshot = { generation: 4, status: 'running', acceptingControls: true, resumable: false, meta: { name: 'Fixture workflow' }, concurrency: 2, attempts: 2, workers: [worker(0), worker(1, 'running')], coverage: { requested: 2, completed: 1, failed: 0, unknown: 0, cached: 0 }, updatedAt: '2026-10-13T12:00:00Z', ...run };
   const storage = map => ({ getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) });
-  const context = vm.createContext({ document, window, URLSearchParams, AbortController, location: { hash, pathname: '/', search: '' },
+  const context = vm.createContext({ document, window, URLSearchParams, AbortController, TextDecoder, location: { hash, pathname: '/', search: '' },
     history: { replaceState: (...args) => history.push(args) }, sessionStorage: storage(session), localStorage: storageBlocked ? {getItem(){throw Error('blocked');},setItem(){throw Error('blocked');}} : storage(local),
     matchMedia: query => query.includes('max-width') ? { get matches(){return phone;}, addEventListener(type,listener){mediaListeners.push(listener);} } : { get matches(){return light;},addEventListener(type,listener){themeListeners.push(listener);} }, confirm: () => false,
     Option: function(text, value) { const option = document.createElement('option'); option.textContent = text; option.value = value; return option; },
@@ -92,6 +92,176 @@ test('added workers disclose their origin and live deadline without inventing ru
 const deadlineWorker=extra=>worker(0,'running',{attempts:2,activeTurn:{threadId:'thread',turnId:'turn'},deadline:{configuredTimeoutMs:null,remainingMs:null,expiresAt:null,status:'active',revision:7},...extra});
 const deadlineRun=extra=>({workers:[deadlineWorker()],deadlineControls:{available:true,receipts:true},...extra});
 const ok=value=>({ok:true,status:200,json:async()=>value});
+
+// Synthetic public StepProjectionV1 responses exercise the actual DOM client.
+// They make no claim about a retained runtime's provider implementation.
+const stepRun={dataInstanceId:'data',runId:'declared-run',runtimeId:'runtime'};
+const stepRef=(stepId,scope={kind:'root'},generation=4,run=stepRun)=>({run,generation,scope,stepId});
+const step=(id,extra={})=>({ref:stepRef(id),label:`Declared ${id}`,phase:'Plan',dependencies:[],binding:'unassigned',worker:null,sourceWorker:null,execution:'planned',displayBlockedBy:[],failure:null,acceptance:'unverified',...extra});
+const stepPage=(items,extra={})=>({schemaVersion:1,run:stepRun,generation:4,available:true,items,nextCursor:null,hasMore:false,coverage:{declared:items.length,assigned:items.filter(item=>item.worker).length,unassigned:items.filter(item=>!item.worker).length,dynamicWorkers:0,futureWorkers:'unknown'},...extra});
+const stepSnapshot=(extra={})=>({workers:[],coverage:{requested:0,completed:0},monitor:{run:stepRun,pinnedRunId:stepRun.runId,capabilities:{scopedControls:true}},...extra});
+const isSteps=path=>/^\/api\/(?:runs\/[^/]+\/)?steps\?/.test(path);
+
+test('declared steps appear before workers and open plan evidence without worker controls',async()=>{
+  let items=[step('verify',{label:'Verify <exports>',dependencies:[stepRef('inspect')],displayBlockedBy:[stepRef('inspect')]}),step('inspect')];
+  const view=await monitor({run:stepSnapshot(),response:path=>isSteps(path)?ok(stepPage(items)):undefined});
+  assert.equal(view.document.querySelectorAll('.map-step').length,2,'A worker-free declared plan is visible');
+  assert.equal(view.document.querySelectorAll('.map-worker').length,0);
+  assert.match(view.get('map-note').textContent,/declared.*plan|plan.*dependenc/i);
+  assert.match(view.get('step-coverage').textContent,/2.*unassigned/i);
+  assert.equal(view.get('progress').hasAttribute('aria-valuenow'),false);
+  const card=[...view.document.querySelectorAll('.map-step')].find(item=>item.textContent.includes('Verify'));
+  assert.match(card.textContent,/Planned/);assert.match(card.textContent,/Waiting for Declared inspect/);
+  await view.click(card);
+  assert.equal(view.get('detail-heading').textContent,'Verify <exports>');assert.equal(view.get('detail').querySelector('img'),null);
+  assert.match(view.get('detail').textContent,/no scheduler admission implied/i);
+  assert.match(view.get('detail').textContent,/Declared inspect/);
+  assert.equal(view.document.querySelector('.worker-menu-toggle'),null);
+  assert.equal(view.get('steer-text'),null);assert.equal(view.get('worker-deadline'),null);
+  assert.equal(view.calls.some(call=>call.path.includes('/worker/')),false);
+  view.update({status:'completed'});await view.tick(2000);
+  assert.match(view.document.querySelector('.map-step').textContent,/Incomplete/);
+  assert.doesNotMatch(view.get('detail-status').textContent,/completed|pass/i);
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('step assignment keeps one keyed card, focus and worker evidence with exact cached source identity',async()=>{
+  let items=[step('build')];
+  const view=await monitor({run:stepSnapshot(),response:path=>isSteps(path)?ok(stepPage(items)):undefined});
+  const card=view.document.querySelector('.map-step'),world=view.get('graph-world');
+  await view.click(card);await view.escape();card.focus();view.get('workflow-map').scrollLeft=87;world.style.transform='scale(1.1)';
+  const assigned=worker(5,'failed',{attempts:3,cached:true,reusedFrom:{generation:2,position:1},dependencies:[],error:{message:'Export command failed'}});
+  items=[step('build',{label:'Build exports',binding:'assigned',worker:{run:stepRun,generation:4,position:5,attempt:3},sourceWorker:{run:stepRun,generation:2,position:1,attempt:2},execution:'failed'})];
+  view.update({workers:[assigned,worker(7,'running',{dependencies:[]})],coverage:{requested:2,completed:0}});await view.tick(2000);
+  assert.equal(view.get('graph-world'),world);assert.equal(view.document.querySelector('.map-worker[data-position="5"]'),card);
+  assert.equal(view.document.activeElement,card);assert.equal(view.get('workflow-map').scrollLeft,87);assert.equal(world.style.transform,'scale(1.1)');
+  assert.equal(view.document.querySelectorAll('.map-worker').length,2,'Assigned step replaces its worker card; dynamic worker remains');
+  assert.match(card.textContent,/Build exports.*Export command failed/s);
+  await view.click(card);assert.match(view.get('detail').textContent,/runtime.*generation 4.*position 5.*attempt 3/s);
+  assert.match(view.get('detail').textContent,/source.*generation 2.*position 1.*attempt 2/is);
+  await view.click(view.document.querySelector('.worker-menu-toggle[data-position="5"]'));
+  assert.equal(view.get('worker-card-menu').hidden,false);assert.match(view.get('worker-card-menu').textContent,/Failure details/);
+});
+
+test('declared edges use complete scoped identities even when child local IDs repeat',async()=>{
+  const scope=id=>({kind:'child',invocation:{run:stepRun,generation:4,invocationId:id}});
+  const a=scope('child-a'),b=scope('child-b');
+  const items=[step('finish',{ref:stepRef('finish',a),dependencies:[stepRef('inspect',a)]}),step('inspect',{ref:stepRef('inspect',a)}),step('finish',{ref:stepRef('finish',b),dependencies:[stepRef('inspect',b)]}),step('inspect',{ref:stepRef('inspect',b)})];
+  const view=await monitor({run:stepSnapshot(),response:path=>isSteps(path)?ok(stepPage(items)):undefined});
+  assert.equal(view.document.querySelectorAll('.map-step').length,4);
+  const edges=[...view.document.querySelectorAll('.map-plan-dependency')];assert.equal(edges.length,2);
+  for(const edge of edges){const from=JSON.parse(edge.dataset.fromStep),to=JSON.parse(edge.dataset.toStep);assert.equal(from[1],to[1]);assert.notEqual(from[1],'root');}
+  assert.equal(view.document.querySelectorAll('.map-dependency:not(.map-plan-dependency)').length,0,'Plan arrows do not become scheduler evidence');
+});
+
+test('step pagination is explicit, scoped and keeps loaded selection across data-only refresh',async()=>{
+  const first=Array.from({length:60},(_,index)=>step(`s${index}`)),last=step('last',{dependencies:[stepRef('s0')]});
+  let reads=0;
+  const view=await monitor({run:stepSnapshot(),response:path=>{
+    if(!isSteps(path))return;reads++;const query=new URL(path,'http://fixture').searchParams;
+    assert.equal(query.get('generation'),'4');assert.ok(Number(query.get('limit'))<=100);
+    return ok(stepPage(query.has('after')?[last]:first,{nextCursor:query.has('after')?null:'opaque_cursor',hasMore:!query.has('after'),coverage:{declared:61,assigned:0,unassigned:61,dynamicWorkers:0,futureWorkers:'unknown'}}));
+  }});
+  assert.match(view.get('step-coverage').textContent,/60.*61/);assert.equal(reads,1);
+  assert.equal(view.get('load-more-steps').hidden,false);await view.click(view.get('load-more-steps'));
+  assert.match(view.get('step-coverage').textContent,/61.*61/);
+  const entry=[...view.get('declared-step-list').querySelectorAll('button')].find(item=>item.textContent.includes('Declared last'));assert.ok(entry,'Steps outside the map preview remain reachable');
+  await view.click(entry);assert.equal(view.get('detail-heading').textContent,'Declared last');
+  const detail=view.get('detail');detail.scrollTop=49;await view.tick(2000);
+  assert.equal(view.get('detail-heading').textContent,'Declared last');assert.equal(detail.scrollTop,49);
+  assert.match(view.get('map-note').textContent,/omitted|first 60/i);assert.equal(view.get('load-more-steps').hidden,true);
+});
+
+test('unavailable or stale step projections never reconstruct a catalog from metadata',async()=>{
+  for(const mode of ['unavailable','stale','wrong-run','oversized','bad-association']){
+    const invalid=mode==='unavailable'?{ok:false,status:503,json:async()=>({message:'Recorded runtime has no step provider'})}:ok(stepPage(mode==='bad-association'?[step('phantom',{binding:'assigned',worker:{run:stepRun,generation:4,position:9,attempt:1}})]:[step('injected',{label:mode==='oversized'?'x'.repeat(1048577):'UNTRUSTED_STEP'})],{...(mode==='stale'?{generation:3}:{}),...(mode==='wrong-run'?{run:{...stepRun,runId:'other'}}:{})}));
+    const view=await monitor({run:stepSnapshot({meta:{steps:[{id:'fake',label:'META_IS_NOT_A_PROVIDER',dependsOn:[]}]},workers:[worker(0)]}),response:path=>isSteps(path)?invalid:undefined});
+    assert.equal(view.document.querySelectorAll('.map-step').length,0,mode);assert.equal(view.document.querySelectorAll('.map-worker').length,1,mode);
+    assert.match(view.get('step-coverage').textContent,/unavailable/i,mode);
+    assert.doesNotMatch(view.get('workflow-map').textContent,/META_IS_NOT_A_PROVIDER|UNTRUSTED_STEP/);
+  }
+});
+
+test('late step pages cannot contaminate a newly selected run or a newer generation',async()=>{
+  let release;
+  const nextRun={...stepRun,runId:'next-run'};
+  const view=await monitor({run:stepSnapshot(),response:path=>{
+    if(path.startsWith('/api/session/runs'))return ok({items:[{ref:nextRun,title:'Next run',executionStatus:'running'}],nextCursor:null});
+    if(path==='/api/runs/next-run/run')return ok({...stepSnapshot(),generation:5,monitor:{run:nextRun},status:'running'});
+    if(isSteps(path)){
+      if(path.includes('/runs/next-run/'))return ok(stepPage([step('next',{ref:stepRef('next',{kind:'root'},5,nextRun),label:'NEXT_STEP'})],{run:nextRun,generation:5}));
+      return new Promise(resolve=>{release=()=>resolve(ok(stepPage([step('late',{label:'OLD_LATE_STEP'})])));});
+    }
+  }});
+  assert.equal(typeof release,'function');
+  // A newer run snapshot may arrive while a step read is pending.
+  vm.runInContext("switchView('next-run')",view.context);release();await view.flush();await view.flush();
+  assert.doesNotMatch(view.get('workflow-map').textContent,/OLD_LATE_STEP/);assert.match(view.get('workflow-map').textContent,/NEXT_STEP/);
+  assert.ok(view.calls.some(call=>call.path.startsWith('/api/runs/next-run/steps?generation=5')));
+  assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+});
+
+test('root and child namespaces stay distinct and replay retains the selected root card',async()=>{
+  let generation=4;
+  const projection=()=>stepPage([step('same',{ref:stepRef('same',{kind:'root'},generation)}),step('same',{ref:stepRef('same',{kind:'child',invocation:{run:stepRun,generation,invocationId:'root'}},generation),label:'Child step'})],{generation});
+  const view=await monitor({run:stepSnapshot(),response:path=>isSteps(path)?ok(projection()):undefined});
+  assert.equal(view.document.querySelectorAll('.map-step').length,2,'Scope kind participates in identity');
+  const root=[...view.document.querySelectorAll('.map-step')].find(item=>item.textContent.includes('Declared same'));
+  await view.click(root);await view.escape();root.focus();
+  generation=5;view.update({generation});await view.tick(2000);
+  assert.ok(view.document.querySelector('.map-step')===root,'Replay keeps the keyed root DOM element');
+  assert.ok(view.document.activeElement===root,'Replay keeps graph focus');
+  assert.match(view.get('detail').textContent,/"generation": 5/);
+});
+
+test('a pending navigation read cannot delay declared visibility',async()=>{
+  let release;
+  const view=await monitor({run:stepSnapshot({monitor:{run:stepRun,capabilities:{sessionNavigation:true}}}),response:path=>path.startsWith('/api/session/runs')?new Promise(resolve=>{release=()=>resolve(ok({items:[],nextCursor:null}));}):isSteps(path)?ok(stepPage([step('ready')])):undefined});
+  assert.equal(view.document.querySelectorAll('.map-step').length,1,'Step reads are independent of navigation availability');release();await view.flush();
+});
+
+test('closed step pages reject missing relations, cycles and false association counts',async()=>{
+  for(const kind of ['missing','cycle','counts']){
+    let items=kind==='missing'?[step('a',{dependencies:[stepRef('missing')]})]:kind==='cycle'?[step('a',{dependencies:[stepRef('b')]}),step('b',{dependencies:[stepRef('a')]})]:[step('a')];
+    const page=stepPage(items,kind==='counts'?{coverage:{declared:1,assigned:1,unassigned:0,dynamicWorkers:0,futureWorkers:'executionClosed'}}:{});
+    const view=await monitor({run:stepSnapshot(),response:path=>isSteps(path)?ok(page):undefined});
+    assert.equal(view.document.querySelectorAll('.map-step').length,0,kind);assert.match(view.get('step-coverage').textContent,/unavailable/i);
+  }
+});
+
+test('conflicting or repeated continuation pages retain an honest prefix without automatic retry',async()=>{
+  for(const conflict of [true,false]){
+    let reads=0;
+    const view=await monitor({savedPolling:'manual',run:stepSnapshot(),response:path=>{
+      if(!isSteps(path))return;reads++;
+      if(path.includes('&after='))return conflict?{ok:false,status:409,json:async()=>({message:'Catalog changed'})}:ok(stepPage([step('b')],{hasMore:true,nextCursor:'cursor',coverage:{declared:3,assigned:0,unassigned:3,dynamicWorkers:0,futureWorkers:'unknown'}}));
+      return ok(stepPage([step('a')],{hasMore:true,nextCursor:'cursor',coverage:{declared:3,assigned:0,unassigned:3,dynamicWorkers:0,futureWorkers:'unknown'}}));
+    }});
+    const card=view.document.querySelector('.map-step');card.focus();await view.click(view.get('load-more-steps'));
+    assert.equal(reads,2);assert.match(view.get('step-coverage').textContent,/previous snapshot|refresh failed/i);assert.ok(view.document.activeElement===card);
+    assert.doesNotMatch(view.get('workflow-map').textContent,/Declared b/);await view.refresh();assert.equal(reads,3,'Explicit refresh restarts at the head');
+    assert.equal(view.calls.filter(call=>call.method==='POST').length,0);
+  }
+});
+
+test('step browsing stops at its request budget and discloses unloaded catalog coverage',async()=>{
+  let reads=0;
+  const view=await monitor({savedPolling:'manual',run:stepSnapshot(),response:path=>{
+    if(!isSteps(path))return;const index=Number(new URL(path,'http://fixture').searchParams.get('after')??0);reads++;
+    return ok(stepPage([step(`bounded${index}`)],{hasMore:true,nextCursor:String(index+1),coverage:{declared:100,assigned:0,unassigned:100,dynamicWorkers:0,futureWorkers:'unknown'}}));
+  }});
+  for(let index=1;index<64;index++)await view.click(view.get('load-more-steps'));
+  assert.equal(view.get('load-more-steps').disabled,true);assert.match(view.get('step-coverage').textContent,/64 of 100/);assert.match(view.get('step-read-status').textContent,/limit.*unloaded|unloaded.*limit/i);
+  await view.click(view.get('load-more-steps'));assert.equal(reads,64,'A tiny-page provider cannot create an unbounded refresh request chain');
+});
+
+test('oversized step error bodies are cancelled at the byte boundary before JSON decoding',async()=>{
+  let reads=0,cancelled=false,released=false;
+  const response={ok:false,status:503,json:async()=>({message:'Unavailable'}),body:{getReader:()=>({read:async()=>{reads++;return{done:false,value:new Uint8Array(600000)};},cancel:async()=>{cancelled=true;},releaseLock(){released=true;}})}};
+  const view=await monitor({run:stepSnapshot(),response:path=>isSteps(path)?response:undefined});
+  assert.equal(reads,2);assert.equal(cancelled,true);assert.equal(released,true);
+  assert.match(view.get('step-read-status').textContent,/1 MiB/);assert.equal(view.document.querySelectorAll('.map-step').length,0);
+});
 
 test('same-revision deadline polling identifies recorded remaining time as a snapshot',async()=>{
   const deadline={status:'active',revision:7,remainingMs:60000,expiresAt:Date.parse('2026-10-15T12:01:00Z')};
