@@ -1,0 +1,29 @@
+✖ unique diagnostic previews rotate while pinned answers and late failure evidence survive terminal replay (115.5795ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 166.1257
+
+✖ failing tests:
+
+test at test\codex-turn.test.mjs:48:1
+✖ unique diagnostic previews rotate while pinned answers and late failure evidence survive terminal replay (115.5795ms)
+  Error: Turn result or retained item previews exceeded their bounded limit
+      at fault (file:///C:/Users/ehart/repos/agent-workflow-worktrees/workflow-3aa82635-3581-4daf-9803-6b42c8a56ab9/foundation/client.mjs:5:31)
+      at retain (file:///C:/Users/ehart/repos/agent-workflow-worktrees/workflow-3aa82635-3581-4daf-9803-6b42c8a56ab9/foundation/turn.mjs:89:94)
+      at consume (file:///C:/Users/ehart/repos/agent-workflow-worktrees/workflow-3aa82635-3581-4daf-9803-6b42c8a56ab9/foundation/turn.mjs:127:11)
+      at file:///C:/Users/ehart/repos/agent-workflow-worktrees/workflow-3aa82635-3581-4daf-9803-6b42c8a56ab9/foundation/turn.mjs:147:17
+      at #read (file:///C:/Users/ehart/repos/agent-workflow-worktrees/workflow-3aa82635-3581-4daf-9803-6b42c8a56ab9/foundation/client.mjs:187:57)
+      at Socket.<anonymous> (file:///C:/Users/ehart/repos/agent-workflow-worktrees/workflow-3aa82635-3581-4daf-9803-6b42c8a56ab9/foundation/client.mjs:124:54)
+      at Socket.emit (node:events:514:28)
+      at addChunk (node:internal/streams/readable:568:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+      at Readable.push (node:internal/streams/readable:399:5) {
+    code: 'TURN_OUTPUT_LIMIT',
+    interruption: { terminalObserved: true, terminalStatus: 'completed', descendants: 'notVerified' },
+    output: { observedBytes: 4918559, observedMessages: 405, retainedBytes: 1047018, retainedItems: 255, truncatedItems: 253, commandEvidence: { coverage: 'retainedItemsOnly', commands: [Array] }, toolObservations: { source: 'rawResponseItem/completed', capability: 'unverified', limit: 256, observed: 2, trackedIds: 1, retained: 1, paired: 1, counters: [Object], observations: [Array] } }
+  }

@@ -318,11 +318,11 @@
     },
     {
       "source": "docs/verification.md",
-      "sourceBytes": 18844,
-      "sourceSha256": "73daebe5bc5867504587346a44271bc638d534bfdffbc7ec1920b136942796a1",
+      "sourceBytes": 20726,
+      "sourceSha256": "c6072fa3a13762eaf028a9d4ac39277c5e9bac67562ba436c12b72a9c0c863d6",
       "output": "resources/docs/verification.md",
-      "outputBytes": 18844,
-      "outputSha256": "73daebe5bc5867504587346a44271bc638d534bfdffbc7ec1920b136942796a1"
+      "outputBytes": 20726,
+      "outputSha256": "c6072fa3a13762eaf028a9d4ac39277c5e9bac67562ba436c12b72a9c0c863d6"
     },
     {
       "source": "docs/worker-capabilities.md",
@@ -555,6 +555,14 @@
       "output": "resources/reports/release-0.4.0-local.json",
       "outputBytes": 6214,
       "outputSha256": "316188365aa2c9ff8a72b94586cc726924b3433a83edab5816b17c4c03b050b4"
+    },
+    {
+      "source": "reports/retained-preview-rotation/report.json",
+      "sourceBytes": 8540,
+      "sourceSha256": "23d459ee2018d7d77c842456fd9898639eaaee1c9b8bb0019e6dd5cfd4961c1e",
+      "output": "resources/reports/retained-preview-rotation/report.json",
+      "outputBytes": 8540,
+      "outputSha256": "23d459ee2018d7d77c842456fd9898639eaaee1c9b8bb0019e6dd5cfd4961c1e"
     },
     {
       "source": "reports/session-dashboard-browser-check.json",

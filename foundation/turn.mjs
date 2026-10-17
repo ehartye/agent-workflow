@@ -49,7 +49,7 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, li
   let timer;
   let start;
   let retired = false;
-  let earlyBytes = 0,earlyTools=0,observedBytes=0,observedMessages=0,retainedBytes=0,answerBytes=0,answerEvidence;
+  let earlyBytes = 0,earlyTools=0,observedBytes=0,observedMessages=0,retainedBytes=0,answerBytes=0,answerEvidence,evictedItems=0,evictedBytes=0;
   const tools=createToolObserver();
   const early = [];
   const items = new Map();
@@ -66,7 +66,7 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, li
   };
   // Retain outcome metadata even when the turn never returns successfully. This
   // is the bounded retained-item view, not a complete command history.
-  const output=()=>({observedBytes,observedMessages,retainedBytes,retainedItems:items.size,truncatedItems:[...items.values()].filter(item=>item.truncated?.length).length,
+  const output=()=>({observedBytes,observedMessages,retainedBytes,retainedItems:items.size,evictedItems,evictedBytes,truncatedItems:[...items.values()].filter(item=>item.truncated?.length).length,
     commandEvidence:{coverage:'retainedItemsOnly',commands:[...items.values()].filter(item=>item.type==='commandExecution').map(item=>({status:['completed','failed','declined','inProgress'].includes(item.status)?item.status:'unknown',exitCode:Number.isInteger(item.exitCode)?item.exitCode:null}))},
     toolObservations:tools.snapshot(),...(answerEvidence?{answer:answerEvidence}:{})});
   const retain=item=>{
@@ -85,8 +85,25 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, li
     }
     const preview=itemPreview(item);
     const nextAnswerBytes=answerBytes-(prior&&finalAnswer(prior)?Buffer.byteLength(prior.text??''):0)+(finalAnswer(preview)?Buffer.byteLength(preview.text??''):0);
-    const nextRetainedBytes=retainedBytes-(prior?Buffer.byteLength(JSON.stringify(prior)):0)+Buffer.byteLength(JSON.stringify(preview));
-    if(nextAnswerBytes>512*1024||nextRetainedBytes>1024*1024||!prior&&items.size>=1024)throw fault('TURN_OUTPUT_LIMIT','Turn result or retained item previews exceeded their bounded limit');
+    const previewBytes=Buffer.byteLength(JSON.stringify(preview));
+    let nextRetainedBytes=retainedBytes-(prior?Buffer.byteLength(JSON.stringify(prior)):0)+previewBytes;
+    if(nextAnswerBytes>512*1024)throw fault('TURN_OUTPUT_LIMIT','Turn answer exceeded its bounded limit');
+    // Optional diagnostics rotate in insertion order. Answer candidates are
+    // pinned; a result that cannot fit without losing them still fails closed.
+    for(const [id,value] of items){
+      if(nextRetainedBytes<=1024*1024&&items.size+(prior?0:1)<=1024)break;
+      if(id===item.id||finalAnswer(value))continue;
+      const bytes=Buffer.byteLength(JSON.stringify(value));
+      items.delete(id);nextRetainedBytes-=bytes;retainedBytes-=bytes;
+      evictedItems++;evictedBytes+=bytes;
+    }
+    if(nextRetainedBytes>1024*1024||items.size+(prior?0:1)>1024){
+      if(finalAnswer(preview))throw fault('TURN_OUTPUT_LIMIT','Turn answer items exceeded their bounded limit');
+      // An update replaces the old fact even if its optional preview cannot fit.
+      // Leaving the old value would report a superseded command outcome.
+      if(prior){items.delete(item.id);retainedBytes-=Buffer.byteLength(JSON.stringify(prior));if(finalAnswer(prior))answerBytes-=Buffer.byteLength(prior.text??'');}
+      evictedItems++;evictedBytes+=previewBytes;return;
+    }
     items.set(item.id,preview);answerBytes=nextAnswerBytes;retainedBytes=nextRetainedBytes;
   };
   const done = new Promise(resolve => { resolveTerminal = resolve; });
@@ -176,6 +193,7 @@ export async function runTurn(client, { threadId, prompt, timeoutMs = 120000, li
     const explicit=completedItems.filter(item=>finalAnswer(item)&&item.phase==='final_answer');
     const messages=explicit.length?explicit:completedItems.filter(finalAnswer);
     const text=messages.map(item=>item.text).join('\n');
+    if(Buffer.byteLength(text)>512*1024)throw fault('TURN_OUTPUT_LIMIT','Turn answer exceeded its bounded limit');
     const phases={final:0,commentary:0,unphased:0,other:0};
     const excludedDelivery={async:0,unsupported:0};
     for(const item of completedItems)if(item.type==='agentMessage')phases[item.phase==='final_answer'?'final':item.phase==='commentary'?'commentary':item.phase==null?'unphased':'other']++;

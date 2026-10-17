@@ -1,0 +1,12 @@
+{
+  "taskId": "workflow-retained-preview-rotation",
+  "stage": "early-checkpoint",
+  "planSha256": "abba078f02a3d80464b01d767417c80e18583f2c06320e10827d39548a79f331",
+  "node": "C:/Users/ehart/AppData/Roaming/fnm/node-versions/v24.21.0/installation/node.exe",
+  "nodeVersion": "v24.21.0",
+  "shellLogin": false,
+  "red": {"log": "red.txt", "exitCode": 1, "reason": "TURN_OUTPUT_LIMIT on 400 unique diagnostic previews and terminal replay"},
+  "green": {"log": "early-green.txt", "exitCode": 0, "passed": 43},
+  "repair": "Rotate optional diagnostic previews, pin answer candidates, disclose eviction counts and bytes; unchanged answer budget.",
+  "remaining": ["Bounded message lineage under metadata pressure", "Update accounting and item-count edge cases", "Documentation and final focused verification"]
+}
