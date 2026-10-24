@@ -10,6 +10,7 @@ const codes=new Set([
  'DISCOVERY_CLEANUP','ADMISSION_CLEANUP','SETUP_CLEANUP','WORKER_CAPABILITIES','WORKER_SETTINGS','WORKER_DRAIN','WORKER_CLEANUP',
  'WORKSPACE_BACKEND','WORKSPACE_POLICY',
  'ACCESS_POLICY','ACCESS_OVERRIDE','PARENT_ACCESS_REQUIRED','PARENT_ACCESS_INVALID','PARENT_CAPABILITIES',
+ 'RUNTIME_MATCH_MISSING','RUNTIME_MATCH_INVALID',
 ]);
 function field(source,key){
  if(!source||typeof source!=='object')return undefined;
@@ -20,6 +21,17 @@ function record(value){try{return value!==null&&typeof value==='object'&&!Array.
 function errorSummary(source){
  const code=field(source,'code');
  return {code:typeof code==='string'&&code.length<=64&&codes.has(code)?code:'CHECK_FAILED'};
+}
+function runtimeSelectionSummary(error){
+ const code=field(error,'code'),source=field(error,'runtimeSelection'),reason=field(source,'reason');
+ if(code!=='RUNTIME_MATCH_MISSING'&&code!=='RUNTIME_MATCH_INVALID'||reason!==(code==='RUNTIME_MATCH_MISSING'?'missing':'invalid'))return undefined;
+ const identity=value=>{
+  const version=field(value,'version'),digest=field(value,'digest'),node=field(value,'node');
+  if(typeof version!=='string'||version.length>80||!/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(version)||typeof digest!=='string'||!/^[a-f0-9]{64}$/.test(digest)||typeof node!=='string'||node.length>40||!/^v\d+\.\d+\.\d+$/.test(node))return undefined;
+  return{version,digest,node};
+ };
+ const caller=identity(field(source,'caller')),selected=identity(field(source,'selected'));
+ return caller&&selected?{reason,caller,selected}:undefined;
 }
 function boolean(source,target,key){const value=field(source,key);if(typeof value==='boolean')target[key]=value;}
 function cleanupSummary(source){
@@ -131,6 +143,7 @@ export function doctorFailure(error,{stage='backend',backend,admission,cleanup,h
  const ownedCleanup=cleanup!==undefined?cleanup:field(error,'cleanup')!==undefined?field(error,'cleanup'):phase==='cleanup'?undefined:field(source,'cleanup');
  const startup=startupSummary(ownedCleanup);
  const construction=constructionSummary(error);
+ const runtimeSelection=phase==='runtime'?runtimeSelectionSummary(error):undefined;
  let failedStage=phase;
  if(phase==='backend'&&summary?.status==='failed'){
   failedStage=summary.stages.find(item=>item.status==='failed')?.name??(!summary.error&&summary.cleanup.serverExited===false?'cleanup':'admission');
@@ -139,5 +152,5 @@ export function doctorFailure(error,{stage='backend',backend,admission,cleanup,h
  const context=doctorHostContext(hostContext);
  const failedCommand=phase==='backend'&&summary?.status==='failed'?summary.stages.find(item=>item.status==='failed'):undefined;
  const dllFailure=context?.platform==='win32'&&['buffered-command','streamed-command','pty-command'].includes(failedCommand?.name)&&[-1073741502,3221225794].includes(failedCommand?.evidence?.exitCode);
- return {status:'failed',inferenceRequests:0,...(['mxc','configured'].includes(backend)?{backend}:{}),stage:failedStage,error:errorSummary(error),...(construction?{construction}:{}),...(context?{hostContext:context}:{}),...(dllFailure?{diagnosis:{kind:'windows-dll-initialization-failed',ntstatus:'0xC0000142',cause:'notDetermined'}}:{}),...(summary?{admission:summary}:{}),cleanup:cleanupSummary(ownedCleanup),...(startup?{startup:startup.boundaries,...(startup.truncated?{startupTruncated:true}:{})}:{})};
+ return {status:'failed',inferenceRequests:0,...(['mxc','configured'].includes(backend)?{backend}:{}),stage:failedStage,error:errorSummary(error),...(runtimeSelection?{runtimeSelection}:{}),...(construction?{construction}:{}),...(context?{hostContext:context}:{}),...(dllFailure?{diagnosis:{kind:'windows-dll-initialization-failed',ntstatus:'0xC0000142',cause:'notDetermined'}}:{}),...(summary?{admission:summary}:{}),cleanup:cleanupSummary(ownedCleanup),...(startup?{startup:startup.boundaries,...(startup.truncated?{startupTruncated:true}:{})}:{})};
 }

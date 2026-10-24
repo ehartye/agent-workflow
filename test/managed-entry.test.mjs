@@ -586,6 +586,26 @@ test('public doctor launchers sanitize missing and malformed runtime selection w
  }
 });
 
+test('doctor retains bounded runtime selection identities without reading accessors or arbitrary causes',()=>{
+ const identity={version:'0.6.3',digest:'a'.repeat(64),node:process.version};
+ const error={code:'RUNTIME_MATCH_INVALID',runtimeSelection:{reason:'invalid',caller:identity,selected:{...identity,digest:'b'.repeat(64)},cause:'PRIVATE_SOURCE_PATH'}};
+ const result=doctorFailure(error,{stage:'runtime'});
+ assert.deepEqual(result.error,{code:'RUNTIME_MATCH_INVALID'});assert.deepEqual(result.runtimeSelection,{reason:'invalid',caller:identity,selected:{...identity,digest:'b'.repeat(64)}});
+ assert.ok(!JSON.stringify(result).includes('PRIVATE_SOURCE_PATH'));
+ for(const change of [
+  {caller:{...identity,version:'x'.repeat(1000)}},
+  {caller:{...identity,node:'PRIVATE_PATH'}},
+  {caller:{...identity,digest:'private'}},
+  {reason:'PRIVATE_PATH'},
+  {reason:'missing'},
+  {get caller(){throw Error('must not invoke accessor');}},
+ ]){
+  const selection={...error.runtimeSelection};Object.defineProperties(selection,Object.getOwnPropertyDescriptors(change));
+  const failed=doctorFailure({...error,runtimeSelection:selection},{stage:'runtime'});assert.equal(failed.runtimeSelection,undefined);assert.ok(!JSON.stringify(failed).includes('PRIVATE'));
+ }
+ assert.equal(doctorFailure(error,{stage:'backend'}).runtimeSelection,undefined);
+});
+
 test('doctor fails closed when an owned Windows job lacks positive empty proof',async t=>{
  for(const cleanup of [{serverExited:true,jobEmpty:false,ownershipScope:'windows-job-members'},
    {serverExited:true,ownershipScope:'windows-job-members'},
@@ -617,12 +637,17 @@ test('public launcher selects the run-pinned runtime after upgrade and refuses f
  const temp=await mkdtemp(join(tmpdir(),'workflow-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));const pluginRoot=join(temp,'plugin'),dataDir=join(temp,'data');await mkdir(pluginRoot);
  for(const name of ['bin','engine','foundation','workflows','hooks','skills'])await mkdir(join(pluginRoot,name));
  for(const name of ['managed-runtime.mjs','launch-v2.mjs','arguments.mjs','doctor-diagnostics.mjs'])await cp(join(root,'bin',name),join(pluginRoot,'bin',name));
- await writeFile(join(pluginRoot,'bin','command.mjs'),'console.log(JSON.stringify({marker:"first",root:import.meta.url,args:process.argv.slice(2)}));');
+ await writeFile(join(pluginRoot,'bin','command.mjs'),`import{readFile}from'node:fs/promises';import{join}from'node:path';import{bindRun,pluginRoot}from'./managed-runtime.mjs';import{parseCommand}from'./arguments.mjs';const p=parseCommand();const bound=p.command==='run'?await bindRun({dataDir:p.dataDir,runtime:JSON.parse(await readFile(join(pluginRoot,'.runtime.json'),'utf8')),sessionId:p.sessionId}):null;console.log(JSON.stringify({marker:'first',root:import.meta.url,args:process.argv.slice(2),bound}));`);
  await writeFile(join(pluginRoot,'package.json'),JSON.stringify({version:'0.2.0',dependencies:{'@openai/codex':'0.162.1'}}));await writeFile(join(pluginRoot,'package-lock.json'),'{}');await writeFile(join(pluginRoot,'LICENSE'),'MIT');
  const npmCli=join(temp,'npm.mjs');await writeFile(npmCli,`import {mkdir,writeFile} from 'node:fs/promises';import {join} from 'node:path';const root=join(process.cwd(),'node_modules/@openai');await mkdir(join(root,'codex'),{recursive:true});await writeFile(join(root,'codex/package.json'),JSON.stringify({version:'0.162.1'}));const target=join(root,'codex-win32-x64');await mkdir(join(target,'vendor/x86_64-pc-windows-msvc/bin'),{recursive:true});await writeFile(join(target,'package.json'),JSON.stringify({version:'0.162.1-win32-x64'}));await writeFile(join(target,'vendor/x86_64-pc-windows-msvc/bin/codex.exe'),'fixture');`);
  const first=await installRuntime({pluginRoot,dataDir,npmCli});const bound=await bindRun({dataDir,runtime:first,sessionId:'origin'});
- await writeFile(join(pluginRoot,'bin','command.mjs'),'console.log(JSON.stringify({marker:"second"}));');await installRuntime({pluginRoot,dataDir,npmCli});
+ await writeFile(join(pluginRoot,'bin','command.mjs'),'console.log(JSON.stringify({marker:"second"}));');const second=await installRuntime({pluginRoot,dataDir,npmCli});
  const invoke=(args,env={})=>execute(process.execPath,[join(pluginRoot,'bin','launch-v2.mjs'),...args,'--data-dir',dataDir],{fixtureRealm:true,fixtureWorkerGuard:env.AGENT_WORKFLOW_WORKER==='1',env:{...process.env,...env},windowsHide:true,timeout:10000});
+ const invokeOlder=args=>execute(process.execPath,[join(first.path,'bin','launch-v2.mjs'),...args,'--data-dir',dataDir],{fixtureRealm:true,env:{...process.env},windowsHide:true,timeout:10000});
+ const pointerBefore=await readFile(join(dataDir,'runtime-v2.json')),ownerBefore=await readFile(join(bound.runDir,'runtime.json'));
+ const [older,newer]=await Promise.all([invokeOlder(['run','demo','--session','origin']),invoke(['workflows'])]);
+ const started=JSON.parse(older.stdout);assert.equal(started.marker,'first');assert.equal(started.bound.runtime.id,first.id);assert.equal(started.bound.sessionId,'origin');assert.equal(JSON.parse(newer.stdout).marker,'second');
+ assert.deepEqual(await readFile(join(dataDir,'runtime-v2.json')),pointerBefore);assert.deepEqual(await readFile(join(bound.runDir,'runtime.json')),ownerBefore);
  assert.equal(JSON.parse((await invoke(['watch',bound.id,'--session','origin','--generation','1','--jsonl'])).stdout).marker,'first');
  await assert.rejects(invoke(['watch',bound.id,'--generation','1','--jsonl'],{CODEX_THREAD_ID:''}),e=>/session/i.test(e.stderr));
  assert.equal(JSON.parse((await invoke(['status',bound.id])).stdout).marker,'first');assert.equal(JSON.parse((await invoke(['workflows'])).stdout).marker,'second');
@@ -645,6 +670,12 @@ test('public launcher selects the run-pinned runtime after upgrade and refuses f
  await assert.rejects(invoke(['dashboard',bound.id],{CODEX_THREAD_ID:'other'}),e=>/session/i.test(e.stderr));
  assert.equal(JSON.parse((await invoke(['--data-dir',dataDir,'dashboard'],{CODEX_THREAD_ID:'origin'})).stdout).marker,'first');
  assert.equal(JSON.parse((await invoke(['dashboard',bound.id,'--current-ui'],{CODEX_THREAD_ID:'origin'})).stdout).marker,'second');
+ await rm(join(first.path,'.runtime.json'));
+ const refused=await invokeOlder(['doctor']).then(()=>assert.fail('Missing exact match cannot dispatch doctor'),error=>error);
+ assert.equal(refused.code,1);assert.equal(refused.stderr,'');const report=JSON.parse(refused.stdout);
+ assert.equal(report.stage,'runtime');assert.equal(report.error.code,'RUNTIME_MATCH_MISSING');
+ assert.deepEqual(report.runtimeSelection,{reason:'missing',caller:{version:first.version,digest:first.digest,node:first.node},selected:{version:second.version,digest:second.digest,node:second.node}});
+ assert.ok(!refused.stdout.includes(temp));assert.deepEqual(await readFile(join(dataDir,'runtime-v2.json')),pointerBefore);
  await assert.rejects(invoke(['dashboard',bound.id,'--current-ui'],{CODEX_THREAD_ID:'other'}),e=>/session/i.test(e.stderr));
  assert.match((await invoke(['help'])).stdout,/dashboard/);
 });

@@ -73,11 +73,14 @@ try{
  await assert.rejects(stat(path.join(codexHome,'auth.json')),error=>error.code==='ENOENT');
  await assert.rejects(trackedExecute(codex,['login','status'],{cwd:project,env,windowsHide:true,timeout:60000,maxBuffer:8192}),error=>error.code===1&&`${error.stdout}\n${error.stderr}`.trim().split(/\r?\n/).at(-1)==='Not logged in');
  await assert.rejects(run('launch.mjs',['doctor','--cwd',project]),error=>{assertMissingAuthDoctor(error);return true;});
- await writeFile(path.join(launchRoot,'engine','monitor','style.css'),'\n/* verified update boundary */\n',{flag:'a'});await assert.rejects(run('launch.mjs',['workflows']),e=>/Plugin changed/.test(e.stderr));
+ await writeFile(path.join(launchRoot,'engine','monitor','style.css'),'\n/* verified update boundary */\n',{flag:'a'});await assert.rejects(run('launch.mjs',['workflows']),e=>/No matching installed runtime/.test(e.stderr));
  const upgraded=JSON.parse((await run('setup.mjs',['--data-dir',dataDir])).stdout);assert.notEqual(upgraded.id,record.id);assert((await stat(record.path)).isDirectory());
  const upgradedDefinitions=JSON.parse((await run('launch.mjs',['workflows','--cwd',project])).stdout);
  assert.deepEqual(upgradedDefinitions.filter(item=>item.scope==='plugin').map(item=>item.name).sort(),packagedNames);
  assert.deepEqual(upgradedDefinitions.filter(item=>item.scope==='project').map(item=>item.name),['installed']);
+ const pointerBytes=await readFile(path.join(dataDir,'runtime-v2.json'));
+ const retained=await trackedExecute(process.execPath,[path.join(record.path,'bin','launch.mjs'),'validate',script,'--summary','--data-dir',dataDir],{env,windowsHide:true,timeout:180000,maxBuffer:2*1024*1024});
+ assert.equal(JSON.parse(retained.stdout).valid,true);assert.deepEqual(await readFile(path.join(dataDir,'runtime-v2.json')),pointerBytes);
 }catch(error){primary=error;}
 await cleanupInstall(base,{error:primary,safeToRemove:commandsSettled&&ownership.safe});
 console.log('Clean native plugin discovery/onboarding, production-only installation, CLI definitions/commands, shared hook mode, structured missing-auth refusal and preserved-runtime upgrade verified; zero model turns; owned App Server cleanup confirmed.');

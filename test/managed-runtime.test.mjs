@@ -4,8 +4,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm,symlink,readdir} from 'node:fs/promises';
-import {join} from 'node:path';
+import {mkdtemp,mkdir,writeFile,readFile,rm,symlink,readdir,cp,rename} from 'node:fs/promises';
+import {join,relative} from 'node:path';
 import {tmpdir} from 'node:os';
 import {sourceDigest,installRuntime,selectRuntime,bindRun,resolveRun,paths,defaultDataDir} from '../bin/managed-runtime.mjs';
 const nativeTarget=process.platform==='win32'?'x86_64-pc-windows-msvc':'x86_64-unknown-linux-musl';
@@ -29,6 +29,70 @@ test('managed installation fingerprints fresh sources and preserves prior runtim
  const second=await installRuntime(f);assert.notEqual(second.id,first.id);assert.equal(await readFile(join(first.path,'engine','input.txt'),'utf8'),'engine');
  const pointer=JSON.parse(await readFile(join(f.dataDir,'runtime-v2.json'),'utf8'));assert.equal(pointer.previous[0].id,first.id);assert.equal(await readFile(legacy,'utf8'),'legacy pointer bytes');assert.equal(await readFile(join(f.dataDir,'runs','legacy.json'),'utf8'),'old run bytes');
  assert.equal((await installRuntime(f)).id,second.id);
+});
+
+test('caller selection preserves a newer default across versions and same-version source fingerprints',async t=>{
+ for(const sameVersion of [false,true])await t.test(sameVersion?'same version':'different versions',async t=>{
+  const f=await fixture(t),olderCaller=join(f.root,'older-caller');await cp(f.pluginRoot,olderCaller,{recursive:true});
+  const first=await installRuntime(f),bound=await bindRun({dataDir:f.dataDir,runtime:first,sessionId:'origin'});
+  const owner=await readFile(join(bound.runDir,'runtime.json'));
+  if(!sameVersion){const pkg=JSON.parse(await readFile(join(f.pluginRoot,'package.json'),'utf8'));pkg.version='0.3.0';await writeFile(join(f.pluginRoot,'package.json'),JSON.stringify(pkg));}
+  await writeFile(join(f.pluginRoot,'engine','input.txt'),'newer source');const second=await installRuntime(f);
+  const pointer=await readFile(paths(f.dataDir).pointer),runtimeNames=await readdir(paths(f.dataDir).runtimes);
+  assert.equal((await selectRuntime({...f,pluginRoot:olderCaller})).id,first.id);
+  assert.equal((await selectRuntime(f)).id,second.id);
+  const added=await bindRun({dataDir:f.dataDir,runtime:await selectRuntime({...f,pluginRoot:olderCaller}),sessionId:'origin'});
+  assert.equal((await resolveRun({dataDir:f.dataDir,id:added.id,sessionId:'origin'})).runtime.id,first.id);
+  assert.equal((await resolveRun({dataDir:f.dataDir,id:bound.id,sessionId:'origin'})).runtime.id,first.id);
+  assert.deepEqual(await readFile(join(bound.runDir,'runtime.json')),owner);
+  assert.deepEqual(await readFile(paths(f.dataDir).pointer),pointer);assert.deepEqual(await readdir(paths(f.dataDir).runtimes),runtimeNames);
+  // Only the used installation is verified; unrelated changed default files
+  // do not certify or prevent a different caller's exact prepared execution.
+  await writeFile(join(second.path,'engine','input.txt'),'damaged unrelated default');
+  assert.equal((await selectRuntime({...f,pluginRoot:olderCaller})).id,first.id);
+  assert.deepEqual(await readFile(paths(f.dataDir).pointer),pointer);
+  const invalidPointer=JSON.parse(pointer);invalidPointer.current.path=f.root;await writeFile(paths(f.dataDir).pointer,JSON.stringify(invalidPointer));
+  const invalidBytes=await readFile(paths(f.dataDir).pointer);
+  await assert.rejects(selectRuntime({...f,pluginRoot:olderCaller}),/runtime.*path|directory/i);
+  assert.deepEqual(await readFile(paths(f.dataDir).pointer),invalidBytes);
+  for(const field of ['version','codexDigest','dependenciesDigest']){
+   const malformed=JSON.parse(pointer);malformed.current[field]=[malformed.current[field]];await writeFile(paths(f.dataDir).pointer,JSON.stringify(malformed));
+   await assert.rejects(selectRuntime({...f,pluginRoot:olderCaller}),/Invalid managed runtime record/);
+  }
+ });
+});
+
+test('a different-Node default does not weaken exact Node identity for the chosen installation or saved run',async t=>{
+ const f=await fixture(t),runtime=await installRuntime(f),bound=await bindRun({dataDir:f.dataDir,runtime,sessionId:'origin'});
+ const node=process.version==='v24.0.0'?'v24.1.0':'v24.0.0',id=`${runtime.version}-${runtime.digest.slice(0,16)}-node${node.slice(1)}`,path=join(paths(f.dataDir).runtimes,id);
+ await cp(runtime.path,path,{recursive:true});const other={...runtime,node,id,path,codex:join(path,relative(runtime.path,runtime.codex))};await writeFile(join(path,'.runtime.json'),JSON.stringify(other));
+ await writeFile(paths(f.dataDir).pointer,JSON.stringify({schema:2,current:other,previous:[runtime]}));const pointer=await readFile(paths(f.dataDir).pointer);
+ assert.equal((await selectRuntime(f)).id,runtime.id);assert.deepEqual(await readFile(paths(f.dataDir).pointer),pointer);
+ const ownerPath=join(bound.runDir,'runtime.json'),owner=JSON.parse(await readFile(ownerPath,'utf8'));await writeFile(ownerPath,JSON.stringify({...owner,runtime:other}));
+ await assert.rejects(resolveRun({dataDir:f.dataDir,id:bound.id,sessionId:'origin'}),/original Node|requires Node/i);
+});
+
+test('missing or invalid matching installations fail without fallback, selection writes or run changes',async t=>{
+ for(const scenario of ['missing','malformed','foreign-receipt','escaped-path','linked-install','source','native','dependencies'])await t.test(scenario,async t=>{
+  const f=await fixture(t),olderCaller=join(f.root,'older-caller');await cp(f.pluginRoot,olderCaller,{recursive:true});const first=await installRuntime(f);
+  const bound=await bindRun({dataDir:f.dataDir,runtime:first,sessionId:'origin'}),owner=await readFile(join(bound.runDir,'runtime.json'));
+  await writeFile(join(f.pluginRoot,'engine','input.txt'),'newer source');const second=await installRuntime(f),pointer=await readFile(paths(f.dataDir).pointer);
+  const receipt=join(first.path,'.runtime.json');
+  if(scenario==='missing')await rm(receipt);
+  if(scenario==='malformed')await writeFile(receipt,'not JSON');
+  if(scenario==='foreign-receipt')await writeFile(receipt,JSON.stringify(second));
+  if(scenario==='escaped-path')await writeFile(receipt,JSON.stringify({...first,path:f.root}));
+  if(scenario==='linked-install'){const retained=join(f.root,'retained-first');await rename(first.path,retained);await symlink(retained,first.path,process.platform==='win32'?'junction':'dir');}
+  if(scenario==='source')await writeFile(join(first.path,'engine','input.txt'),'tampered source');
+  if(scenario==='native')await writeFile(first.codex,'tampered native');
+  if(scenario==='dependencies')await writeFile(join(first.path,'node_modules','unexpected.txt'),'tampered dependencies');
+  await assert.rejects(selectRuntime({...f,pluginRoot:olderCaller}),error=>{
+   assert.equal(error.code,scenario==='missing'?'RUNTIME_MATCH_MISSING':'RUNTIME_MATCH_INVALID');
+   assert.deepEqual(error.runtimeSelection,{reason:scenario==='missing'?'missing':'invalid',caller:{version:first.version,digest:first.digest,node:first.node},selected:{version:second.version,digest:second.digest,node:second.node}});
+   assert.ok(error.message.length<=700);assert.ok(!error.message.includes(f.root));assert.match(error.message,/caller|recorded default/i);return true;
+  });
+  assert.deepEqual(await readFile(paths(f.dataDir).pointer),pointer);assert.deepEqual(await readFile(join(bound.runDir,'runtime.json')),owner);
+ });
 });
 test('run bindings retain exact runtime and session across upgrades and reject path or byte substitutions',async t=>{
  const f=await fixture(t);const first=await installRuntime(f);const bound=await bindRun({dataDir:f.dataDir,runtime:first,sessionId:'origin'});
