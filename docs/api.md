@@ -1,6 +1,6 @@
 # Fresh CLI and monitor API
 
-This describes the working-tree candidate API above released 0.5.0. That baseline retains capability source packages per run, live independent tasks, revisioned worker budgets, durable command facts and consumer-owned coverage receipts. The candidate adds [declared steps](workflow-steps.md), [depth-one composition](workflow-composition.md), [explicit LAN binding](dashboard-lan.md) and generated same-package skill resources. These additions have no new version or native qualification claim here. Artifact/refinement providers are unavailable. Other roadmap commands below retain their own provider/acceptance boundaries. Earlier retained runtimes keep their recorded behavior. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
+This describes the 0.6.2 API. The 0.6 series includes [declared steps](workflow-steps.md), [depth-one composition](workflow-composition.md), [explicit LAN binding](dashboard-lan.md) and generated same-package skill resources, alongside retained capability packages, independent tasks, revisioned worker budgets, durable command facts and consumer-owned coverage receipts. Version 0.6.2 adds inert result-budget inspection and accurate setup help. Artifact/refinement providers remain unavailable. Other roadmap commands below retain their own provider/acceptance boundaries. Earlier runs keep their recorded runtime and API. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
 
 `--args-file` is available since 0.3.6. Earlier retained runtimes keep their original API; they can pass small manifest path/hash/range references through `--args JSON`. Check the recorded runtime's help before choosing a transport.
 
@@ -40,7 +40,7 @@ All commands accept --data-dir. Otherwise state selection uses AGENT_WORKFLOW_DA
 | prune-plan ID / prune ID | Reviewed retirement; see [complete contracts](session-delivery.md) |
 | mode on/off/status | --scope session or project, --session, --cwd |
 | capture-preflight (candidate) | --cwd, optional --capture-policy; read-only admission |
-| plan [scope:]name (candidate) | --cwd; alternatively --script file, exclusive with name; inert preview |
+| plan [scope:]name | --cwd; alternatively --script file, exclusive with name; inert preview and result budgets |
 | usage ID (candidate) | --generation required; observed totals, no spending cap |
 | acceptance ID (candidate) | --session, --request-file required; read-only assembly |
 | checkpoint-record ID (candidate) | --session, --request-file; coordinator mutation |

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+- Show each literal agent schema's exact compiled UTF-8 result budget in inert plan output. Preserve unknown dynamic data, invalid-schema error categories and bounded inspection without evaluating workflow code.
+- List setup and doctor's options separately in CLI help. Keep existing concise and full validation behavior.
+
 ## 0.4.0 (candidate)
 
 - Default new workers to unbounded wall time. Keep explicit budgets without a 30-minute ceiling, and set, extend or clear an active budget through revisioned CLI controls without restarting its native turn. Preserve separate startup, command, interruption and cleanup bounds and retained runtime behavior.

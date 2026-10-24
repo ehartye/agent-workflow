@@ -1,5 +1,6 @@
 /** @lane merge
  * @subject engine/plan-preview.mjs
+ * @subject engine/evaluator-child.mjs
  */
 import test from 'node:test';
 test('preview retains zero-worker step declarations and recognizes inert composition calls',async()=>{
@@ -9,6 +10,7 @@ test('preview retains zero-worker step declarations and recognizes inert composi
 import assert from 'node:assert/strict';
 import {previewPlan} from '../engine/plan-preview.mjs';
 import {compileSchema} from '../engine/schema.mjs';
+import {evaluate} from '../engine/evaluate.mjs';
 import {mkdtemp,access,readFile,writeFile,rm} from 'node:fs/promises';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {join} from 'node:path';
@@ -69,6 +71,22 @@ test('budget inspection bounds unique compilation while reusing identical litera
   const wide=previewPlan({script:meta+`agent('x',{schema:{type:'object',const:[${'0,'.repeat(10001)}]}});`});
   assert.equal(wide.callSites[0].resultBudget.status,'unknown');
   assert.ok(Buffer.byteLength(JSON.stringify(result))<=512*1024);
+});
+
+test('spread argument positions stay unknown and agree with separate evaluator broker data',async()=>{
+  const schema={type:'object',const:{text:'x'.repeat(400)}};
+  const script=meta+`return await agent(...['prompt',{id:'actual',schema:${JSON.stringify(schema)}}],{id:'ignored',schema:{type:'object'}});`;
+  const received=await evaluate(script,{call:async(method,params)=>({method,options:params.options})});
+  assert.equal(received.method,'agent');
+  assert.equal(received.options.id,'actual');
+  assert.equal(compileSchema(received.options.schema).limits.maxSerializedBytes,20360);
+  const site=previewPlan({script}).callSites.find(site=>site.api==='agent');
+  assert.deepEqual(site.resultBudget,{status:'unknown',maxSerializedBytes:null,code:'dynamicOptions'});
+  assert.equal(site.literalId,null);
+  const only=previewPlan({script:meta+'agent(...args);'}).callSites[0];
+  assert.equal(only.resultBudget.status,'unknown');
+  const trailing=previewPlan({script:meta+"agent('x',{schema:{type:'object'}},...args);"}).callSites[0];
+  assert.equal(trailing.resultBudget.status,'known');
 });
 
 test('preview inspects literal dependencies without running hostile workflow code', () => {

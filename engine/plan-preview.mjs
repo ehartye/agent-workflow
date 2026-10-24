@@ -146,7 +146,7 @@ export function previewPlan(input) {
       if (!direct(node)) unknown(node.callee.type==='Identifier' && apis.has(node.callee.name)?'shadowedCall':'unsupportedCall',node);
       else if (result.callSites.length===limits.calls) truncate('callSiteLimit',node);
       else {
-        const api=node.callee.name, options=api==='agent'?literalOptions(node.arguments[1]):new Map();
+        const api=node.callee.name, options=api==='agent'?(node.arguments[0]?.type==='SpreadElement'?null:literalOptions(node.arguments[1])):new Map();
         if (!options) unknown('dynamicOptions',node);
         const id=options?.get('id'), phase=options?.get('phase');
         const literalId=api==='agent'?text(id):null;
