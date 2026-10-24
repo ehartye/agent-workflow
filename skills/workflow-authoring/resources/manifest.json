@@ -318,11 +318,11 @@
     },
     {
       "source": "docs/verification.md",
-      "sourceBytes": 21243,
-      "sourceSha256": "f808464b896e420d479ab2d8d096ae18d7abf010aa7cabe4c2699deb04e04fdb",
+      "sourceBytes": 21328,
+      "sourceSha256": "8c50ef1100afcc7c74aea9032a4c86dffb2f8c97fd24dd7eb408f27087090aca",
       "output": "resources/docs/verification.md",
-      "outputBytes": 21243,
-      "outputSha256": "f808464b896e420d479ab2d8d096ae18d7abf010aa7cabe4c2699deb04e04fdb"
+      "outputBytes": 21328,
+      "outputSha256": "8c50ef1100afcc7c74aea9032a4c86dffb2f8c97fd24dd7eb408f27087090aca"
     },
     {
       "source": "docs/worker-capabilities.md",
