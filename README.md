@@ -30,7 +30,7 @@ node "<plugin-root>/bin/launch.mjs" doctor --cwd "C:/path/to/project"
 node "<plugin-root>/bin/launch.mjs" workflows --cwd "C:/path/to/project"
 ```
 
-Setup copies an immutable runtime outside the plugin cache and installs pinned production dependencies with npm lifecycle scripts disabled. Doctor performs command-only account, policy and native execution checks; it makes no model inference request. Neither edits global AGENTS/Codex settings. A copied plugin cache is not proof that setup or the installed version has changed.
+Setup copies an immutable runtime outside the plugin cache and installs pinned production dependencies with npm lifecycle scripts disabled. From 0.6.3, new commands use their [exact matching prepared installation](docs/runtime-selection.md), even when another session selected a different default; reads never change that shared selection. Doctor performs command-only account, policy and native execution checks; it makes no model inference request. Neither edits global AGENTS/Codex settings. A copied plugin cache is not proof that setup or the installed version has changed.
 
 State uses --data-dir when explicit, otherwise AGENT_WORKFLOW_DATA_DIR, then LOCALAPPDATA/agent-workflow or home .local/share/agent-workflow. Keep explicit overrides consistent. PLUGIN_DATA does not implicitly select another instance. New runtimes/runs use runtime-v2 and runs-v2; old 0.1.1 data and matching runtimes are retained separately, without automatic migration. Read [upgrade guidance](skills/workflow-setup/references/upgrades.md).
 
