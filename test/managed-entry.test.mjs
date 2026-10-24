@@ -78,6 +78,10 @@ test('validate summary hashes exact source bytes without printing body and retai
  assert.equal(JSON.parse((await invoke(['validate',file])).stdout).body,'\r\nreturn "PRIVATE PROMPT";\r\n');
  assert.throws(()=>parseCommand(['validate',file,'--summary','--summary'],{}),/Duplicate/);
  assert.throws(()=>parseCommand(['read','test','--summary'],{}),/not valid/);
+ const {help}=await import('../bin/arguments.mjs');
+ assert.match(help,/\nsetup\ndoctor \[--cwd path\]/);
+ assert.equal(parseCommand(['setup'],{}).command,'setup');
+ assert.throws(()=>parseCommand(['setup','--cwd',temp],{}),/not valid for setup/);
  await writeFile(file,'export const meta={name:"bad",description:"bad",steps:[{id:"x",label:"X",dependsOn:["missing"]}]};return 1;');
  await assert.rejects(invoke(['validate',file,'--summary']),error=>error.code===1);
 });
@@ -171,7 +175,7 @@ test('roadmap CLI returns a complete bounded result when indentation would excee
  const temp=await mkdtemp(join(root,'.args-entry-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const file=join(temp,'plan.js'),hook=join(temp,'hook.mjs');
  const rows=Array.from({length:4000},(_,i)=>{let row=i;for(let depth=0;depth<9;depth++)row={child:row};return row;});
- const script=`export const meta=${JSON.stringify({name:'wire-size',description:'complete structured metadata',rows})};throw Error('WORKFLOW_EXECUTED_SENTINEL');`;
+ const script=`export const meta=${JSON.stringify({name:'wire-size',description:'complete structured metadata',rows})};throw Error('WORKFLOW_EXECUTED_SENTINEL');await agent('private',{schema:{type:'object'}});`;
  await writeFile(file,script);
  const {previewPlan}=await import('../engine/plan-preview.mjs'),expected=previewPlan({script});
  assert.equal(expected.truncated,false);
@@ -183,6 +187,7 @@ test('roadmap CLI returns a complete bounded result when indentation would excee
  await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({load(url,context,next){return url===${JSON.stringify(new URL('../bin/managed-runtime.mjs',import.meta.url).href)}?{format:'module',source:${JSON.stringify(runtime)},shortCircuit:true}:next(url,context);}});`);
  const result=await execute(process.execPath,[join(root,'bin/command.mjs'),'plan','--script',file],{cwd:temp,env:{...process.env,NODE_OPTIONS:`--import=${pathToFileURL(hook).href}`},windowsHide:true,timeout:10000,maxBuffer:4*1024*1024});
  assert.deepEqual(JSON.parse(result.stdout),expected);
+ assert.deepEqual(JSON.parse(result.stdout).callSites.find(site=>site.api==='agent').resultBudget,{status:'known',maxSerializedBytes:1048576,code:null});
  assert.ok(Buffer.byteLength(result.stdout)<=1048577,'wire payload plus final newline stays bounded');
  assert.doesNotMatch(result.stdout+result.stderr,/WORKFLOW_EXECUTED_SENTINEL/);
 });

@@ -104,7 +104,8 @@ export function parseCommand(tokens=process.argv.slice(2),env=process.env){
 export const help=`Agent Workflow — subscription-backed Codex workflows
 
 mode on|off|status [--scope session|project] [--session ID] [--cwd path]
-setup | doctor [--cwd path]
+setup
+doctor [--cwd path]
 workflows | read [scope:]name | save [scope:]name --script file [--command] [--overwrite]
 validate file [--summary] | run [scope:]name [--script file] [--args JSON | --args-file path] [--writable]
 run ... --parent-access context.json [--access parent] | run ... --access restricted

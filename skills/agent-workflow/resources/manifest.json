@@ -30,11 +30,11 @@
     },
     {
       "source": "docs/api.md",
-      "sourceBytes": 41923,
-      "sourceSha256": "d82cab3019c74aeabd5f40c5a853d79a52db7243f09a24d67e1506e20f6d2637",
+      "sourceBytes": 42521,
+      "sourceSha256": "6a19d39af7082d5e6a481317deb1988df3777a29849a3e6de78f6e27830d6512",
       "output": "resources/docs/api.md",
-      "outputBytes": 41923,
-      "outputSha256": "d82cab3019c74aeabd5f40c5a853d79a52db7243f09a24d67e1506e20f6d2637"
+      "outputBytes": 42521,
+      "outputSha256": "6a19d39af7082d5e6a481317deb1988df3777a29849a3e6de78f6e27830d6512"
     },
     {
       "source": "docs/capture-preflight.md",
@@ -318,11 +318,11 @@
     },
     {
       "source": "docs/roadmap-command-contracts.md",
-      "sourceBytes": 19451,
-      "sourceSha256": "00666f6be0fe73ce809c0a2b5fce7c0d5e7f180130f68b879e6be3d03e85cc9b",
+      "sourceBytes": 20919,
+      "sourceSha256": "26882638f062a911d35a0923d4c50048d684dbef03afe6fde035f8ef4964ccfe",
       "output": "resources/docs/roadmap-command-contracts.md",
-      "outputBytes": 19451,
-      "outputSha256": "00666f6be0fe73ce809c0a2b5fce7c0d5e7f180130f68b879e6be3d03e85cc9b"
+      "outputBytes": 20919,
+      "outputSha256": "26882638f062a911d35a0923d4c50048d684dbef03afe6fde035f8ef4964ccfe"
     },
     {
       "source": "docs/session-delivery.md",
@@ -366,11 +366,11 @@
     },
     {
       "source": "docs/verification.md",
-      "sourceBytes": 20726,
-      "sourceSha256": "c6072fa3a13762eaf028a9d4ac39277c5e9bac67562ba436c12b72a9c0c863d6",
+      "sourceBytes": 21328,
+      "sourceSha256": "8c50ef1100afcc7c74aea9032a4c86dffb2f8c97fd24dd7eb408f27087090aca",
       "output": "resources/docs/verification.md",
-      "outputBytes": 20726,
-      "outputSha256": "c6072fa3a13762eaf028a9d4ac39277c5e9bac67562ba436c12b72a9c0c863d6"
+      "outputBytes": 21328,
+      "outputSha256": "8c50ef1100afcc7c74aea9032a4c86dffb2f8c97fd24dd7eb408f27087090aca"
     },
     {
       "source": "docs/worker-capabilities.md",

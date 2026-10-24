@@ -1,5 +1,13 @@
 # Roadmap command contracts
 
+## Inert result-budget inspection
+
+Agent call sites in `plan` include `resultBudget: {status,maxSerializedBytes,code}`. For literal schemas, `known` reports the same `compileSchema(...).limits.maxSerializedBytes` used at worker dispatch. This bounds UTF-8 serialized JSON validation work; it does not infer schema width or override lower task/native limits. Statically absent schemas are `unstructured`; byte count and code are null. Dynamic options/schema expressions are `unknown`, with null bytes and `dynamicOptions`/`dynamicSchema`. Invalid literal schemas return `invalid`, null bytes and the compiler's `SCHEMA_INVALID`, `SCHEMA_LIMIT` or `SCHEMA_UNSUPPORTED` code. Plan exit 0 describes an inspected source, including invalid possible calls; it does not establish dispatch admission or runtime success.
+
+Inspection reads AST data without evaluating the workflow, resolving identifiers or calling user functions. Spreads, getters, computed/duplicate keys, prototype initializers and other expressions remain unknown. Signed finite numeric literals are supported. A preview reuses identical compiled schema budgets and inspects at most 64 unique schemas. Extraction stops above depth 64 or 10,000 values per schema; exhausted bounds return `unknown`/`schemaInspectionLimit`. Existing script, call-site, traversal and 512 KiB plan-output bounds still apply; truncated previews may omit call sites. Non-agent sites have no resultBudget field.
+
+## Command routing
+
 This candidate extends the published 0.4.5 CLI. The approved R2 design, R3 nested acceptance contracts, retained-source continuation and reviewed R4 clarifications govern provider contracts. Interfaces owns parsing, bounded input, dispatch and documentation; provider acceptance waits for reviewed combined integration.
 
 All commands use `node "<plugin-root>/bin/launch.mjs"` and accept `--data-dir` and `--help`. No command installs a runtime implicitly. Run-bound commands use the run's recorded runtime. A missing module/export is unsupported; it never selects current code as a fallback.

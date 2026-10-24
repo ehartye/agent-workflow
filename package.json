@@ -1,6 +1,6 @@
 {
   "name": "agent-workflow",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Subscription-backed Codex workflows with isolated workers and a live graphical monitor",
   "type": "module",
   "private": true,
