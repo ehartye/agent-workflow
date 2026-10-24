@@ -30,11 +30,11 @@
     },
     {
       "source": "docs/api.md",
-      "sourceBytes": 42521,
-      "sourceSha256": "6a19d39af7082d5e6a481317deb1988df3777a29849a3e6de78f6e27830d6512",
+      "sourceBytes": 42631,
+      "sourceSha256": "9debf16c81a5ab92d9f5517f1ced7ccc09c83897d8a793acc120f4d552e078da",
       "output": "resources/docs/api.md",
-      "outputBytes": 42521,
-      "outputSha256": "6a19d39af7082d5e6a481317deb1988df3777a29849a3e6de78f6e27830d6512"
+      "outputBytes": 42631,
+      "outputSha256": "9debf16c81a5ab92d9f5517f1ced7ccc09c83897d8a793acc120f4d552e078da"
     },
     {
       "source": "docs/codex-parity.md",
@@ -293,6 +293,14 @@
       "outputSha256": "26882638f062a911d35a0923d4c50048d684dbef03afe6fde035f8ef4964ccfe"
     },
     {
+      "source": "docs/runtime-selection.md",
+      "sourceBytes": 3634,
+      "sourceSha256": "46f6871ab85bb84373a38ed600d19d86939e56e46a0f07c3a87fa5a53e1f0017",
+      "output": "resources/docs/runtime-selection.md",
+      "outputBytes": 3634,
+      "outputSha256": "46f6871ab85bb84373a38ed600d19d86939e56e46a0f07c3a87fa5a53e1f0017"
+    },
+    {
       "source": "docs/session-delivery.md",
       "sourceBytes": 9206,
       "sourceSha256": "49857c84a6457cd510142a3c956ff79bb31e7d9a9eeb3bdc8cc59108358c820c",
@@ -310,11 +318,11 @@
     },
     {
       "source": "docs/verification.md",
-      "sourceBytes": 21328,
-      "sourceSha256": "8c50ef1100afcc7c74aea9032a4c86dffb2f8c97fd24dd7eb408f27087090aca",
+      "sourceBytes": 22186,
+      "sourceSha256": "7544b1294b706d02a00c2b6d13875516c7a7f5a7df605704429bcf7b04e5c81d",
       "output": "resources/docs/verification.md",
-      "outputBytes": 21328,
-      "outputSha256": "8c50ef1100afcc7c74aea9032a4c86dffb2f8c97fd24dd7eb408f27087090aca"
+      "outputBytes": 22186,
+      "outputSha256": "7544b1294b706d02a00c2b6d13875516c7a7f5a7df605704429bcf7b04e5c81d"
     },
     {
       "source": "docs/worker-capabilities.md",
@@ -670,11 +678,11 @@
     },
     {
       "source": "skills/workflow-setup/references/upgrades.md",
-      "sourceBytes": 6382,
-      "sourceSha256": "872d47248e00aa4546d7f48f7310bc27a06ec1ca0892d1c14f341bdad57b7789",
+      "sourceBytes": 6677,
+      "sourceSha256": "232619712259894cb7940ad67c1a55af386bab453493f647bed3d17c8b24a28b",
       "output": "resources/skills/workflow-setup/references/upgrades.md",
-      "outputBytes": 6382,
-      "outputSha256": "872d47248e00aa4546d7f48f7310bc27a06ec1ca0892d1c14f341bdad57b7789"
+      "outputBytes": 6677,
+      "outputSha256": "232619712259894cb7940ad67c1a55af386bab453493f647bed3d17c8b24a28b"
     }
   ]
 }

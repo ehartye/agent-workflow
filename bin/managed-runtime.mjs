@@ -33,10 +33,10 @@ export const sourceDigest=root=>treeDigest(root,runtimeEntries,{fileLimit:20000,
 export const dependenciesDigest=root=>treeDigest(root,['node_modules'],{fileLimit:100000,byteLimit:2*1024*1024*1024});
 
 function runtimeId(record){return`${record.version}-${record.digest.slice(0,16)}-node${record.node.slice(1)}`;}
-function validateRecord(record,dataDir){
- if(record?.schema!==2||!versionPattern.test(record.version)||!digestPattern.test(record.digest)||!/^v\d+\.\d+\.\d+$/.test(record.node)||record.id!==runtimeId(record)||!digestPattern.test(record.codexDigest)||!digestPattern.test(record.dependenciesDigest))throw Error('Invalid managed runtime record');
+function validateRecord(record,dataDir,{checkNode=true}={}){
+ if(record?.schema!==2||['version','digest','node','id','codexDigest','dependenciesDigest'].some(key=>typeof record[key]!=='string')||!versionPattern.test(record.version)||!digestPattern.test(record.digest)||!/^v\d+\.\d+\.\d+$/.test(record.node)||record.id!==runtimeId(record)||!digestPattern.test(record.codexDigest)||!digestPattern.test(record.dependenciesDigest))throw Error('Invalid managed runtime record');
  const expected=join(paths(dataDir).runtimes,record.id);if(typeof record.path!=='string'||resolve(record.path)!==expected)throw Error('Managed runtime path escapes its directory');
- if(record.node!==process.version)throw Error(`Runtime requires Node ${record.node}; use its original Node version or set up a new runtime for new runs`);
+ if(checkNode&&record.node!==process.version)throw Error(`Runtime requires Node ${record.node}; use its original Node version or set up a new runtime for new runs`);
  return record;
 }
 export async function nativeCodex(root){
@@ -81,9 +81,34 @@ export async function installRuntime({pluginRoot:source=pluginRoot,dataDir=defau
  if(previous.length>1000)throw Error('Runtime history limit exceeded; preserve and archive older references before installing');
  await atomicJson(p.pointer,{schema:2,current:record,previous});return record;
 }
+function selectionFailure(reason,caller,selected,cause){
+ const identity=record=>({version:record.version.slice(0,80),digest:record.digest,node:record.node.slice(0,40)});
+ const runtimeSelection={reason,caller:identity(caller),selected:identity(selected)};
+ const describe=record=>`${record.version} / source ${record.digest.slice(0,16)} / Node ${record.node}`;
+ const message=reason==='missing'?'No matching installed runtime':'Matching installed runtime failed identity or integrity verification';
+ const guidance=reason==='missing'?'Run setup from this caller package to install it; setup changes the shared default.':'Preserve the failed installation and run setup from a clean caller package.';
+ return Object.assign(new Error(`${message} for caller ${describe(runtimeSelection.caller)}; recorded default ${describe(runtimeSelection.selected)}. ${guidance} Existing runs retain their recorded runtime.`,{cause}),{code:reason==='missing'?'RUNTIME_MATCH_MISSING':'RUNTIME_MATCH_INVALID',runtimeSelection});
+}
 export async function selectRuntime({pluginRoot:source=pluginRoot,dataDir=defaultDataDir()}={}){
- const pointer=await readJson(paths(dataDir).pointer);if(pointer.schema!==2)throw Error('Invalid runtime pointer');const record=await verifyRuntime(pointer.current,dataDir);
- if(record.digest!==await sourceDigest(source))throw Error('Plugin changed; run setup to install this version. Existing runs retain their original runtime');return record;
+ const pointer=await readJson(paths(dataDir).pointer);if(pointer.schema!==2)throw Error('Invalid runtime pointer');
+ // The default can belong to another package/Node. Validate its recorded
+ // identity and path, but only verify bytes for the installation actually used.
+ const selected=validateRecord(pointer.current,dataDir,{checkNode:false});
+ const digest=await sourceDigest(source),pkg=await readJson(join(source,'package.json'));
+ if(typeof pkg.version!=='string'||!versionPattern.test(pkg.version))throw Error('Invalid caller plugin version');
+ const caller={version:pkg.version,digest,node:process.version},id=runtimeId(caller);
+ const matches=record=>record?.id===id&&record.version===caller.version&&record.digest===caller.digest&&record.node===caller.node;
+ if(selected.id===id){
+  if(!matches(selected))throw selectionFailure('invalid',caller,selected,Error('Runtime record does not match the full caller identity'));
+  return verifyRuntime(selected,dataDir);
+ }
+ let record;
+ try{record=await readJson(join(paths(dataDir).runtimes,id,'.runtime.json'));}
+ catch(error){throw selectionFailure(error.code==='ENOENT'?'missing':'invalid',caller,selected,error);}
+ try{
+  if(!matches(record))throw Error('Runtime receipt does not match the full caller identity');
+  return await verifyRuntime(record,dataDir);
+ }catch(error){throw selectionFailure('invalid',caller,selected,error);}
 }
 export async function bindRun({dataDir=defaultDataDir(),runtime,sessionId}){
  if(typeof sessionId!=='string'||!sessionId.trim()||sessionId.length>256)throw Error('An originating Codex session is required');await verifyRuntime(runtime,dataDir);

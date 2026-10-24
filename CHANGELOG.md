@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3
+
+- Use an exact verified prepared installation for each caller package/version/Node identity, keeping another session's shared runtime selection unchanged. Preserve saved-run runtime/session routing and refuse missing or damaged matches without installation, repair or fallback.
+- Distinguish missing and invalid nondefault matches with bounded caller/default identities in CLI errors and doctor output. Preserve existing direct verification errors when current already matches.
+
 ## 0.6.2
 
 - Show each literal agent schema's exact compiled UTF-8 result budget in inert plan output. Preserve unknown dynamic data, invalid-schema error categories and bounded inspection without evaluating workflow code.
