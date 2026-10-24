@@ -8,12 +8,68 @@ test('preview retains zero-worker step declarations and recognizes inert composi
 });
 import assert from 'node:assert/strict';
 import {previewPlan} from '../engine/plan-preview.mjs';
+import {compileSchema} from '../engine/schema.mjs';
 import {mkdtemp,access,readFile,writeFile,rm} from 'node:fs/promises';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 
 const meta = 'export const meta={name:"preview",description:"Inert inspection"};\n';
+
+test('literal result budgets match dispatch compilation and exact UTF-8 result boundaries',()=>{
+  for(const schema of [
+    {type:'object',properties:{text:{type:'string'}},required:['text'],additionalProperties:false},
+    {type:'object',properties:{text:{type:'string'},kind:{enum:Array.from({length:64},(_,i)=>`kind-${i}-${'x'.repeat(80)}`)}},required:['text','kind'],additionalProperties:false},
+  ]){
+    const site=previewPlan({script:meta+`await agent('private prompt',{schema:${JSON.stringify(schema)}});`}).callSites[0];
+    const compiled=compileSchema(schema),limit=compiled.limits.maxSerializedBytes;
+    assert.deepEqual(site.resultBudget,{status:'known',maxSerializedBytes:limit,code:null});
+    const value=schema.properties.kind?{text:'é',kind:schema.properties.kind.enum[0]}:{text:'é'};
+    value.text+='x'.repeat(limit-Buffer.byteLength(JSON.stringify(value)));
+    assert.equal(Buffer.byteLength(JSON.stringify(value)),limit);
+    assert.equal(compiled.validate(value),true);
+    value.text+='x';
+    assert.throws(()=>compiled.validate(value),{code:limit===1048576?'RESULT_SIZE':'RESULT_LIMIT'});
+  }
+});
+
+test('inert budgets preserve invalid, dynamic and unstructured schema outcomes',()=>{
+  const bodies=[
+    ["agent('x')",'unstructured',null],
+    ["agent('x',{})",'unstructured',null],
+    ["agent('x',{schema:{type:'object',properties:{n:{type:'number',minimum:-2}}}})",'known',null],
+    ["agent('x',{schema:{type:'array'}})",'invalid','SCHEMA_INVALID'],
+    ["agent('x',{schema:{type:'object',pattern:'x'}})",'invalid','SCHEMA_UNSUPPORTED'],
+    ["agent('x',{schema:{type:'object',description:"+JSON.stringify('x'.repeat(33000))+"}})",'invalid','SCHEMA_LIMIT'],
+    ["agent('x',{schema:args.schema})",'unknown','dynamicSchema'],
+    ["agent('x',args.options)",'unknown','dynamicOptions'],
+    ["agent('x',{...args.options,schema:{type:'object'}})",'unknown','dynamicOptions'],
+    ["agent('x',{schema:{type:'object',...args.schema}})",'unknown','dynamicSchema'],
+    ["agent('x',{schema:{type:'array'},schema:{type:'object'}})",'unknown','dynamicOptions'],
+    ["agent('x',{schema:{type:'object',get properties(){throw Error('must not run')}}})",'unknown','dynamicSchema'],
+    ["agent('x',{schema:{type:'object',[args.key]:1}})",'unknown','dynamicSchema'],
+    ["agent('x',{schema:{type:'object',const:{__proto__:null}}})",'unknown','dynamicSchema'],
+    ["agent('x',{schema:(globalThis.__budgetExecuted=true,{type:'object'})})",'unknown','dynamicSchema'],
+  ];
+  for(const [body,status,code] of bodies){
+    const site=previewPlan({script:meta+body}).callSites.find(site=>site.api==='agent');
+    assert.equal(site.resultBudget?.status,status,body.slice(0,100));
+    assert.equal(site.resultBudget.code,code);
+    if(status!=='known')assert.equal(site.resultBudget.maxSerializedBytes,null);
+  }
+  assert.equal(globalThis.__budgetExecuted,undefined);
+  assert.deepEqual(previewPlan({script:meta+"function f(agent){agent('x',{schema:{type:'object'}})}"}).callSites,[]);
+});
+
+test('budget inspection bounds unique compilation while reusing identical literal schemas',()=>{
+  const call=i=>`agent('x',{schema:{type:'object',title:'${i}'}});`;
+  const result=previewPlan({script:meta+call(0).repeat(10)+Array.from({length:64},(_,i)=>call(i+1)).join('')});
+  assert.equal(result.callSites.filter(site=>site.resultBudget?.status==='known').length,73);
+  assert.deepEqual(result.callSites.at(-1).resultBudget,{status:'unknown',maxSerializedBytes:null,code:'schemaInspectionLimit'});
+  const wide=previewPlan({script:meta+`agent('x',{schema:{type:'object',const:[${'0,'.repeat(10001)}]}});`});
+  assert.equal(wide.callSites[0].resultBudget.status,'unknown');
+  assert.ok(Buffer.byteLength(JSON.stringify(result))<=512*1024);
+});
 
 test('preview inspects literal dependencies without running hostile workflow code', () => {
   const script = meta + `
@@ -185,7 +241,8 @@ test('a hostile file-writing script stays inert and a side-effect mutation fails
   const anchor='const {script} = input;';
   assert.equal(source.split(anchor).length,2);
   const mutant=source.replace(anchor,`${anchor}\nprocess.getBuiltinModule('node:fs').writeFileSync(${JSON.stringify(marker)},'ran');`)
-    .replace("from './script.mjs'",`from ${JSON.stringify(new URL('../engine/script.mjs',import.meta.url).href)}`);
+    .replace("from './script.mjs'",`from ${JSON.stringify(new URL('../engine/script.mjs',import.meta.url).href)}`)
+    .replace("from './plan-result-budget.mjs'",`from ${JSON.stringify(new URL('../engine/plan-result-budget.mjs',import.meta.url).href)}`);
   const modulePath=join(root,'mutant.mjs'); await writeFile(modulePath,mutant);
   (await import(pathToFileURL(modulePath).href)).previewPlan({script});
   assert.equal(await readFile(marker,'utf8'),'ran');

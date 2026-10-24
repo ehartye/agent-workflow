@@ -3,6 +3,7 @@ import {types} from 'node:util';
 import {parse} from 'acorn';
 import {parseScript} from './script.mjs';
 import {fault} from '../foundation/client.mjs';
+import {createResultBudgetInspector} from './plan-result-budget.mjs';
 
 const apis = new Set(['agent','parallel','pipeline','phase','log','workflow','refineArtifact']);
 const limits = {nodes:200000,depth:256,calls:4096,edges:4096,groups:1000,unknowns:256,bytes:512*1024};
@@ -104,7 +105,7 @@ export function previewPlan(input) {
   }
   // Missing declarations could change name resolution, so no partial attribution.
   if (incomplete) return result;
-  const sites = [], groups = new Map();
+  const sites = [], groups = new Map(), inspectResultBudget=createResultBudgetInspector();
   const direct = node => node?.type==='CallExpression' && node.callee.type==='Identifier' && apis.has(node.callee.name) && !shadowed(scopes.get(node),node.callee.name);
   const addGroup = (literalPhase,site) => {
     if (literalPhase===null) return;
@@ -154,6 +155,7 @@ export function previewPlan(input) {
         if (api==='phase' && text(node.arguments[0])===null) unknown('dynamicPhase',node);
         if (node.optional) unknown('optionalCall',node);
         const site={offsetStart:node.start,offsetEnd:node.end,api,literalId,literalPhase:phase?text(phase):context.phase,multiplicity:{min:node.optional?0:context.min,max:context.max}};
+        if (api==='agent') site.resultBudget=inspectResultBudget(options);
         if (context.max===null) unknown('dynamicMultiplicity',node);
         result.callSites.push(site); sites.push({site,node,depends:options?.get('dependsOn')});
         if (api==='agent') addGroup(site.literalPhase,site);
