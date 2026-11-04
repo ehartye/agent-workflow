@@ -4,6 +4,7 @@
  * @subject bin/launch.mjs
  * @subject bin/agent-workflow.mjs
  * @subject bin/doctor-diagnostics.mjs
+ * @subject bin/preadmission-report.mjs
  * @subject engine/cli.mjs
  * @subject engine/capture-preflight.mjs
  * @subject engine/plan-preview.mjs
@@ -27,6 +28,48 @@ import {installRuntime,bindRun} from '../bin/managed-runtime.mjs';
 import {parseCommand,help} from '../bin/arguments.mjs';
 import {doctorFailure} from '../bin/doctor-diagnostics.mjs';
 import {DatabaseSync} from 'node:sqlite';
+
+test('public status and result report retained pre-database failures without inventing execution',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'workflow-preadmission-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const runDir=join(temp,'run');await mkdir(runDir);
+ const id='11111111-1111-4111-8111-111111111111',attempt='22222222-2222-4222-8222-222222222222';
+ const runtime={path:root,id:'retained-runtime',version:'0.6.4',node:process.version,digest:'a'.repeat(64)};
+ const owner={schema:2,id,sessionId:'origin',createdAt:'2026-11-04T00:00:00.000Z',runtime,runDir};
+ const hook=join(temp,'owner.mjs'),moduleUrl=new URL('../bin/managed-runtime.mjs',import.meta.url).href;
+ const source=`export * from ${JSON.stringify(moduleUrl+'?preadmission-fixture')};export const pluginRoot=${JSON.stringify(root)};export async function resolveRun(){return ${JSON.stringify(owner)};}`;
+ await writeFile(hook,`import{registerHooks}from'node:module';registerHooks({load(url,context,next){return url===${JSON.stringify(moduleUrl)}?{format:'module',source:${JSON.stringify(source)},shortCircuit:true}:next(url,context);}});`);
+ await writeFile(join(runDir,'runtime.json'),JSON.stringify(owner));
+ const invoke=async command=>JSON.parse((await execute(process.execPath,['--import',pathToFileURL(hook).href,join(root,'bin/command.mjs'),command,id,'--data-dir',temp],{env:{...process.env},windowsHide:true,timeout:20000})).stdout);
+ const launch=join(runDir,`launch-${attempt}.json`),finish=join(runDir,`finish-${attempt}.json`);
+ const diagnostic={status:'failed',inferenceRequests:0,stage:'buffered-command',error:{code:'COMMAND_FAILED'},admission:{status:'failed',inferenceRequests:0,stages:[{name:'buffered-command',status:'failed',evidence:{exitCode:-1073741502}}]},cleanup:{serverExited:true,jobEmpty:true,forced:false,ownershipScope:'windows-job-members'}};
+ for(const command of ['status','result']){
+  const absent=await invoke(command);assert.equal(absent.status,'unavailable');assert.equal(absent.receipt.status,'missing');assert.equal(absent.inferenceRequests,null);assert.equal(absent.cleanup,null);assert.equal(absent.result,null);assert.deepEqual(absent.runtime,runtime);
+ }
+ await writeFile(launch,JSON.stringify({runDir,sessionId:'origin',resume:false}));
+ await writeFile(finish,JSON.stringify({status:'failed',error:{code:'COMMAND_FAILED',message:'Retained failure'},admissionFailure:diagnostic,startupDiagnostics:diagnostic}));
+ for(const command of ['status','result']){
+  const report=await invoke(command);assert.equal(report.status,'failed');assert.equal(report.database,'missing');assert.equal(report.receipt.status,'retained');assert.equal(report.inferenceRequests,0);assert.equal(report.error.code,'COMMAND_FAILED');assert.equal(report.cleanup.jobEmpty,true);assert.equal(report.admission.stages[0].evidence.exitCode,-1073741502);assert.equal(report.result,null);assert.equal(report.generation,undefined);assert.equal(report.coverage,undefined);
+ }
+ await writeFile(finish,JSON.stringify({status:'failed',error:{code:'CAPABILITY_SOURCES'},startupDiagnostics:{status:'failed',inferenceRequests:0,cleanup:{serverExited:true,forced:false},startup:[{stage:'setup',cleanup:{serverExited:true,jobEmpty:true,forced:false}}]}}));
+ const capability=await invoke('status');assert.equal(capability.error.code,'CAPABILITY_SOURCES');assert.equal(capability.startupDiagnostics.startup[0].cleanup.jobEmpty,true);
+ for(const [name,value] of [['malformed','{'],['wrong-shape',JSON.stringify({status:'completed',result:'invented'})],['oversized',' '.repeat(65537)],['invalid-utf8',Buffer.from([0xff])],['invalid-cleanup',JSON.stringify({status:'failed',error:{code:'COMMAND_FAILED'},startupDiagnostics:{status:'failed',inferenceRequests:0,cleanup:{jobEmpty:'yes'}}})],['conflicting-inference',JSON.stringify({status:'failed',error:{code:'COMMAND_FAILED'},startupDiagnostics:{status:'failed',inferenceRequests:0,admission:{inferenceRequests:1}}})]]){
+  await writeFile(finish,value);const report=await invoke('result');assert.equal(report.status,'unavailable',name);assert.equal(report.receipt.status,'invalid',name);assert.equal(report.inferenceRequests,null,name);assert.equal(report.result,null,name);
+ }
+ await writeFile(finish,JSON.stringify({status:'failed',error:{code:'CAPABILITY_SOURCES'},startupDiagnostics:{status:'failed',inferenceRequests:0}}));
+ for(const extra of [{cleanup:'verified'},{admission:true},{startup:{}}]){
+  await writeFile(finish,JSON.stringify({status:'failed',error:{code:'COMMAND_FAILED'},startupDiagnostics:{status:'failed',inferenceRequests:0,...extra}}));assert.equal((await invoke('result')).receipt.status,'invalid');
+ }
+ await writeFile(finish,JSON.stringify({status:'failed',error:{code:'CAPABILITY_SOURCES'},startupDiagnostics:{status:'failed',inferenceRequests:0}}));
+ await rm(launch);assert.equal((await invoke('status')).receipt.status,'invalid');
+ await writeFile(launch,JSON.stringify({runDir,sessionId:'other',resume:false}));assert.equal((await invoke('status')).receipt.status,'invalid');
+ await writeFile(launch,JSON.stringify({runDir,sessionId:'origin',resume:false}));
+ await writeFile(join(runDir,'finish-33333333-3333-4333-8333-333333333333.json'),'{}');assert.equal((await invoke('status')).receipt.status,'ambiguous');
+ await assert.rejects(lstat(join(runDir,'run.sqlite')),{code:'ENOENT'});
+ assert.equal(JSON.parse(await readFile(join(runDir,'runtime.json'),'utf8')).sessionId,'origin');
+ await writeFile(join(runDir,'run.sqlite'),'not a SQLite database');
+ await assert.rejects(invoke('status'),error=>error.code===1&&!error.stdout.includes('pre-database'));
+ assert.equal(await readFile(join(runDir,'run.sqlite'),'utf8'),'not a SQLite database');
+});
 const nativeExecute=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 // Coordinator-authorized trusted source fixture. Only the isolated VM realm
 // sees the inert process facade; every actual subprocess retains the marker.

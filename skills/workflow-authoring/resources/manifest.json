@@ -30,11 +30,11 @@
     },
     {
       "source": "docs/api.md",
-      "sourceBytes": 42631,
-      "sourceSha256": "9debf16c81a5ab92d9f5517f1ced7ccc09c83897d8a793acc120f4d552e078da",
+      "sourceBytes": 44464,
+      "sourceSha256": "f37f450d9fcf82bc26d58d4558d4cad9027f1326a1a366f84fa1cf040bd867e0",
       "output": "resources/docs/api.md",
-      "outputBytes": 42631,
-      "outputSha256": "9debf16c81a5ab92d9f5517f1ced7ccc09c83897d8a793acc120f4d552e078da"
+      "outputBytes": 44464,
+      "outputSha256": "f37f450d9fcf82bc26d58d4558d4cad9027f1326a1a366f84fa1cf040bd867e0"
     },
     {
       "source": "docs/codex-parity.md",

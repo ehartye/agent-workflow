@@ -1,8 +1,35 @@
 # Fresh CLI and monitor API
 
-This describes the 0.6.3 API. New commands use the [verified prepared runtime matching their caller package](runtime-selection.md), without changing another session's shared default. The 0.6 series includes [declared steps](workflow-steps.md), [depth-one composition](workflow-composition.md), [explicit LAN binding](dashboard-lan.md), generated same-package skill resources and inert result-budget inspection, alongside retained capability packages, independent tasks, revisioned worker budgets, durable command facts and consumer-owned coverage receipts. Artifact/refinement providers remain unavailable. Other roadmap commands below retain their own provider/acceptance boundaries. Earlier runs keep their recorded runtime and API. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
+This describes the 0.6.4 API. New commands use the [verified prepared runtime matching their caller package](runtime-selection.md), without changing another session's shared default. The 0.6 series includes [declared steps](workflow-steps.md), [depth-one composition](workflow-composition.md), [explicit LAN binding](dashboard-lan.md), generated same-package skill resources and inert result-budget inspection, alongside retained capability packages, independent tasks, revisioned worker budgets, durable command facts and consumer-owned coverage receipts. Artifact/refinement providers remain unavailable. Other roadmap commands below retain their own provider/acceptance boundaries. Earlier runs keep their recorded runtime and API. The released 0.1.x RuntimeManager, supervisor JSON journal and workflow_* MCP contracts are not this runtime API. Use the public `node "<plugin-root>/bin/launch.mjs"` entrypoint so exact run IDs select their recorded runtime.
 
 `--args-file` is available since 0.3.6. Earlier retained runtimes keep their original API; they can pass small manifest path/hash/range references through `--args JSON`. Check the recorded runtime's help before choosing a transport.
+
+## Missing run database
+
+In runtime 0.6.4, `status ID` and `result ID` return a bounded read-only report when a
+verified owned run has no `run.sqlite`. `database: "missing"` and `scope: "pre-database"`
+distinguish this report from database-backed execution. Successful CLI inspection exits 0;
+that is not workflow success. `result` remains null and no generation, coverage or completed
+worker count is invented.
+
+One valid retained `finish-<id>.json` must have its matching launch request bound to the
+same run directory and originating session, with no resume. A failed finish plus explicit
+zero-inference startup/admission diagnostics yields `status: "failed"`; the report preserves
+the error code, diagnostic stages, observed exit and cleanup facts. Absent facts stay null
+or absent. Receipt files are bounded to 64 KiB, launch requests to 2 MiB, directory scans to
+128 entries; linked/nonregular or malformed evidence is refused. Multiple finish receipts
+are ambiguous rather than resolved by filename or modification time.
+
+An ownership-only directory returns `status: "unavailable"`, `receipt.status: "missing"`
+and null inference/admission/cleanup facts. Malformed or unbound evidence returns an invalid
+receipt report; no failure or zero inference is inferred. Permission errors still fail the
+read. Existing databases, including damaged ones, use the existing read path; they do not
+fall back to JSON. Inspection never creates a database, starts admission, changes desktop
+compatibility, installs a runtime, retries work or grants cleanup authority.
+
+This is the recorded 0.6.4 runtime's CLI surface. Older runs keep their original runtime and
+Node requirements; this patch does not retrofit immutable runtimes or change dashboard,
+list, lifecycle, watch or control surfaces. No receipt can recover details never retained.
 
 ## CLI
 

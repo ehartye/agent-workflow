@@ -5,6 +5,7 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {parseCommand,help,parseDeadlineOptions} from './arguments.mjs';
 import {pluginRoot,paths,selectRuntime,bindRun,resolveRun,noLinks,nativeCodex} from './managed-runtime.mjs';
+import {readPreadmissionReport} from './preadmission-report.mjs';
 import {readMode,setMode} from '../engine/mode.mjs';
 import {parseScript} from '../engine/script.mjs';
 import {listWorkflows,resolveWorkflow,saveWorkflow} from '../engine/registry.mjs';
@@ -200,6 +201,9 @@ export async function main(tokens=process.argv.slice(2)){
   }catch(error){error.message=`Run ${binding.id}: ${error.message}`;throw error;}
  }
  const runDir=owner.runDir;
+ if(p.command==='status'||p.command==='result'){
+  const report=await readPreadmissionReport(owner);if(report){print(report);return 0;}
+ }
  if(['steps','children'].includes(p.command)){const run=await contextRunRef({runDir,sessionId:owner.sessionId}),generation=integer(o.generation,'generation',{min:1,required:true}),options={runDir,run,generation,after:o.after??null,limit:integer(o.limit,'limit',{min:1,max:100})??50};
   if(p.command==='steps')print(await(await import('../engine/steps.mjs')).readStepsAt(options));else print(await(await import('../engine/composition-store.mjs')).readChildrenAt(options));return 0;}
  if(p.command==='domain-control'||p.command==='domain-control-receipt'){const run=await contextRunRef({runDir,sessionId:p.sessionId}),module=await import('../engine/controls.mjs');if(p.command==='domain-control'){if(!o['request-file'])throw Error('--request-file is required');print(await module.requestDomainControl({dataDir:p.dataDir,run,sessionId:p.sessionId,request:await boundedJson(o['request-file'],16384)}));}else print(await module.readDomainControl({dataDir:p.dataDir,run,sessionId:p.sessionId,requestId:o['request-id']}));return 0;}

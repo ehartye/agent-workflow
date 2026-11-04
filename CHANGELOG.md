@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.4
+
+- Report retained pre-admission failures from current-runtime status/result when SQLite is absent. Preserve runtime identity, explicit zero-inference and cleanup evidence; distinguish ownership-only, invalid and ambiguous receipt states without retries or invented success. Earlier immutable runtimes and dashboard reads remain unchanged.
+
 ## 0.6.3
 
 - Use an exact verified prepared installation for each caller package/version/Node identity, keeping another session's shared runtime selection unchanged. Preserve saved-run runtime/session routing and refuse missing or damaged matches without installation, repair or fallback.
